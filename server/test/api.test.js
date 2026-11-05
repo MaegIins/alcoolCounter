@@ -901,3 +901,62 @@ test('modifier un lieu : nom et position par le créateur ; les autres ajoutent 
   assert.equal((await patch(a.token, { lat: null, lng: null })).status, 200)
   assert.equal((await patch(a.token, { name: '' })).status, 400)
 })
+
+describe('gestion des bandes', () => {
+  test('le patron renomme, change le code, exclut, passe la main ; les autres non', async () => {
+    const a = await s.register('Alice') // patronne de la bande de test
+    const b = await s.register('Bob')
+    const c = await s.register('Chloé')
+    const g = (await s.call('GET', '/groups', { token: a.token })).body[0]
+    // Bob n'est pas patron
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: b.token, body: { name: 'Pirates' } })).status, 403)
+    assert.equal((await s.call('DELETE', `/groups/${g.id}/members/${c.id}`, { token: b.token })).status, 403)
+    // Renommer
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: a.token, body: { name: 'x' } })).status, 400)
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: a.token, body: { name: 'Pirates' } })).body.name, 'Pirates')
+    // Membres
+    assert.deepEqual((await s.call('GET', `/groups/${g.id}/members`, { token: a.token })).body.map((m) => m.name), ['Alice', 'Bob', 'Chloé'])
+    // Nouveau code : l'ancien ne marche plus
+    const code = (await s.call('POST', `/groups/${g.id}/code`, { token: a.token })).body.code
+    assert.notEqual(code, g.code)
+    // Exclure Chloé (pas soi-même) ; elle ne revient pas avec l'ancien code, mais avec le nouveau
+    assert.equal((await s.call('DELETE', `/groups/${g.id}/members/${a.id}`, { token: a.token })).status, 400)
+    assert.equal((await s.call('DELETE', `/groups/${g.id}/members/${c.id}`, { token: a.token })).body.members, 2)
+    assert.deepEqual((await s.call('GET', '/groups', { token: c.token })).body, [])
+    assert.equal((await s.call('POST', '/groups/join', { token: c.token, body: { code: g.code } })).status, 404)
+    assert.equal((await s.call('POST', '/groups/join', { token: c.token, body: { code } })).status, 200)
+    // Passer la main à Bob : Alice ne gère plus, Bob si ; on ne peut pas exclure le patron
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: a.token, body: { owner_id: 999 } })).status, 400)
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: a.token, body: { owner_id: b.id } })).body.owner_id, b.id)
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: a.token, body: { name: 'Alice' } })).status, 403)
+    assert.equal((await s.call('DELETE', `/groups/${g.id}/members/${b.id}`, { token: b.token })).status, 400)
+    // Seul un admin choisit la bande par défaut
+    assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: b.token, body: { is_default: true } })).status, 403)
+  })
+
+  test('bande par défaut : les nouveaux y entrent, sauf s’ils arrivent par une invitation ; un admin gère toute bande', async () => {
+    const s2 = await start({ admins: ['boss'] })
+    try {
+      const boss = await s2.register('Boss', '1234', { group: false })
+      const main = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Bande' } })).body
+      const other = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Autre' } })).body
+      // Sans bande par défaut : solo
+      const a = await s2.register('Alice', '1234', { group: false })
+      assert.deepEqual((await s2.call('GET', '/groups', { token: a.token })).body, [])
+      // Bande par défaut (une seule à la fois)
+      assert.equal((await s2.call('PATCH', `/groups/${other.id}`, { token: boss.token, body: { is_default: true } })).body.is_default, true)
+      assert.equal((await s2.call('PATCH', `/groups/${main.id}`, { token: boss.token, body: { is_default: true } })).body.is_default, true)
+      assert.deepEqual((await s2.call('GET', '/groups', { token: boss.token })).body.map((g) => [g.name, g.is_default]), [['Bande', true], ['Autre', false]])
+      const b = await s2.register('Bob', '1234', { group: false })
+      assert.deepEqual((await s2.call('GET', '/groups', { token: b.token })).body.map((g) => g.name), ['Bande'])
+      // Arrivé par un lien d'invitation : seulement cette bande-là
+      const c = (await s2.call('POST', '/register', { body: { name: 'Chloé', pin: '1234', group: other.code } })).body
+      assert.deepEqual((await s2.call('GET', '/groups', { token: c.token })).body.map((g) => g.name), ['Autre'])
+      // Un admin gère une bande dont il n'est pas patron
+      const own = (await s2.call('POST', '/groups', { token: b.token, body: { name: 'Chez Bob' } })).body
+      assert.equal((await s2.call('PATCH', `/groups/${own.id}`, { token: boss.token, body: { name: 'Chez Bobby' } })).body.name, 'Chez Bobby')
+    } finally {
+      await s2.stop()
+    }
+  })
+})

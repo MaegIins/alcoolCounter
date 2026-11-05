@@ -266,6 +266,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const have = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
     for (const [name, def] of cols) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`)
   }
+  // Bande par défaut (une au plus, choisie par un admin) : les nouveaux inscrits y entrent d'office
+  addCols('groups', [['is_default', 'INTEGER NOT NULL DEFAULT 0']])
   const drinkColsBefore = db.prepare('PRAGMA table_info(drinks)').all().map((c) => c.name)
   // Lieux : une table à part, partagée par tout le monde (comme la carte), pour pouvoir un jour les placer
   // sur une carte géographique : lat/lng facultatifs, vides tant que personne ne les a renseignés.
@@ -406,7 +408,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Bande courante : en-tête X-Group (sinon la première rejointe). Les routes « de bande » en ont besoin.
   const myGroups = (userId) => db.prepare(`
-    SELECT g.id, g.name, g.code, g.owner_id, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS members
+    SELECT g.id, g.name, g.code, g.owner_id, g.is_default, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS members
     FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY m.joined_at, g.id
   `).all(userId)
   const userExists = (id) => !!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)
@@ -432,7 +434,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const canManage = (p, req) => p.created_by === req.user.id || req.user.is_admin
   const joinGroup = (groupId, userId) =>
     db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)').run(groupId, userId, now())
-  const groupOut = (g) => ({ id: g.id, name: g.name, code: g.code, owner_id: g.owner_id, members: g.members })
+  const groupOut = (g) => ({ id: g.id, name: g.name, code: g.code, owner_id: g.owner_id, members: g.members, is_default: !!g.is_default })
+  const freshCode = () => {
+    let code
+    do code = newCode()
+    while (db.prepare('SELECT 1 FROM groups WHERE code = ?').get(code))
+    return code
+  }
+  const badGroupName = (name) => name.length < 2 || name.length > 30 || /\p{Cc}/u.test(name)
 
   // Badges d'une personne ; `newBadges(userId, fn)` donne ceux débloqués par fn()
   const historyOf = (userId) => ({
@@ -469,7 +478,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (code && !g) return bad(res, 'Code de bande inconnu', 404)
     const { lastInsertRowid } = db.prepare('INSERT INTO users (name, pin_hash, is_admin) VALUES (?, ?, ?)').run(name, hashPin(pin), +isAdminName(name))
     const id = Number(lastInsertRowid)
-    if (g) joinGroup(g.id, id)
+    // Lien d'invitation → cette bande ; sinon la bande par défaut s'il y en a une
+    const target = g ?? db.prepare('SELECT id FROM groups WHERE is_default = 1').get()
+    if (target) joinGroup(target.id, id)
     res.json({ token: newSession(id), user: { id, name, avatar_v: 0, is_admin: isAdminName(name) } })
   })
 
@@ -550,11 +561,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   app.post('/api/groups', auth, (req, res) => {
     const name = String(req.body.name || '').trim()
-    if (name.length < 2 || name.length > 30 || /\p{Cc}/u.test(name)) return bad(res, 'Nom de bande entre 2 et 30 caractères')
-    let code
-    do code = newCode()
-    while (db.prepare('SELECT 1 FROM groups WHERE code = ?').get(code))
-    const id = Number(db.prepare('INSERT INTO groups (name, code, owner_id) VALUES (?, ?, ?)').run(name, code, req.user.id).lastInsertRowid)
+    if (badGroupName(name)) return bad(res, 'Nom de bande entre 2 et 30 caractères')
+    const id = Number(db.prepare('INSERT INTO groups (name, code, owner_id) VALUES (?, ?, ?)').run(name, freshCode(), req.user.id).lastInsertRowid)
     joinGroup(id, req.user.id)
     res.json(groupOut(myGroups(req.user.id).find((g) => g.id === id)))
   })
@@ -577,6 +585,76 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!next) db.prepare('DELETE FROM groups WHERE id = ?').run(id)
     else if (g.owner_id === req.user.id) db.prepare('UPDATE groups SET owner_id = ? WHERE id = ?').run(next.user_id, id)
     res.json({ ok: true })
+  })
+
+  // --- Gestion d'une bande : son patron, ou un admin --------------------------------
+  const managed = (req, res, next) => {
+    const g = db.prepare('SELECT * FROM groups WHERE id = ?').get(Number(req.params.id))
+    if (!g || !(isMember(g.id, req.user.id) || req.user.is_admin)) return bad(res, 'Bande introuvable', 404)
+    if (g.owner_id !== req.user.id && !req.user.is_admin) return bad(res, 'Réservé au patron de la bande', 403)
+    req.managed = g
+    next()
+  }
+  const managedOut = (id) =>
+    groupOut(db.prepare('SELECT g.*, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS members FROM groups g WHERE g.id = ?').get(id))
+
+  // Membres d'une bande, pour la gérer (les plus anciens d'abord)
+  app.get('/api/groups/:id/members', auth, managed, (req, res) => {
+    res.json(db.prepare(`
+      SELECT u.id, u.name, u.avatar_v, m.joined_at FROM group_members m JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = ? ORDER BY m.joined_at, u.id
+    `).all(req.managed.id))
+  })
+
+  // Modifier une bande (tout facultatif) :
+  //   name          renommer
+  //   owner_id      passer la main à un autre membre
+  //   is_default    en faire la bande où entrent les nouveaux inscrits (une seule à la fois) — admin seulement
+  app.patch('/api/groups/:id', auth, managed, (req, res) => {
+    const g = req.managed
+    const b = req.body
+    const sets = {}
+    if ('name' in b) {
+      const name = String(b.name ?? '').trim()
+      if (badGroupName(name)) return bad(res, 'Nom de bande entre 2 et 30 caractères')
+      sets.name = name
+    }
+    if ('owner_id' in b) {
+      const owner = Number(b.owner_id)
+      if (!isMember(g.id, owner)) return bad(res, "Le nouveau patron doit être dans la bande")
+      sets.owner_id = owner
+    }
+    if ('is_default' in b && !req.user.is_admin) return bad(res, 'Réservé aux admins', 403)
+    db.exec('BEGIN')
+    try {
+      if ('is_default' in b) {
+        if (b.is_default) db.prepare('UPDATE groups SET is_default = 0 WHERE is_default = 1').run()
+        sets.is_default = b.is_default ? 1 : 0
+      }
+      for (const [col, v] of Object.entries(sets)) db.prepare(`UPDATE groups SET ${col} = ? WHERE id = ?`).run(v, g.id)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+    res.json(managedOut(g.id))
+  })
+
+  // Nouveau code d'invitation (l'ancien et les liens déjà envoyés ne marchent plus)
+  app.post('/api/groups/:id/code', auth, managed, (req, res) => {
+    db.prepare('UPDATE groups SET code = ? WHERE id = ?').run(freshCode(), req.managed.id)
+    res.json(managedOut(req.managed.id))
+  })
+
+  // Exclure quelqu'un de la bande (ses verres restent à lui ; il peut revenir avec le code, d'où « nouveau code »)
+  app.delete('/api/groups/:id/members/:userId', auth, managed, (req, res) => {
+    const uid = Number(req.params.userId)
+    if (uid === req.user.id) return bad(res, 'Pour partir, quitte la bande')
+    if (uid === req.managed.owner_id) return bad(res, 'Impossible d’exclure le patron')
+    if (!db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').run(req.managed.id, uid).changes) {
+      return bad(res, 'Pas dans cette bande', 404)
+    }
+    res.json(managedOut(req.managed.id))
   })
 
   // Membres de la bande courante
