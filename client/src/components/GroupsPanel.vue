@@ -112,7 +112,7 @@ async function makeOwner(g, m) {
   if (await manage(g, '', { method: 'PATCH', body: { owner_id: m.id } }, `${m.name} est patron`) && !props.me.is_admin) managing.value = null
 }
 const setDefault = (g, on) =>
-  manage(g, '', { method: 'PATCH', body: { is_default: on } }, on ? `Les nouveaux arriveront dans « ${g.name} »` : 'Plus de bande par défaut')
+  manage(g, '', { method: 'PATCH', body: { is_default: on } }, on ? `« ${g.name} » est proposée à tous` : 'Plus de bande proposée')
 
 async function leave(g) {
   const last = g.members === 1
@@ -158,7 +158,7 @@ async function leave(g) {
             <span class="block truncate font-bold">{{ g.name }}</span>
             <span class="text-sm text-muted">
               {{ g.members }} membre{{ g.members > 1 ? 's' : '' }}<template v-if="g.owner_id === me.id"> · <Icon name="crown" class="text-hi" /> patron</template>
-              <template v-if="g.is_default"> · par défaut</template>
+              <template v-if="g.is_default"> · proposée à tous</template>
               · code <b class="tracking-wider text-ink">{{ g.code }}</b>
             </span>
           </span>
@@ -193,7 +193,7 @@ async function leave(g) {
               :class="g.is_default ? 'bg-hi text-paper' : 'bg-white/5 hover:bg-white/10'"
               @click="setDefault(g, !g.is_default)"
             >
-              <Icon name="check" v-if="g.is_default" /> Bande par défaut des nouveaux
+              <Icon name="check" v-if="g.is_default" /> Proposée à tous (sans code)
             </button>
           </div>
           <ul class="divide-y divide-white/5">

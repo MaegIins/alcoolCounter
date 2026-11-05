@@ -266,7 +266,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const have = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
     for (const [name, def] of cols) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`)
   }
-  // Bande par défaut (une au plus, choisie par un admin) : les nouveaux inscrits y entrent d'office
+  // Bande proposée (une au plus, choisie par un admin) : offerte à l'arrivée et en solo, rejoignable sans code
   addCols('groups', [['is_default', 'INTEGER NOT NULL DEFAULT 0']])
   const drinkColsBefore = db.prepare('PRAGMA table_info(drinks)').all().map((c) => c.name)
   // Lieux : une table à part, partagée par tout le monde (comme la carte), pour pouvoir un jour les placer
@@ -478,9 +478,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (code && !g) return bad(res, 'Code de bande inconnu', 404)
     const { lastInsertRowid } = db.prepare('INSERT INTO users (name, pin_hash, is_admin) VALUES (?, ?, ?)').run(name, hashPin(pin), +isAdminName(name))
     const id = Number(lastInsertRowid)
-    // Lien d'invitation → cette bande ; sinon la bande par défaut s'il y en a une
-    const target = g ?? db.prepare('SELECT id FROM groups WHERE is_default = 1').get()
-    if (target) joinGroup(target.id, id)
+    // Lien d'invitation → cette bande. Sinon personne n'est mis d'office dans une bande : la bande proposée
+    // (is_default) est offerte à l'arrivée, chacun choisit d'entrer en compet avec tout le monde ou non.
+    if (g) joinGroup(g.id, id)
     res.json({ token: newSession(id), user: { id, name, avatar_v: 0, is_admin: isAdminName(name) } })
   })
 
@@ -567,10 +567,20 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(groupOut(myGroups(req.user.id).find((g) => g.id === id)))
   })
 
+  // La bande proposée à tous (choisie par un admin), qu'on peut rejoindre sans code ; null s'il n'y en a pas
+  const suggested = () => db.prepare(`
+    SELECT g.id, g.name, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS members FROM groups g WHERE g.is_default = 1
+  `).get() ?? null
+  app.get('/api/groups/suggested', auth, (req, res) => {
+    const g = suggested()
+    res.json(g && { ...g, joined: isMember(g.id, req.user.id) })
+  })
+
+  // Rejoindre une bande : avec son code, ou { suggested: true } pour la bande proposée
   app.post('/api/groups/join', auth, (req, res) => {
     const code = String(req.body.code || '').trim().toUpperCase()
-    const g = db.prepare('SELECT id FROM groups WHERE code = ?').get(code)
-    if (!g) return bad(res, 'Code de bande inconnu', 404)
+    const g = req.body.suggested === true ? suggested() : db.prepare('SELECT id FROM groups WHERE code = ?').get(code)
+    if (!g) return bad(res, req.body.suggested === true ? 'Pas de bande proposée' : 'Code de bande inconnu', 404)
     joinGroup(g.id, req.user.id)
     res.json(groupOut(myGroups(req.user.id).find((x) => x.id === g.id)))
   })
@@ -609,7 +619,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Modifier une bande (tout facultatif) :
   //   name          renommer
   //   owner_id      passer la main à un autre membre
-  //   is_default    en faire la bande où entrent les nouveaux inscrits (une seule à la fois) — admin seulement
+  //   is_default    en faire la bande proposée à tous, rejoignable sans code (une seule à la fois) — admin seulement
   app.patch('/api/groups/:id', auth, managed, (req, res) => {
     const g = req.managed
     const b = req.body

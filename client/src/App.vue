@@ -18,6 +18,7 @@ import LogSheet from './components/LogSheet.vue'
 import ProductPage from './components/ProductPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
+import WelcomeModal from './components/WelcomeModal.vue'
 import Grime from './components/Grime.vue'
 import Icon from './components/Icon.vue'
 import SearchSheet from './components/SearchSheet.vue'
@@ -64,13 +65,18 @@ async function loadGroups() {
   if (!groups.value.some((g) => g.id === currentGroup.value)) setGroup(groups.value[0]?.id ?? null)
 }
 
-async function onLogged(user) {
+// Modale d'arrivée : juste après l'inscription, une fois
+const welcome = ref(false)
+
+async function onLogged(user, { registered = false } = {}) {
   me.value = user
-  if (inviteCode) await api('/groups/join', { method: 'POST', body: { code: inviteCode } }).then((g) => {
+  // À l'inscription, le lien d'invitation a déjà fait rejoindre la bande (côté serveur)
+  if (inviteCode && !registered) await api('/groups/join', { method: 'POST', body: { code: inviteCode } }).then((g) => {
     setGroup(g.id)
     toast(`Tu as rejoint « ${g.name} »`, { kind: 'big' })
   }).catch(() => {})
   await loadGroups()
+  if (registered) welcome.value = true
 }
 
 onMounted(async () => {
@@ -252,6 +258,7 @@ async function logout() {
       <LogSheet v-if="ui.log && me" :preset="ui.log" />
     </Transition>
     <SearchSheet v-if="searching && me" :colors="colors" @close="searching = false" />
+    <WelcomeModal v-if="me && welcome" :groups="groups" @changed="loadGroups" @close="welcome = false" />
     <ConfirmDialog />
 
     <!-- Toasts -->

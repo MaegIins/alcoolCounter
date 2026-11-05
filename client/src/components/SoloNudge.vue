@@ -2,13 +2,30 @@
 // Mode solo (aucune bande) : pousser à rejoindre ou créer une bande.
 // variant="banner" : encart avec code + création en ligne.
 // variant="teaser" : faux classement flouté, verrouillé, qui renvoie vers l'encart.
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { api, setGroup } from '../api'
 import { toast, confetti } from '../juice'
 import Icon from './Icon.vue'
 
-defineProps({ variant: { type: String, default: 'banner' } })
+const props = defineProps({ variant: { type: String, default: 'banner' } })
 const emit = defineEmits(['changed', 'focus'])
+
+// Bande proposée à tous (choisie par un admin) : la rejoindre en un tap, sans code
+const suggested = ref(null)
+onMounted(async () => {
+  if (props.variant === 'banner') suggested.value = await api('/groups/suggested').catch(() => null)
+})
+async function joinSuggested() {
+  error.value = ''
+  try {
+    const g = await api('/groups/join', { method: 'POST', body: { suggested: true } })
+    setGroup(g.id)
+    toast(`Bienvenue dans « ${g.name} »`, { kind: 'big' })
+    emit('changed')
+  } catch (e) {
+    error.value = e.message
+  }
+}
 
 const code = ref('')
 const name = ref('')
@@ -59,6 +76,14 @@ const FAKE = [
         </p>
       </div>
     </div>
+
+    <button v-if="suggested" class="btn btn-hi mt-4 flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left" @click="joinSuggested">
+      <span>
+        <span class="block font-bold">Rejoindre « {{ suggested.name }} »</span>
+        <span class="text-sm opacity-80">La bande de tout le monde · {{ suggested.members }} membre{{ suggested.members > 1 ? 's' : '' }}</span>
+      </span>
+      <Icon name="next" />
+    </button>
 
     <form v-if="!creating" class="mt-4 flex gap-2" @submit.prevent="join">
       <input

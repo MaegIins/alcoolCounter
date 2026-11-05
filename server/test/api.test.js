@@ -934,21 +934,26 @@ describe('gestion des bandes', () => {
     assert.equal((await s.call('PATCH', `/groups/${g.id}`, { token: b.token, body: { is_default: true } })).status, 403)
   })
 
-  test('bande par défaut : les nouveaux y entrent, sauf s’ils arrivent par une invitation ; un admin gère toute bande', async () => {
+  test('bande proposée : personne n’y est mis d’office, on la rejoint sans code ; un admin gère toute bande', async () => {
     const s2 = await start({ admins: ['boss'] })
     try {
       const boss = await s2.register('Boss', '1234', { group: false })
       const main = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Bande' } })).body
       const other = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Autre' } })).body
-      // Sans bande par défaut : solo
+      // Sans bande proposée : rien à rejoindre sans code
       const a = await s2.register('Alice', '1234', { group: false })
-      assert.deepEqual((await s2.call('GET', '/groups', { token: a.token })).body, [])
-      // Bande par défaut (une seule à la fois)
+      assert.equal((await s2.call('GET', '/groups/suggested', { token: a.token })).body, null)
+      assert.equal((await s2.call('POST', '/groups/join', { token: a.token, body: { suggested: true } })).status, 404)
+      // Bande proposée (une seule à la fois)
       assert.equal((await s2.call('PATCH', `/groups/${other.id}`, { token: boss.token, body: { is_default: true } })).body.is_default, true)
       assert.equal((await s2.call('PATCH', `/groups/${main.id}`, { token: boss.token, body: { is_default: true } })).body.is_default, true)
       assert.deepEqual((await s2.call('GET', '/groups', { token: boss.token })).body.map((g) => [g.name, g.is_default]), [['Bande', true], ['Autre', false]])
+      // Un nouveau n'y est pas mis d'office : il la voit proposée et la rejoint en un tap
       const b = await s2.register('Bob', '1234', { group: false })
-      assert.deepEqual((await s2.call('GET', '/groups', { token: b.token })).body.map((g) => g.name), ['Bande'])
+      assert.deepEqual((await s2.call('GET', '/groups', { token: b.token })).body, [])
+      assert.deepEqual((await s2.call('GET', '/groups/suggested', { token: b.token })).body, { id: main.id, name: 'Bande', members: 1, joined: false })
+      assert.equal((await s2.call('POST', '/groups/join', { token: b.token, body: { suggested: true } })).body.name, 'Bande')
+      assert.equal((await s2.call('GET', '/groups/suggested', { token: b.token })).body.joined, true)
       // Arrivé par un lien d'invitation : seulement cette bande-là
       const c = (await s2.call('POST', '/register', { body: { name: 'Chloé', pin: '1234', group: other.code } })).body
       assert.deepEqual((await s2.call('GET', '/groups', { token: c.token })).body.map((g) => g.name), ['Autre'])

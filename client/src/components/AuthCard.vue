@@ -27,7 +27,7 @@ async function submit() {
       body: { name: name.value, pin: pin.value, invite: invite.value, ...(mode.value === 'register' && groupCode.value ? { group: groupCode.value } : {}) },
     })
     setToken(token)
-    emit('logged', user)
+    emit('logged', user, { registered: mode.value === 'register' })
   } catch (e) {
     error.value = e.message
   } finally {
