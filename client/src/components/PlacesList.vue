@@ -22,6 +22,8 @@ async function load() {
   loaded.value = true
 }
 watch(() => ui.refresh, load, { immediate: true })
+// Bandes à qui partager un lieu privé : jamais la bande proposée à tous (n'importe qui peut y entrer)
+const privateGroups = computed(() => groups.value.filter((g) => !g.is_default))
 
 const norm = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 const shown = computed(() => {
@@ -34,7 +36,7 @@ const shown = computed(() => {
 const canEdit = (p) => p.mine || props.me.is_admin
 const editing = ref(null) // { id, owner, name, private, groups, lat, lng }
 const startEdit = (p) =>
-  (editing.value = { id: p.id, owner: canEdit(p), name: p.name, private: p.private, groups: p.groups.map((g) => g.id), lat: p.lat ?? '', lng: p.lng ?? '' })
+  (editing.value = { id: p.id, owner: canEdit(p), home: p.home, name: p.name, private: p.private, groups: p.groups.map((g) => g.id), lat: p.lat ?? '', lng: p.lng ?? '' })
 const locating = ref(false)
 function locate() {
   if (!navigator.geolocation) return toast("Ton navigateur ne donne pas ta position")
@@ -55,7 +57,7 @@ function locate() {
 async function save() {
   const e = editing.value
   const coords = e.lat === '' && e.lng === '' ? { lat: null, lng: null } : { lat: Number(e.lat), lng: Number(e.lng) }
-  const body = e.owner ? { name: e.name, private: e.private, groups: e.private ? e.groups : [], ...coords } : coords
+  const body = e.owner ? { ...(e.home ? {} : { name: e.name }), private: e.private, groups: e.private ? e.groups.filter((id) => privateGroups.value.some((g) => g.id === id)) : [], ...coords } : coords
   try {
     await api(`/places/${e.id}`, { method: 'PATCH', body })
     editing.value = null
@@ -121,7 +123,7 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
 
         <!-- Visibilité -->
         <form v-if="editing?.id === p.id" class="mt-3 space-y-4 rounded-xl bg-white/[.03] p-4" @submit.prevent="save">
-          <label v-if="editing.owner" class="block">
+          <label v-if="editing.owner && !editing.home" class="block">
             <span class="kicker">Nom</span>
             <input v-model="editing.name" maxlength="60" required class="field mt-1 w-full px-3.5 py-2 text-base" />
           </label>
@@ -147,11 +149,12 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
           </div>
           <div v-if="editing.owner && editing.private">
             <p class="mb-2 text-sm text-muted">Bandes qui le voient (et sa position, quand il y aura la carte) :</p>
-            <label v-for="g in groups" :key="g.id" class="flex items-center gap-2.5 py-1">
+            <label v-for="g in privateGroups" :key="g.id" class="flex items-center gap-2.5 py-1">
               <input v-model="editing.groups" type="checkbox" :value="g.id" class="h-4 w-4 accent-[#d4bc35]" />
               {{ g.name }}
             </label>
-            <p v-if="!groups.length" class="text-sm text-faint">Tu n'es dans aucune bande : il ne sera visible que par toi.</p>
+            <p v-if="!privateGroups.length" class="text-sm text-faint">Aucune bande de potes : il ne sera visible que par toi.</p>
+            <p v-if="groups.some((g) => g.is_default)" class="mt-1 text-xs text-faint">La bande ouverte à tous ne peut pas voir un lieu privé.</p>
           </div>
           <button class="btn btn-hi w-full py-2.5 font-bold">Enregistrer</button>
         </form>

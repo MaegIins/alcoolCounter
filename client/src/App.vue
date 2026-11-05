@@ -124,6 +124,15 @@ function tap(k) {
   go(k)
 }
 
+// Compte supprimé (depuis mes réglages) : retour à l'accueil, déconnecté
+function onDeleted() {
+  setToken('')
+  me.value = null
+  groups.value = []
+  go('home')
+  toast('Compte supprimé. À la revoyure !', { kind: 'big' })
+}
+
 async function logout() {
   if (!(await ask({ title: 'Se déconnecter ?', message: 'Il faudra retaper ton PIN.', confirm: 'Se déconnecter' }))) return
   await api('/logout', { method: 'POST' }).catch(() => {})
@@ -185,7 +194,7 @@ async function logout() {
       <AuthCard v-if="!me" :invite="inviteCode" @logged="onLogged" />
       <Transition v-else name="page" mode="out-in">
         <div v-if="ui.view === 'settings'" key="s" class="space-y-8">
-          <ProfilePage :me="me" :color="colors[me.id]" :groups="groups" @update="onProfileUpdate" @groups="loadGroups" @back="myProfile" />
+          <ProfilePage :me="me" :color="colors[me.id]" :groups="groups" @update="onProfileUpdate" @groups="loadGroups" @back="myProfile" @deleted="onDeleted" />
           <section class="box flex items-center justify-between gap-3 p-5">
             <span class="text-sm text-muted">
               Connecté en tant que <b class="text-ink">{{ me.name }}</b>

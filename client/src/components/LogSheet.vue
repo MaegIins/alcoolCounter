@@ -72,15 +72,21 @@ const exact = computed(() => results.value.some((r) => norm(r.name) === norm(que
 // Lieux proposés sous « Où ? » : champ vide → mes lieux récents (ou, si je n'en ai pas, les plus fréquentés autour
 // de moi) ; en tapant → tous les lieux visibles qui contiennent le texte, pour réutiliser ceux des autres
 // au lieu de créer un doublon. Un lieu déjà choisi reste affiché pour pouvoir le désélectionner.
+// « Chez moi » est toujours proposé en premier (les autres le voient « Chez <mon pseudo> ») ;
+// s'il n'existe pas encore, le serveur le crée au premier verre.
+const allPlaces = computed(() => {
+  const home = places.value.find((p) => p.home && p.place === 'Chez moi') ?? { id: 'home', place: 'Chez moi', home: true, private: false, mine: true }
+  return [home, ...places.value.filter((p) => p !== home)]
+})
 const placeChips = computed(() => {
   const q = norm(place.value.trim())
-  const picked = places.value.find((p) => norm(p.place) === q)
+  const picked = allPlaces.value.find((p) => norm(p.place) === q)
   if (picked) return [picked]
   if (!q) {
-    const mine = places.value.filter((p) => p.mine)
-    return (mine.length ? mine : places.value).slice(0, 8)
+    const mine = allPlaces.value.filter((p) => p.mine)
+    return (mine.length > 1 ? mine : allPlaces.value).slice(0, 8)
   }
-  return places.value.filter((p) => norm(p.place).includes(q)).slice(0, 8)
+  return allPlaces.value.filter((p) => norm(p.place).includes(q)).slice(0, 8)
 })
 function pickPlace(p) {
   if (place.value === p.place) return (place.value = '')
@@ -404,12 +410,12 @@ async function remove() {
                 :class="place === p.place ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink'"
                 @click="pickPlace(p)"
               >
-                <Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
+                <Icon v-if="p.home" name="fa-house" class="text-xs" /><Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
               </button>
             </div>
             <label v-if="place.trim()" class="mt-2 flex items-center gap-2 text-sm text-muted">
               <input v-model="placePrivate" type="checkbox" class="h-4 w-4 accent-[#d4bc35]" />
-              <Icon name="lock" /> Lieu privé : visible seulement par toi et ta bande (chez toi…)
+              <Icon name="lock" /> Lieu privé : visible seulement par toi et ta bande (jamais par la bande ouverte à tous)
             </label>
           </div>
 

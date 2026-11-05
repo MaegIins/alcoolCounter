@@ -3,7 +3,7 @@
 import { ref, computed, watch } from 'vue'
 import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today } from '../api'
 import { ui, goBack, go, openLog, openProduct, bump, setTab } from '../nav'
-import { toast } from '../juice'
+import { toast, ask } from '../juice'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
@@ -36,6 +36,27 @@ watch(() => props.userId, () => {
   diary.value = []
   data.value = null
 })
+
+// --- Admin : supprimer ce compte -------------------------------------------------------------
+async function deleteUser() {
+  const name = data.value.user.name
+  const ok = await ask({
+    icon: 'fa-user-xmark',
+    title: `Supprimer le compte de ${name} ?`,
+    message: 'Tous ses verres, notes et photos disparaissent pour de bon. Ses bandes passent au plus ancien membre.',
+    confirm: 'Supprimer',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await api(`/users/${props.userId}`, { method: 'DELETE' })
+    toast(`Compte de ${name} supprimé`)
+    goBack()
+    bump()
+  } catch (e) {
+    toast(e.message)
+  }
+}
 
 // --- Suivre ---------------------------------------------------------------------------------
 const followBusy = ref(false)
@@ -123,6 +144,9 @@ const dayNum = (day) => Number(day.slice(8))
       <span v-else />
       <button v-if="isMe" class="flex items-center gap-1.5 text-sm font-medium text-muted hover:text-ink" @click="go('settings')">
         <Icon name="gear" :size="18" /> Réglages
+      </button>
+      <button v-else-if="me.is_admin && data" class="flex items-center gap-1.5 text-sm font-medium text-muted hover:text-alert" @click="deleteUser">
+        <Icon name="trash" :size="16" /> Supprimer le compte
       </button>
     </div>
 

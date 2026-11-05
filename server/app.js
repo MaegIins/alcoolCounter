@@ -299,8 +299,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       COMMIT; PRAGMA foreign_keys = ON;`)
   }
   db.exec(`
-    -- Un lieu public par nom ; un lieu privé par nom et par créateur (« Chez moi » de chacun)
-    CREATE UNIQUE INDEX IF NOT EXISTS places_scope ON places(name COLLATE NOCASE, (CASE WHEN private THEN created_by ELSE 0 END));
+    -- Unicité des noms : voir places_scope2 plus bas (un public par nom, un privé par nom et créateur, un chez-soi par personne)
     -- Bandes qui voient un lieu privé
     CREATE TABLE IF NOT EXISTS place_groups (
       place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
@@ -326,6 +325,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       ALTER TABLE drinks DROP COLUMN place; COMMIT`)
   }
   db.exec('CREATE INDEX IF NOT EXISTS drinks_place ON drinks(place_id)')
+
+  // « Chez moi » : un lieu par personne (home_of), affiché « Chez moi » à son propriétaire et « Chez <pseudo> »
+  // aux autres (suit les changements de pseudo). Nom stocké « Chez moi » ; l'unicité est par propriétaire.
+  // Sa position n'est jamais montrée aux autres (c'est une adresse perso).
+  addCols('places', [['home_of', 'INTEGER REFERENCES users(id) ON DELETE CASCADE']])
+  db.exec(`
+    DROP INDEX IF EXISTS places_scope;
+    CREATE UNIQUE INDEX IF NOT EXISTS places_scope2 ON places(name COLLATE NOCASE,
+      (CASE WHEN home_of IS NOT NULL THEN -home_of WHEN private THEN created_by ELSE 0 END));
+    CREATE UNIQUE INDEX IF NOT EXISTS places_home ON places(home_of) WHERE home_of IS NOT NULL;
+  `)
+  // Migration : les lieux « Chez moi » créés à la main deviennent le chez-soi de leur créateur (un par personne)
+  for (const r of db.prepare(`SELECT id, created_by FROM places WHERE home_of IS NULL AND created_by IS NOT NULL
+    AND name = 'Chez moi' COLLATE NOCASE ORDER BY id`).all()) {
+    if (!db.prepare('SELECT 1 FROM places WHERE home_of = ?').get(r.created_by)) {
+      db.prepare("UPDATE places SET home_of = created_by, name = 'Chez moi' WHERE id = ?").run(r.id)
+    }
+  }
   addCols('products', [['photo', 'TEXT'], ['photo_key', 'TEXT'], ['maker', 'TEXT'], ['origin', 'TEXT'], ['style', 'TEXT'], ['description', 'TEXT']])
   db.exec(`
     CREATE INDEX IF NOT EXISTS drinks_at ON drinks(at);
@@ -394,6 +411,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const canSeePlace = db.prepare(`SELECT 1 FROM places pl WHERE pl.id = ? AND (pl.private = 0 OR pl.created_by = ? OR EXISTS (
     SELECT 1 FROM place_groups pg JOIN group_members gm ON gm.group_id = pg.group_id WHERE pg.place_id = pl.id AND gm.user_id = ?))`)
   db.function('place_visible', (id) => (id != null && canSeePlace.get(id, viewer, viewer) ? 1 : 0))
+  // Nom affiché d'un lieu : « Chez moi » pour mon chez-moi, « Chez <pseudo> » pour celui des autres
+  const placeRow = db.prepare('SELECT pl.name, pl.home_of, u.name AS owner FROM places pl LEFT JOIN users u ON u.id = pl.home_of WHERE pl.id = ?')
+  db.function('place_label', (id) => {
+    const r = id == null ? null : placeRow.get(id)
+    if (!r) return null
+    if (r.home_of == null) return r.name
+    return r.home_of === viewer ? 'Chez moi' : `Chez ${r.owner}`
+  })
 
   const auth = (req, res, next) => {
     const token = bearer(req)
@@ -412,6 +437,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY m.joined_at, g.id
   `).all(userId)
   const userExists = (id) => !!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)
+  // Bande proposée à tous : rejoignable sans code, donc jamais destinataire d'un lieu privé
+  const isOpenGroup = (id) => !!db.prepare('SELECT 1 FROM groups WHERE id = ? AND is_default = 1').get(Number(id))
   const isMember = (groupId, userId) => !!db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId)
   const group = (req, res, next) => {
     const wanted = Number(req.headers['x-group'])
@@ -556,6 +583,48 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json({ ok: true })
   })
 
+  // --- Supprimer un compte -------------------------------------------------------
+  // Tout ce qui est à lui part avec (consos, sessions, bandes rejointes, abonnements, son « chez moi ») ;
+  // ses bandes passent au plus ancien membre restant, ou disparaissent s'il était seul ;
+  // les produits qu'il a ajoutés à la carte restent (sans auteur).
+  const deleteUser = (id) => {
+    db.exec('BEGIN')
+    try {
+      for (const g of db.prepare('SELECT id FROM groups WHERE owner_id = ?').all(id)) {
+        const next = db.prepare('SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ? ORDER BY joined_at LIMIT 1').get(g.id, id)
+        if (next) db.prepare('UPDATE groups SET owner_id = ? WHERE id = ?').run(next.user_id, g.id)
+        else db.prepare('DELETE FROM groups WHERE id = ?').run(g.id)
+      }
+      db.prepare('DELETE FROM users WHERE id = ?').run(id)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+  }
+  // Moi : avec mon PIN (comme pour le changer)
+  app.delete('/api/me', auth, (req, res) => {
+    const key = `pin:${req.user.id}`
+    const wait = lockedFor(key)
+    if (wait) return bad(res, lockedMsg(wait), 429)
+    const { pin_hash } = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get(req.user.id)
+    if (!checkPin(String(req.body?.pin || ''), pin_hash)) {
+      recordFail(key)
+      return bad(res, 'PIN incorrect', 403)
+    }
+    deleteUser(req.user.id)
+    res.json({ ok: true })
+  })
+  // Quelqu'un d'autre : admin seulement
+  app.delete('/api/users/:id', auth, (req, res) => {
+    if (!req.user.is_admin) return bad(res, 'Réservé aux admins', 403)
+    const id = Number(req.params.id)
+    if (id === req.user.id) return bad(res, 'Pour ton propre compte, passe par tes réglages')
+    if (!userExists(id)) return bad(res, 'Compte introuvable', 404)
+    deleteUser(id)
+    res.json({ ok: true })
+  })
+
   // --- Bandes -------------------------------------------------------------------
   app.get('/api/groups', auth, (req, res) => res.json(myGroups(req.user.id).map(groupOut)))
 
@@ -638,7 +707,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     db.exec('BEGIN')
     try {
       if ('is_default' in b) {
-        if (b.is_default) db.prepare('UPDATE groups SET is_default = 0 WHERE is_default = 1').run()
+        if (b.is_default) {
+          db.prepare('UPDATE groups SET is_default = 0 WHERE is_default = 1').run()
+          // Devenue ouverte à tous : elle ne voit plus les lieux privés qu'on lui avait partagés
+          db.prepare('DELETE FROM place_groups WHERE group_id = ?').run(g.id)
+        }
         sets.is_default = b.is_default ? 1 : 0
       }
       for (const [col, v] of Object.entries(sets)) db.prepare(`UPDATE groups SET ${col} = ? WHERE id = ?`).run(v, g.id)
@@ -677,12 +750,28 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Une conso telle que renvoyée au client (sans la photo elle-même : on donne sa clé)
   const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.product_id, d.rating, d.review, d.photo_key,
     CASE WHEN place_visible(d.place_id) THEN d.place_id END AS place_id,
-    CASE WHEN place_visible(d.place_id) THEN (SELECT name FROM places WHERE id = d.place_id) END AS place,
+    CASE WHEN place_visible(d.place_id) THEN place_label(d.place_id) END AS place,
     p.photo_key AS product_photo_key`
   // Lieu d'une conso, retrouvé ou créé. Privé : le mien de ce nom (partagé avec la bande donnée) ;
   // sinon mon lieu privé de ce nom s'il existe, puis le lieu public.
-  const placeIdFor = (name, userId, { priv = false, groupId = null } = {}) => {
+  const placeIdFor = (name, userId, { priv = false, groupId: gid = null } = {}) => {
     if (!name) return null
+    // Un lieu privé n'est jamais partagé avec la bande proposée à tous (n'importe qui peut y entrer)
+    const groupId = gid && !isOpenGroup(gid) ? gid : null
+    // « Chez moi » : mon chez-moi (créé au besoin) ; « Chez <pseudo> » : le chez-soi de cette personne, si je le vois
+    if (/^chez moi$/i.test(name)) {
+      let home = db.prepare('SELECT id, private FROM places WHERE home_of = ?').get(userId)
+      if (!home) {
+        const id = Number(db.prepare(`INSERT INTO places (name, private, created_by, home_of, created_at) VALUES ('Chez moi', ?, ?, ?, ?)`)
+          .run(priv ? 1 : 0, userId, userId, now()).lastInsertRowid)
+        home = { id, private: priv ? 1 : 0 }
+      }
+      if (home.private && groupId && isMember(groupId, userId)) db.prepare('INSERT OR IGNORE INTO place_groups (place_id, group_id) VALUES (?, ?)').run(home.id, groupId)
+      return home.id
+    }
+    const chez = /^chez (.+)$/i.exec(name)
+    const other = chez && db.prepare('SELECT pl.id FROM places pl JOIN users u ON u.id = pl.home_of WHERE u.name = ? COLLATE NOCASE').get(chez[1].trim())
+    if (other && canSeePlace.get(other.id, userId, userId)) return other.id
     const mine = db.prepare('SELECT id FROM places WHERE name = ? AND private = 1 AND created_by = ?').get(name, userId)
     let id = mine?.id
     if (priv && !id) {
@@ -919,7 +1008,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // `mine` dit si j'y ai déjà bu (le client montre ceux-là quand le champ est vide, et filtre tout le reste en tapant).
   app.get('/api/drinks/places', auth, (req, res) => {
     const rows = db.prepare(`
-      SELECT pl.id, pl.name AS place, pl.private, COUNT(d.id) AS count,
+      SELECT pl.id, place_label(pl.id) AS place, pl.private, pl.home_of IS NOT NULL AS home, COUNT(d.id) AS count,
         MAX(CASE WHEN d.user_id = ? THEN d.at END) AS my_last,
         SUM(d.user_id IN (
           SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?
@@ -931,7 +1020,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       ORDER BY my_last IS NULL, my_last DESC, circle DESC, count DESC, pl.name
       LIMIT 300
     `).all(req.user.id, req.user.id, req.user.id)
-    res.json(rows.map(({ my_last, circle, ...r }) => ({ ...r, mine: my_last != null })))
+    res.json(rows.map(({ my_last, circle, ...r }) => ({ ...r, home: !!r.home, mine: my_last != null })))
   })
 
   // Tous les lieux, avec leurs coordonnées (vides pour l'instant) et leur fréquentation :
@@ -939,14 +1028,20 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.get('/api/places', auth, (req, res) => {
     const mine = req.query.mine === '1'
     const rows = db.prepare(`
-      SELECT pl.id, pl.name, pl.lat, pl.lng, pl.private, pl.created_by, COUNT(d.id) AS logs, COUNT(DISTINCT d.user_id) AS drinkers,
+      SELECT pl.id, place_label(pl.id) AS name, pl.home_of,
+        -- La position d'un chez-soi n'est montrée qu'à son propriétaire
+        CASE WHEN pl.home_of IS NULL OR pl.home_of = ? THEN pl.lat END AS lat,
+        CASE WHEN pl.home_of IS NULL OR pl.home_of = ? THEN pl.lng END AS lng,
+        pl.private, pl.created_by, COUNT(d.id) AS logs, COUNT(DISTINCT d.user_id) AS drinkers,
         SUM(d.user_id = ?) AS my_logs, MAX(d.at) AS last_at
       FROM places pl LEFT JOIN drinks d ON d.place_id = pl.id ${mine ? 'AND d.user_id = ?' : ''}
       WHERE place_visible(pl.id)
-      GROUP BY pl.id ${mine ? 'HAVING logs > 0' : ''} ORDER BY logs DESC, pl.name
-    `).all(req.user.id, ...(mine ? [req.user.id] : []))
+      GROUP BY pl.id ${mine ? 'HAVING logs > 0' : ''} ORDER BY logs DESC, name
+    `).all(req.user.id, req.user.id, req.user.id, ...(mine ? [req.user.id] : []))
     const groupsOf = db.prepare('SELECT g.id, g.name FROM place_groups pg JOIN groups g ON g.id = pg.group_id WHERE pg.place_id = ? ORDER BY g.name')
-    res.json(rows.map((r) => ({ ...r, private: !!r.private, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [] })))
+    res.json(rows.map(({ home_of, ...r }) => ({
+      ...r, private: !!r.private, home: home_of != null, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [],
+    })))
   })
 
   // Modifier un lieu (tout est facultatif dans le corps) :
@@ -962,8 +1057,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const set = {}
     if ('name' in b) {
       const name = String(b.name ?? '').trim()
-      if (!name || name.length > 60 || /\p{Cc}/u.test(name)) return bad(res, 'Nom de lieu entre 1 et 60 caractères')
-      set.name = name
+      if (pl.home_of != null) {
+        // Le client renvoie le nom tel qu'affiché : on l'ignore s'il n'a pas changé
+        if (!/^chez moi$/i.test(name)) return bad(res, '« Chez moi » ne se renomme pas : les autres le voient avec ton pseudo')
+      } else {
+        if (!name || name.length > 60 || /\p{Cc}/u.test(name)) return bad(res, 'Nom de lieu entre 1 et 60 caractères')
+        if (/^chez moi$/i.test(name)) return bad(res, '« Chez moi » est réservé : choisis-le directement quand tu ajoutes un verre')
+        set.name = name
+      }
     }
     if ('private' in b) set.private = b.private === true ? 1 : 0
     if ('lat' in b || 'lng' in b) {
@@ -976,14 +1077,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       set.lat = clear ? null : Math.round(lat * 1e6) / 1e6
       set.lng = clear ? null : Math.round(lng * 1e6) / 1e6
     }
-    const onlyFillingCoords = Object.keys(set).every((k) => k === 'lat' || k === 'lng') && pl.lat == null && set.lat != null && !('groups' in b)
+    const onlyFillingCoords = pl.home_of == null && Object.keys(set).every((k) => k === 'lat' || k === 'lng') && pl.lat == null && set.lat != null && !('groups' in b)
     if (!owner && !onlyFillingCoords) return bad(res, "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent juste ajouter une position manquante)", 403)
     const groups = Array.isArray(b.groups) ? b.groups.map(Number) : null
     if (groups?.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
+    if (groups?.some(isOpenGroup)) return bad(res, 'La bande proposée à tous est ouverte : un lieu privé ne peut pas y être partagé')
     // Pas deux lieux de même nom dans la même portée (public, ou privés d'une même personne)
     const name = set.name ?? pl.name
     const priv = set.private ?? pl.private
-    const clash = db.prepare(`SELECT 1 FROM places WHERE id != ? AND name = ? AND ${priv ? 'private = 1 AND created_by = ?' : 'private = 0'}`)
+    const clash = pl.home_of == null && db.prepare(`SELECT 1 FROM places WHERE id != ? AND name = ? AND home_of IS NULL AND ${priv ? 'private = 1 AND created_by = ?' : 'private = 0'}`)
       .get(pl.id, name, ...(priv ? [pl.created_by] : []))
     if (clash) return bad(res, priv ? 'Tu as déjà un lieu privé de ce nom' : 'Un lieu public porte déjà ce nom', 409)
     db.exec('BEGIN')

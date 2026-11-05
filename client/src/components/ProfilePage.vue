@@ -1,12 +1,13 @@
 <script setup>
 import { ref } from 'vue'
 import { api, resizeImage } from '../api'
+import { ask } from '../juice'
 import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
 
 const props = defineProps({ me: Object, color: String, groups: Array })
-const emit = defineEmits(['update', 'back', 'groups'])
+const emit = defineEmits(['update', 'back', 'groups', 'deleted'])
 
 const fileInput = ref(null)
 const avatarMsg = ref({})
@@ -60,6 +61,27 @@ async function savePin() {
     pinMsg.value = { ok: 'PIN changé. Tes autres appareils sont déconnectés.' }
   } catch (e) {
     pinMsg.value = { err: e.message }
+  }
+}
+
+// Supprimer mon compte : avec mon PIN, après confirmation
+const delPin = ref('')
+const delMsg = ref('')
+async function deleteAccount() {
+  delMsg.value = ''
+  const ok = await ask({
+    icon: 'fa-triangle-exclamation',
+    title: 'Supprimer ton compte ?',
+    message: 'Tous tes verres, notes, photos et ton « chez moi » disparaissent pour de bon. Impossible de revenir en arrière.',
+    confirm: 'Supprimer',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await api('/me', { method: 'DELETE', body: { pin: delPin.value } })
+    emit('deleted')
+  } catch (e) {
+    delMsg.value = e.message
   }
 }
 </script>
@@ -130,6 +152,21 @@ async function savePin() {
       </div>
       <p v-if="pinMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ pinMsg.ok }} <Icon name="check" /></p>
       <p v-if="pinMsg.err" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ pinMsg.err }}</p>
+    </form>
+
+    <form class="box" @submit.prevent="deleteAccount">
+      <div class="px-5 pt-4 font-bold text-alert">Supprimer mon compte</div>
+      <div class="flex items-center gap-3 p-5">
+        <input
+          v-model="delPin"
+          v-digits
+          type="password" inputmode="numeric" maxlength="8" autocomplete="current-password"
+          placeholder="PIN" aria-label="Ton PIN pour confirmer"
+          class="field min-w-0 flex-1 px-3 py-2 font-mono text-lg tracking-[.4em]"
+        />
+        <button :disabled="delPin.length < 4" class="btn shrink-0 bg-alert px-4 py-2 font-bold text-white disabled:opacity-30">Supprimer</button>
+      </div>
+      <p v-if="delMsg" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ delMsg }}</p>
     </form>
 
   </div>

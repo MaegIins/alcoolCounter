@@ -866,10 +866,10 @@ test('lieu privé : visible par moi et les bandes autorisées seulement (nom mas
   const r = await s.drink(a.token, '2026-11-02', { place: 'Chez moi', place_private: true })
   assert.equal(r.body.place, 'Chez moi')
   const seen = async (t) => (await s.call('GET', '/places', { token: t })).body.map((p) => p.name)
-  assert.deepEqual(await seen(b.token), ['Chez moi']) // partagé avec la bande courante d'Alice
+  assert.deepEqual(await seen(b.token), ['Chez Alice']) // partagé avec la bande courante d'Alice, vu avec son pseudo
   assert.deepEqual(await seen(c.token), [])
   assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: c.token })).body.items[0].place, null)
-  assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: b.token })).body.items[0].place, 'Chez moi')
+  assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: b.token })).body.items[0].place, 'Chez Alice')
   // Le « Chez moi » de Chloé est un autre lieu
   await s.drink(c.token, '2026-11-02', { place: 'Chez moi', place_private: true })
   assert.deepEqual(await seen(c.token), ['Chez moi'])
@@ -881,7 +881,7 @@ test('lieu privé : visible par moi et les bandes autorisées seulement (nom mas
   assert.deepEqual(await seen(b.token), [])
   // Rendu public : tout le monde le voit
   await s.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: false } })
-  assert.deepEqual(await seen(c.token), ['Chez moi', 'Chez moi'])
+  assert.deepEqual(await seen(c.token), ['Chez Alice', 'Chez moi'])
 })
 
 test('modifier un lieu : nom et position par le créateur ; les autres ajoutent seulement une position manquante', async () => {
@@ -964,4 +964,108 @@ describe('gestion des bandes', () => {
       await s2.stop()
     }
   })
+})
+
+describe('chez moi', () => {
+  test('« Chez moi » : un lieu par personne, « Chez <pseudo> » pour les autres, position cachée, pas renommable', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const r = await s.drink(a.token, '2026-11-02', { place: 'chez moi' })
+    assert.equal(r.body.place, 'Chez moi')
+    // Bob voit « Chez Alice », et peut le choisir tel quel : c'est le même lieu
+    const sugg = (await s.call('GET', '/drinks/places', { token: b.token })).body
+    assert.deepEqual(sugg.map((p) => [p.place, p.home]), [['Chez Alice', true]])
+    const rb = await s.drink(b.token, '2026-11-02', { place: 'Chez Alice' })
+    assert.equal(rb.body.place_id, r.body.place_id)
+    // Le « Chez moi » de Bob est un autre lieu
+    const rb2 = await s.drink(b.token, '2026-11-02', { place: 'Chez moi' })
+    assert.notEqual(rb2.body.place_id, r.body.place_id)
+    assert.equal(rb2.body.place, 'Chez moi')
+    // Position : visible par Alice seulement ; personne d'autre ne peut la remplir
+    const id = r.body.place_id
+    assert.equal((await s.call('PATCH', `/places/${id}`, { token: b.token, body: { lat: 48.1, lng: 2.1 } })).status, 403)
+    assert.equal((await s.call('PATCH', `/places/${id}`, { token: a.token, body: { lat: 48.1, lng: 2.1 } })).status, 200)
+    const of = async (t) => (await s.call('GET', '/places', { token: t })).body.find((p) => p.id === id)
+    assert.deepEqual([(await of(a.token)).name, (await of(a.token)).lat], ['Chez moi', 48.1])
+    assert.deepEqual([(await of(b.token)).name, (await of(b.token)).lat, (await of(b.token)).lng], ['Chez Alice', null, null])
+    // Pas renommable ; « Chez moi » réservé pour les autres lieux
+    assert.equal((await s.call('PATCH', `/places/${id}`, { token: a.token, body: { name: 'Mon appart' } })).status, 400)
+    await s.drink(a.token, '2026-11-02', { place: 'Le Rade' })
+    const rade = (await s.call('GET', '/places', { token: a.token })).body.find((p) => p.name === 'Le Rade')
+    assert.equal((await s.call('PATCH', `/places/${rade.id}`, { token: a.token, body: { name: 'Chez moi' } })).status, 400)
+    // Le libellé suit le pseudo
+    await s.call('PATCH', '/me', { token: a.token, body: { name: 'Alicia' } })
+    assert.equal((await of(b.token)).name, 'Chez Alicia')
+  })
+
+  test('migration : un lieu « Chez moi » créé à la main devient le chez-soi de son créateur', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'alcool-'))
+    const file = path.join(dir, 'a.db')
+    const first = createApp({ dbPath: file })
+    first.db.exec("INSERT INTO users (name, pin_hash) VALUES ('Quentin', 'x:y')")
+    first.db.exec("INSERT INTO places (name, private, created_by, created_at) VALUES ('chez moi', 0, 1, 0)")
+    first.close()
+    const again = createApp({ dbPath: file })
+    assert.deepEqual({ ...again.db.prepare('SELECT name, home_of FROM places').get() }, { name: 'Chez moi', home_of: 1 })
+    again.close()
+    rmSync(dir, { recursive: true })
+  })
+})
+
+describe('supprimer un compte', () => {
+  test('soi-même avec son PIN ; un admin pour les autres ; ses bandes passent la main', async () => {
+    const s2 = await start({ admins: ['boss'] })
+    try {
+      const boss = await s2.register('Boss')
+      const a = await s2.register('Alice')
+      const solo = (await s2.call('POST', '/groups', { token: a.token, body: { name: 'Solo' } })).body
+      const shared = (await s2.call('POST', '/groups', { token: a.token, body: { name: 'Partagée' } })).body
+      await s2.call('POST', '/groups/join', { token: boss.token, body: { code: shared.code } })
+      await s2.drink(a.token, '2026-11-02', { place: 'Chez moi' })
+      // Mauvais PIN ; un non-admin ne supprime pas les autres ; un admin pas lui-même par là
+      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '0000' } })).status, 403)
+      assert.equal((await s2.call('DELETE', `/users/${boss.id}`, { token: a.token })).status, 403)
+      assert.equal((await s2.call('DELETE', `/users/${boss.id}`, { token: boss.token })).status, 400)
+      // Alice se supprime : sa bande solo disparaît, l'autre passe à Boss, son « chez moi » aussi disparaît
+      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '1234' } })).status, 200)
+      assert.equal((await s2.call('GET', '/me', { token: a.token })).status, 401)
+      const groups = (await s2.call('GET', '/groups', { token: boss.token })).body
+      assert.ok(!groups.some((g) => g.id === solo.id))
+      assert.equal(groups.find((g) => g.id === shared.id).owner_id, boss.id)
+      assert.deepEqual((await s2.call('GET', '/places', { token: boss.token })).body, [])
+      // Un admin supprime quelqu'un
+      const b = await s2.register('Bob')
+      assert.equal((await s2.call('DELETE', `/users/${b.id}`, { token: boss.token })).status, 200)
+      assert.equal((await s2.call('GET', '/me', { token: b.token })).status, 401)
+      assert.equal((await s2.call('DELETE', `/users/${b.id}`, { token: boss.token })).status, 404)
+    } finally {
+      await s2.stop()
+    }
+  })
+})
+
+test('un lieu privé n’est jamais partagé avec la bande proposée à tous', async () => {
+  const s2 = await start({ admins: ['boss'] })
+  try {
+    const boss = await s2.register('Boss')
+    const a = await s2.register('Alice') // même bande de test que Boss
+    const g = (await s2.call('GET', '/groups', { token: boss.token })).body[0]
+    await s2.call('PATCH', `/groups/${g.id}`, { token: boss.token, body: { is_default: true } })
+    // Créé en privé depuis la bande ouverte : visible par Alice seule
+    await s2.drink(a.token, '2026-11-02', { place: 'Le Garage', place_private: true })
+    const mine = (await s2.call('GET', '/places', { token: a.token })).body[0]
+    assert.deepEqual(mine.groups, [])
+    assert.deepEqual((await s2.call('GET', '/places', { token: boss.token })).body, [])
+    // Impossible de le lui partager après coup
+    assert.equal((await s2.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: true, groups: [g.id] } })).status, 400)
+    // Une bande qui devient ouverte perd les lieux privés qu'on lui avait partagés
+    const other = (await s2.call('POST', '/groups', { token: a.token, body: { name: 'Potes' } })).body
+    await s2.call('POST', '/groups/join', { token: boss.token, body: { code: other.code } })
+    await s2.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: true, groups: [other.id] } })
+    assert.equal((await s2.call('GET', '/places', { token: boss.token })).body.length, 1)
+    await s2.call('PATCH', `/groups/${other.id}`, { token: boss.token, body: { is_default: true } })
+    assert.deepEqual((await s2.call('GET', '/places', { token: boss.token })).body, [])
+  } finally {
+    await s2.stop()
+  }
 })
