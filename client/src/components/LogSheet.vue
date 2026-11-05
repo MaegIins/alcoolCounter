@@ -3,7 +3,7 @@
 // un avis et une photo, tous facultatifs. Sert aussi à compléter ou supprimer une conso (preset.edit).
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
-  api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, today, addDays, prettyDay, resizePhoto, photoUrl,
+  api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, fmtProduct, today, addDays, prettyDay, resizePhoto, photoUrl,
 } from '../api'
 import { ui, bump, openProduct } from '../nav'
 import { toast, ask, celebrateBadges, vibrate } from '../juice'
@@ -278,7 +278,7 @@ async function remove() {
                 <Poster :drink="r" :width="34" />
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ r.name }}</span>
-                  <span class="text-sm text-muted">{{ catOf(r.cat).label }} · {{ fmtDrink(r) }}</span>
+                  <span class="text-sm text-muted">{{ catOf(r.cat).label }} · {{ r.product_id ? fmtProduct(r) : fmtDrink(r) }}</span>
                 </span>
                 <span v-if="r.product_id" class="text-xs text-faint">carte</span>
               </button>

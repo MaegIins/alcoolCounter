@@ -269,6 +269,11 @@ describe('la carte', () => {
     assert.equal((await s.call('POST', '/drinks', { token: a.token, body: { day: '2026-11-02', product_id: p.id } })).body.cl, 33)
     // Une conso libre du même nom et degré est rattachée à la fiche, quel que soit son volume
     assert.equal((await s.drink(a.token, '2026-11-02', { ...CHOUFFE, cl: 25 })).body.product_id, p.id)
+    // Sur la carte : le volume proposé est celui de mon dernier verre (bière), le format de la fiche reste à part
+    const b = await s.register('Bob')
+    const of = async (t) => (await s.call('GET', '/products', { token: t })).body.find((x) => x.id === p.id)
+    assert.deepEqual([(await of(a.token)).cl, (await of(a.token)).default_cl], [25, 33])
+    assert.deepEqual([(await of(b.token)).cl, (await of(b.token)).default_cl], [33, 33])
   })
 
   test('produit invalide refusé', async () => {

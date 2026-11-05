@@ -1,7 +1,7 @@
 <script setup>
 // Recherche (loupe de l'en-tête) : des personnes, même hors de ta bande, et des boissons de la carte.
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { api, catOf, fmtDrink } from '../api'
+import { api, catOf, fmtProduct } from '../api'
 import { openUser, openProduct } from '../nav'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
@@ -91,7 +91,7 @@ onBeforeUnmount(() => {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-bold">{{ p.name }}</span>
                   <span class="flex items-center gap-2 text-sm text-muted">
-                    <span class="truncate">{{ p.maker || catOf(p.cat).label }} · {{ fmtDrink(p) }}</span>
+                    <span class="truncate">{{ p.maker || catOf(p.cat).label }} · {{ fmtProduct(p) }}</span>
                     <Stars v-if="p.rating" :value="Math.round(p.rating)" :size="10" />
                   </span>
                 </span>

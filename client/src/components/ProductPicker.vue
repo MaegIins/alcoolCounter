@@ -1,7 +1,7 @@
 <script setup>
 // Choisir un produit de la carte (pour le top 4). Émet pick(produit) ou close.
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { api, catOf, fmtDrink } from '../api'
+import { api, catOf, fmtProduct } from '../api'
 import Poster from './Poster.vue'
 import Icon from './Icon.vue'
 
@@ -43,7 +43,7 @@ const shown = computed(() => {
               <Poster :drink="p" :width="34" />
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-semibold">{{ p.name }}</span>
-                <span class="text-sm text-muted">{{ catOf(p.cat).label }} · {{ fmtDrink(p) }}</span>
+                <span class="text-sm text-muted">{{ catOf(p.cat).label }} · {{ fmtProduct(p) }}</span>
               </span>
             </button>
           </li>

@@ -468,6 +468,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   let viewer = 0
   const canSeePlace = db.prepare(`SELECT 1 FROM places pl WHERE pl.id = ? AND (pl.private = 0 OR pl.created_by = ? OR EXISTS (
     SELECT 1 FROM place_groups pg JOIN group_members gm ON gm.group_id = pg.group_id WHERE pg.place_id = pl.id AND gm.user_id = ?))`)
+  const lastCl = db.prepare('SELECT cl FROM drinks WHERE product_id = ? AND user_id = ? ORDER BY at DESC, id DESC LIMIT 1')
+  db.function('my_cl', (pid) => lastCl.get(pid, viewer)?.cl ?? null)
   db.function('place_visible', (id) => (id != null && canSeePlace.get(id, viewer, viewer) ? 1 : 0))
   // Nom affiché d'un lieu : « Chez moi » pour mon chez-moi, « Chez <pseudo> » pour celui des autres
   const placeRow = db.prepare('SELECT pl.name, pl.home_of, u.name AS owner FROM places pl LEFT JOIN users u ON u.id = pl.home_of WHERE pl.id = ?')
@@ -1251,7 +1253,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // --- La carte ------------------------------------------------------------------
   // Note moyenne et nombre de consos : sur tout le monde (la carte est commune)
-  const PRODUCT_COLS = `p.id, p.name, p.cat, p.cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
+  // Bière de la carte : volume « habituel » = celui de mon dernier verre de cette bière (sinon celui de la fiche).
+  // C'est ce qui est bu en un tap et présélectionné ; default_cl reste le format de la fiche (pour la modifier).
+  const PRODUCT_COLS = `p.id, p.name, p.cat, COALESCE(CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END, p.cl) AS cl, p.cl AS default_cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
     p.maker, p.origin, p.style, p.description,
     (SELECT COUNT(*) FROM product_favs WHERE product_id = p.id) AS favs,
     EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav,

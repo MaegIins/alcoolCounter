@@ -1,7 +1,7 @@
 <script setup>
 // La carte : produits partagés que tout le monde peut compléter. ★ = favori (en haut du ＋).
 import { ref, computed, watch, onMounted } from 'vue'
-import { api, CATS, MAX_CL, catOf, num, fmtDrink, unitsOf, today, photoUrl } from '../api'
+import { api, CATS, MAX_CL, catOf, num, fmtDrink, fmtProduct, unitsOf, today, photoUrl } from '../api'
 import DrinkFields from './DrinkFields.vue'
 import Pager from './Pager.vue'
 import Stars from './Stars.vue'
@@ -296,7 +296,7 @@ async function create() {
             </button>
             <span v-if="p.rating" class="flex items-center gap-1.5 text-xs text-muted"><Stars :value="Math.round(p.rating)" :size="11" /> {{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</span>
             <span class="text-sm text-muted">
-              {{ fmtDrink(p) }}
+              {{ fmtProduct(p) }}
               <template v-if="p.created_by === me.id"> · par toi</template>
               <template v-else-if="p.created_by_name"> · par {{ p.created_by_name }}</template>
             </span>
@@ -306,7 +306,7 @@ async function create() {
             class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink"
             :aria-label="`Modifier ${p.name}`"
             title="Modifier"
-            @click="editing = { id: p.id, name: p.name, cat: p.cat, cl: p.cl, abv: p.abv }"
+            @click="editing = { id: p.id, name: p.name, cat: p.cat, cl: p.default_cl ?? p.cl, abv: p.abv }"
           >
             <Icon name="edit" />
           </button>
