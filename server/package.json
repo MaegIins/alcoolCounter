@@ -1,0 +1,15 @@
+{
+  "name": "alcool-counter-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env --disable-warning=ExperimentalWarning index.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-reporter=spec \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "express": "^4.22.3"
+  },
+  "type": "module",
+  "private": true
+}

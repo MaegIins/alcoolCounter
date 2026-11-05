@@ -1,0 +1,226 @@
+@import 'tailwindcss';
+
+/* Ambiance rade glauque : béton sale, jaune pisse, nicotine, rouille. Rien de festif. */
+@theme {
+  --font-sans: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Rubik Dirt', ui-sans-serif, sans-serif; /* titres usés */
+  --font-drip: 'Rubik Wet Paint', ui-sans-serif, sans-serif; /* logo qui dégouline */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-paper: #100f0a; /* fond : béton crade */
+  --color-panel: #1a1811; /* cartes : formica jauni */
+  --color-sunk: #0c0b07; /* champs, creux */
+  --color-line: #2c281c; /* bordures */
+  --color-ink: #e4dcc3; /* texte : papier sale */
+  --color-muted: #978e76;
+  --color-hi: #d4bc35; /* jaune pisse */
+  --color-neon: #b8432c; /* rouille / sang séché */
+  --color-ash: #6e6a62; /* cendre */
+  /* Catégories (mêmes valeurs que utils.js) : couleurs ternes mais distinctes */
+  --color-biere: #d4ac3a;
+  --color-vin: #a33447;
+  --color-fort: #6f93ad;
+  --color-cocktail: #739b4f;
+  --color-autre: #9277a8;
+  --color-alert: #c43c2a;
+}
+
+:root {
+  --stain-card: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.011' numOctaves='4' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .55 0 0 0 0 .45 0 0 0 0 .12 0 0 0 -2.6 1.55'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 .05 .09 .05 .13'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.4 .9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='.22'/%3E%3C/svg%3E");
+}
+
+body {
+  font-size: 1rem;
+  line-height: 1.5;
+  /* Néon jauni qui bave à peine, coins noircis */
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(212 188 53 / 0.09), transparent 70%),
+    radial-gradient(ellipse at center, transparent 50%, rgb(0 0 0 / 0.6) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+  color-scheme: dark;
+}
+
+/* Carte : fond à peine plus clair, pas de bordure dure */
+@utility box {
+  background-color: var(--color-panel);
+  background-image: var(--stain-card);
+  background-size: 420px 420px;
+  border: 1px solid rgb(0 0 0 / 0.5);
+  border-radius: 0.6rem;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 24px -14px rgb(0 0 0 / 0.9);
+  overflow: hidden;
+}
+/* Tuile cliquable (formats, raccourcis…) */
+@utility tile {
+  background-color: rgb(255 255 255 / 0.04);
+  background-image: var(--stain-card);
+  background-size: 300px 300px;
+  border: 1px solid rgb(0 0 0 / 0.45);
+  border-radius: 0.5rem;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  &:hover:not(:disabled) { background: rgb(255 255 255 / 0.08); }
+}
+/* Intitulé de sous-section : lisible, discret */
+@utility kicker {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+@utility btn {
+  border-radius: 0.75rem;
+  transition: transform 0.08s, box-shadow 0.15s, background 0.15s;
+  &:active:not(:disabled) { transform: scale(0.94); }
+}
+@utility btn-hi {
+  background-color: var(--color-hi);
+  background-image: var(--stain-card);
+  background-size: 260px 260px;
+  color: #17140a;
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.25);
+}
+@utility btn-ghost {
+  background: var(--color-sunk);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
+}
+@utility field {
+  background: rgb(0 0 0 / 0.25);
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  color: var(--color-ink);
+  outline: none;
+  &:focus { border-color: var(--color-hi); box-shadow: 0 0 0 3px rgb(212 188 53 / 0.18); }
+}
+@utility neon {
+  color: var(--color-hi);
+  text-shadow: 0 0 10px rgb(212 188 53 / 0.25);
+}
+@utility neon-pink {
+  color: var(--color-neon);
+  text-shadow: 0 0 10px rgb(184 67 44 / 0.3);
+}
+/* Onglets segmentés (périodes, plages des stats) */
+/* Onglets en pilules (périodes, plages des stats) */
+@utility seg {
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  transition: background 0.15s, color 0.15s;
+  &:hover { color: var(--color-ink); }
+  &[aria-pressed='true'] { background: var(--color-hi); color: var(--color-paper); }
+}
+
+@keyframes pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.pop { animation: pop 0.3s ease-out; }
+
+input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; }
+input[type='number'] { -moz-appearance: textfield; }
+
+/* --- Juice ------------------------------------------------------------------- */
+.fx { position: fixed; pointer-events: none; z-index: 60; }
+.fx-float {
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  text-shadow: 0 2px 0 rgb(0 0 0 / 0.6);
+  animation: fx-float 0.9s ease-out forwards;
+}
+@keyframes fx-float {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); }
+  20% { opacity: 1; transform: translate(-50%, -80%) scale(1.15); }
+  100% { opacity: 0; transform: translate(-50%, -260%) scale(1); }
+}
+/* Gouttes qui giclent puis retombent */
+.fx-drop {
+  border-radius: 50% 50% 50% 50% / 60% 60% 42% 42%;
+  opacity: 0.85;
+  transform: translate(-50%, -50%);
+  animation: fx-drop 0.85s cubic-bezier(0.2, 0.6, 0.6, 1) forwards;
+}
+@keyframes fx-drop {
+  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0.9; }
+  35% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1); opacity: 0.9; }
+  100% { transform: translate(calc(-50% + var(--dx) * 1.2), calc(-50% + var(--dy) + var(--fall))) scale(0.8, 1.3); opacity: 0; }
+}
+/* Cendre qui tombe en tournoyant ; gouttes qui tombent droit */
+.fx-ash, .fx-rain { top: -20px; animation-timing-function: linear; animation-fill-mode: forwards; }
+.fx-ash { border-radius: 40% 60% 55% 45%; opacity: 0.8; animation-name: fx-ash; }
+.fx-rain { border-radius: 50% 50% 50% 50% / 30% 30% 70% 70%; opacity: 0.7; animation-name: fx-rain; animation-timing-function: ease-in; }
+@keyframes fx-ash {
+  to { transform: translate(var(--drift), 110vh) rotate(var(--spin)); opacity: 0.5; }
+}
+@keyframes fx-rain {
+  to { transform: translate(var(--drift), 110vh); }
+}
+
+/* Verre qui tangue quand on boit */
+.wobble { animation: wobble 0.6s ease-in-out; transform-origin: 50% 100%; }
+@keyframes wobble {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-9deg); }
+  45% { transform: rotate(7deg); }
+  70% { transform: rotate(-4deg); }
+}
+/* Bulles qui montent dans la bière */
+.rise { animation: rise 2.4s linear infinite; }
+@keyframes rise {
+  0% { transform: translateY(0); opacity: 0; }
+  15% { opacity: 0.7; }
+  100% { transform: translateY(calc(-1 * var(--h, 60px))); opacity: 0; }
+}
+/* Néon qui grésille de temps en temps */
+.flicker { animation: flicker 6s infinite; }
+@keyframes flicker {
+  0%, 92%, 96%, 100% { opacity: 1; }
+  93%, 95% { opacity: 0.35; }
+  94% { opacity: 0.9; }
+}
+.bounce { animation: bounce 1.6s ease-in-out infinite; }
+@keyframes bounce {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-5px) rotate(6deg); }
+}
+/* Tuiles : léger soulèvement au survol */
+.lift { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; }
+@media (hover: hover) {
+  .lift:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 18px -10px rgb(0 0 0 / 0.9); }
+}
+
+/* Ticket de caisse : papier jauni taché, bord du bas déchiré en dents de scie */
+.receipt {
+  background-image: var(--stain-card);
+  background-size: 300px 300px;
+  border-radius: 2px;
+  --t: 6px;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(var(--t) * 2) 100%;
+  padding-bottom: calc(0.625rem + var(--t));
+}
+
+/* Transitions Vue */
+.page-enter-active, .page-leave-active { transition: opacity 0.18s, transform 0.18s; }
+.page-enter-from { opacity: 0; transform: translateY(10px); }
+.page-leave-to { opacity: 0; transform: translateY(-6px); }
+.item-enter-active { transition: all 0.35s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.item-leave-active { transition: all 0.2s; }
+.item-enter-from { opacity: 0; transform: translateX(-24px) scale(0.95); }
+.item-leave-to { opacity: 0; transform: translateX(24px); }
+.rank-move { transition: transform 0.5s cubic-bezier(0.2, 1.2, 0.4, 1); }
+.toast-enter-active { transition: all 0.3s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.toast-leave-active { transition: all 0.2s; }
+.toast-enter-from { opacity: 0; transform: translateY(-16px) scale(0.9); }
+.toast-leave-to { opacity: 0; transform: translateY(-8px); }
+.sheet-enter-active, .sheet-leave-active { transition: opacity 0.25s; }
+.sheet-enter-active .sheet-panel, .sheet-leave-active .sheet-panel { transition: transform 0.3s cubic-bezier(0.2, 1, 0.3, 1); }
+.sheet-enter-from, .sheet-leave-to { opacity: 0; }
+.sheet-enter-from .sheet-panel, .sheet-leave-to .sheet-panel { transform: translateY(100%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wobble, .rise, .flicker, .bounce, .pop { animation: none; }
+}
