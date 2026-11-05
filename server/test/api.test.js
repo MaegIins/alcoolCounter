@@ -798,3 +798,22 @@ test('« déjà bue » : sans date ni note, hors score et hors journal ; compte 
   assert.deepEqual((await s.call('GET', `/users/${b.id}/drinks`, { token: b.token })).body.map((d) => d.count), [1])
   assert.equal((await s.call('DELETE', `/products/${p.id}/tried`, { token: b.token })).body.marked, false)
 })
+
+test('follow : suivre hors bande, fil « abonnements », avis des gens suivis, compteurs', async () => {
+  const a = await s.register('Alice')
+  const c = await s.register('Chloé', '1234', { group: false })
+  const p = (await s.call('POST', '/products', { token: c.token, body: { ...PINTE, name: 'Chouffe' } })).body
+  await s.drink(c.token, '2026-11-02', { product_id: p.id, rating: 8, review: 'Top' })
+  assert.equal((await s.call('PUT', `/users/${a.id}/follow`, { token: a.token })).status, 400)
+  assert.equal((await s.call('GET', `/products/${p.id}`, { token: a.token })).body.reviews.length, 0)
+  assert.equal((await s.call('PUT', `/users/${c.id}/follow`, { token: a.token })).body.iFollow, true)
+  assert.deepEqual((await s.call('GET', '/feed?scope=follow', { token: a.token })).body.items.map((d) => d.user_name), ['Chloé'])
+  assert.deepEqual((await s.call('GET', '/feed', { token: a.token })).body.items, []) // fil de la bande : inchangé
+  assert.equal((await s.call('GET', `/products/${p.id}`, { token: a.token })).body.reviews[0].review, 'Top')
+  const st = (await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body
+  assert.deepEqual([st.followers, st.following, st.iFollow], [1, 0, true])
+  assert.deepEqual((await s.call('GET', `/users/${c.id}/followers`, { token: c.token })).body.map((u) => [u.name, u.iFollow]), [['Alice', false]])
+  assert.deepEqual((await s.call('GET', `/users/${a.id}/following`, { token: a.token })).body.map((u) => [u.name, u.iFollow]), [['Chloé', true]])
+  await s.call('DELETE', `/users/${c.id}/follow`, { token: a.token })
+  assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body.iFollow, false)
+})

@@ -9,6 +9,7 @@ import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
 import ProductPicker from './ProductPicker.vue'
+import FollowList from './FollowList.vue'
 import UserDrinks from './UserDrinks.vue'
 
 const props = defineProps({ userId: Number, me: Object, colors: Object })
@@ -35,6 +36,22 @@ watch(() => props.userId, () => {
   diary.value = []
   data.value = null
 })
+
+// --- Suivre ---------------------------------------------------------------------------------
+const followBusy = ref(false)
+const followList = ref(null) // 'followers' | 'following' : liste ouverte
+async function toggleFollow() {
+  followBusy.value = true
+  try {
+    const r = await api(`/users/${props.userId}/follow`, { method: data.value.iFollow ? 'DELETE' : 'PUT' })
+    data.value = { ...data.value, iFollow: r.iFollow, followers: data.value.followers + (r.iFollow ? 1 : -1) }
+    if (r.iFollow) toast(`Tu suis ${data.value.user.name}`)
+  } catch (e) {
+    toast(e.message)
+  } finally {
+    followBusy.value = false
+  }
+}
 
 // --- Journal ----------------------------------------------------------------------------
 const diary = ref([])
@@ -132,6 +149,20 @@ const dayNum = (day) => Number(day.slice(8))
             <div class="text-xs text-muted">{{ s.l }}</div>
           </div>
         </div>
+        <!-- Abonnements : suivre quelqu'un, bande ou pas -->
+        <div class="mt-4 flex items-center gap-4 text-sm text-muted">
+          <button class="hover:text-ink hover:underline" @click="followList = 'followers'"><b class="text-ink">{{ data.followers }}</b> abonné{{ data.followers > 1 ? 's' : '' }}</button>
+          <button class="hover:text-ink hover:underline" @click="followList = 'following'"><b class="text-ink">{{ data.following }}</b> abonnement{{ data.following > 1 ? 's' : '' }}</button>
+          <button
+            v-if="!isMe"
+            class="btn px-4 py-1.5 font-bold"
+            :class="data.iFollow ? 'btn-ghost' : 'btn-hi'"
+            :disabled="followBusy"
+            @click="toggleFollow"
+          >
+            <Icon :name="data.iFollow ? 'check' : 'fa-user-plus'" /> {{ data.iFollow ? 'Suivi' : 'Suivre' }}
+          </button>
+        </div>
       </header>
 
       <!-- Onglets -->
@@ -171,7 +202,6 @@ const dayNum = (day) => Number(day.slice(8))
             </template>
           </div>
           <p v-if="isMe && !data.tops.some(Boolean)" class="mt-2 text-sm text-faint">Tes 4 boissons préférées, prises sur la carte.</p>
-          <p v-if="isMe && data.tops.some(Boolean)" class="mt-2 text-xs text-faint">Touche une case pour la changer.</p>
         </section>
 
         <section v-if="recent.length">
@@ -324,5 +354,6 @@ const dayNum = (day) => Number(day.slice(8))
     <div v-if="picking !== null && data.tops[picking]" class="fixed inset-x-0 bottom-6 z-[70] flex justify-center">
       <button class="btn bg-alert px-4 py-2 text-sm font-semibold text-white" @click="setTop(picking, null)">Vider la place n°{{ picking + 1 }}</button>
     </div>
+    <FollowList v-if="followList" :user-id="userId" :kind="followList" :me="me" :colors="colors" @close="followList = null" />
   </div>
 </template>

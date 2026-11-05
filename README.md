@@ -1,4 +1,4 @@
-# 🍺 Picole Compet
+# 🍺 L’Ardoise
 
 Ton journal de verres, noté et daté, l'activité de ta bande, et qui a le plus bu ce soir. Adapté de
 [Scroll Competition](https://github.com/MaegIins/scrollCompetition).

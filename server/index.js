@@ -16,4 +16,4 @@ const { app } = createApp({
   distDir: path.join(__dirname, '..', 'client', 'dist'),
 })
 
-app.listen(PORT, () => console.log(`🍺 Picole Compet API sur http://localhost:${PORT}`))
+app.listen(PORT, () => console.log(`🍺 L’Ardoise API sur http://localhost:${PORT}`))

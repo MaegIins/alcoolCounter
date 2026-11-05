@@ -134,7 +134,7 @@ async function logout() {
     <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2">
       <button class="text-left" @click="go('home')">
         <h1 class="font-drip text-[2.9rem] leading-[.85] text-hi sm:text-6xl">
-          Picole<br /><span class="flicker text-ink/80">Compet</span>
+          L’<span class="flicker text-ink/80">Ardoise</span>
         </h1>
       </button>
       <!-- Le profil est dans la barre du bas ; ici, juste la recherche -->

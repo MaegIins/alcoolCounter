@@ -42,9 +42,9 @@ async function join() {
 }
 
 async function share(g) {
-  const text = `Rejoins « ${g.name} » sur Picole Compet ! Code : ${g.code}`
+  const text = `Rejoins « ${g.name} » sur L’Ardoise ! Code : ${g.code}`
   try {
-    if (navigator.share) return await navigator.share({ title: 'Picole Compet', text, url: inviteLink(g) })
+    if (navigator.share) return await navigator.share({ title: 'L’Ardoise', text, url: inviteLink(g) })
     await navigator.clipboard.writeText(`${text}\n${inviteLink(g)}`)
     toast('Invitation copiée')
   } catch (e) {

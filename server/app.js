@@ -283,6 +283,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       created_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, product_id)
     );
+    -- Abonnements (follow) : à côté des bandes ; le fil « Abonnements » et les avis viennent aussi des gens suivis
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (follower_id, followee_id)
+    );
     CREATE TABLE IF NOT EXISTS user_tops (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
@@ -580,7 +587,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20))
     const [bAt, bId] = String(req.query.before || '').split(':').map(Number)
     const cursor = Number.isFinite(bAt) && Number.isFinite(bId) && req.query.before
-    const ids = req.memberIds
+    const ids = req.query.scope === 'follow'
+      ? [req.user.id, ...db.prepare('SELECT followee_id FROM follows WHERE follower_id = ?').all(req.user.id).map((r) => r.followee_id)]
+      : req.memberIds
     const rows = db.prepare(`
       SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
       JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id
@@ -608,6 +617,32 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       .slice(0, 20)
       .map(productOut)
     res.json({ users, products })
+  })
+
+  // Abonnés (qui le suit) et abonnements (qui il suit) d'une personne, avec « je le suis ? »
+  for (const [path, col, other] of [['followers', 'followee_id', 'follower_id'], ['following', 'follower_id', 'followee_id']]) {
+    app.get(`/api/users/:id/${path}`, auth, (req, res) => {
+      const id = Number(req.params.id)
+      if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
+      res.json(db.prepare(`
+        SELECT u.id, u.name, u.avatar_v,
+          EXISTS (SELECT 1 FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS iFollow
+        FROM follows f JOIN users u ON u.id = f.${other} WHERE f.${col} = ? ORDER BY f.created_at DESC
+      `).all(req.user.id, id).map((u) => ({ ...u, iFollow: !!u.iFollow })))
+    })
+  }
+
+  // Suivre quelqu'un (bande ou pas) / arrêter
+  app.put('/api/users/:id/follow', auth, (req, res) => {
+    const id = Number(req.params.id)
+    if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
+    if (id === req.user.id) return bad(res, 'Tu ne peux pas te suivre toi-même')
+    db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
+    res.json({ iFollow: true })
+  })
+  app.delete('/api/users/:id/follow', auth, (req, res) => {
+    db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, Number(req.params.id))
+    res.json({ iFollow: false })
   })
 
   // Toutes les boissons différentes d'une personne (même nom, volume et degré = même boisson), avec ses chiffres
@@ -777,6 +812,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       record: best ? { day: best.day, units: round1(best.units) } : null,
       wins,
       inBand: req.memberIds.includes(id),
+      followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?').get(id).n,
+      following: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?').get(id).n,
+      iFollow: !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, id),
       tops: Array.from({ length: 4 }, (_, i) => {
         const t = tops.find((x) => x.slot === i)
         return t ? productOut(t) : null
@@ -805,7 +843,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     (SELECT ROUND(AVG(rating), 1) FROM drinks WHERE product_id = p.id AND rating IS NOT NULL) AS rating,
     (SELECT COUNT(rating) FROM drinks WHERE product_id = p.id) AS ratings`
   // Mes potes : moi + les membres de toutes mes bandes (pour les avis affichés sur un produit)
-  const FRIENDS = `SELECT ? UNION SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?`
+  const FRIENDS = `SELECT ? UNION SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?
+    UNION SELECT followee_id FROM follows WHERE follower_id = ?`
   const productOut = (r) => ({ ...r, fav: !!r.fav, units: round1(unitsOf(r)) })
   const getProduct = (id, userId) =>
     db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?`).get(userId, id)
@@ -851,7 +890,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       WHERE d.product_id = ? AND (d.rating IS NOT NULL OR d.review IS NOT NULL OR d.photo_key IS NOT NULL)
         AND d.user_id IN (${FRIENDS})
       ORDER BY d.at DESC, d.id DESC LIMIT 200
-    `).all(p.id, req.user.id, req.user.id)
+    `).all(p.id, req.user.id, req.user.id, req.user.id)
     // Mes potes qui l'ont bue : combien de fois, leur note moyenne
     const people = db.prepare(`
       SELECT u.id, u.name, u.avatar_v, COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating, MAX(d.at) AS last_at
@@ -863,7 +902,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       WHERE t.product_id = ? AND t.user_id IN (${FRIENDS})
         AND NOT EXISTS (SELECT 1 FROM drinks WHERE product_id = t.product_id AND user_id = t.user_id)
       ORDER BY count DESC, last_at DESC
-    `).all(p.id, req.user.id, req.user.id, p.id, req.user.id, req.user.id)
+    `).all(p.id, req.user.id, req.user.id, req.user.id, p.id, req.user.id, req.user.id, req.user.id)
     // Dans le même genre : même catégorie, les mieux notées puis les plus bues
     const similar = db.prepare(`
       SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by

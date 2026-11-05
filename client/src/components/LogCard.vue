@@ -48,7 +48,7 @@ const zoom = ref(false)
         <h3 class="min-w-0 flex-1 text-lg leading-snug font-bold break-words">
           <button v-if="log.product_id" class="text-left hover:text-hi hover:underline" @click="openProduct(log.product_id)">{{ log.name }}</button>
           <template v-else>{{ log.name }}</template>
-          <span class="font-sans text-sm font-normal text-muted">{{ fmtDrink(log) }}</span>
+          <span class="ml-1.5 font-sans text-sm font-normal text-muted">{{ fmtDrink(log) }}</span>
         </h3>
         <button v-if="mine" class="-mt-0.5 -mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink" :aria-label="`Modifier ${log.name}`" @click="openLog({ edit: log })">
           <Icon name="edit" :size="16" />
