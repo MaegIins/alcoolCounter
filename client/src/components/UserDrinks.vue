@@ -43,7 +43,7 @@ const shown = computed(() => {
     rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || b.count - a.count,
     worst: (a, b) => (a.rating ?? 99) - (b.rating ?? 99) || b.count - a.count,
     recent: (a, b) => b.last_at - a.last_at,
-    old: (a, b) => a.last_at - b.last_at,
+    old: (a, b) => (a.last_at ?? 9e15) - (b.last_at ?? 9e15), // les « déjà bue » sans date à la fin
     units: (a, b) => b.units - a.units,
     name: (a, b) => a.name.localeCompare(b.name),
   }[sort.value]
@@ -127,7 +127,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
     <p v-else-if="loaded && !shown.length" class="py-10 text-center text-muted">Rien ne correspond.</p>
     <ul class="box divide-y divide-white/5">
       <li v-for="d in shown.slice(0, limit)" :key="`${d.name}|${d.cl}|${d.abv}`">
-        <button class="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5" @click="show(d)">
+        <button class="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5" @click="d.count ? show(d) : openProduct(d.product_id)">
           <img v-if="thumb(d)" :src="thumb(d)" alt="" loading="lazy" class="h-11 w-11 shrink-0 rounded-lg object-cover ring-1 ring-black/50" />
           <Poster v-else :drink="d" :width="44" :icon="44" class="!h-11" />
           <span class="min-w-0 flex-1 leading-tight">
@@ -137,10 +137,12 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
               <Stars v-if="d.rating" :value="Math.round(d.rating)" :size="11" />
               <span v-if="d.reviews" class="text-xs">💬{{ d.reviews }}</span>
             </span>
-            <span class="text-xs text-faint">dernière : {{ dayLabel(d.last_day, true) }}</span>
+            <span v-if="d.last_day" class="text-xs text-faint">dernière : {{ dayLabel(d.last_day, true) }}</span>
+            <span v-else class="text-xs text-faint">sans date ni note</span>
           </span>
           <span class="shrink-0 text-right">
-            <span class="block font-display text-xl leading-none text-hi">×{{ d.count }}</span>
+            <span v-if="d.count" class="block font-display text-xl leading-none text-hi">×{{ d.count }}</span>
+            <span v-else class="block text-sm font-bold text-hi">✓ déjà bue</span>
             <span v-if="d.units" class="text-xs text-muted">{{ num(d.units) }} verres</span>
           </span>
         </button>

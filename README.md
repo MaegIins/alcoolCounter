@@ -83,6 +83,9 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   boire direct, ✎ / ✕ pour l'auteur ou un admin. À l'ajout : photo et infos facultatives (producteur, origine,
   style, description), modifiables après. Doublons refusés (même nom, volume et degré). Une conso est rattachée
   au produit de même nom, volume et degré, même si le produit est ajouté après.
+- **« Déjà bue »** (page d'une boisson) : marquer une boisson comme bue un jour, sans date ni note. Hors score et
+  hors journal ; elle compte dans les buveurs, apparaît dans « Tes potes l'ont bue », dans l'onglet Boissons du
+  profil (« sans date ni note ») et avec un ✓ dans la carte.
 - **Recherche** (🔍 dans l'en-tête) : des personnes, **même hors de ta bande**, et des boissons de la carte (par nom
   ou producteur), sans tenir compte des accents ni des majuscules. Les profils (stats, top 4, journal, boissons,
   badges) sont donc visibles par tout le monde, avec la mention « pas dans ta bande » ; le fil d'activité, le

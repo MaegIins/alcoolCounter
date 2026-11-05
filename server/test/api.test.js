@@ -776,3 +776,25 @@ test('recherche : personnes (même hors bande, sans accents) et boissons (nom ou
   assert.deepEqual((await s.call('GET', '/search?q=achouffe', { token: a.token })).body.products.map((p) => p.name), ['Chouffe'])
   assert.deepEqual((await s.call('GET', '/search?q=', { token: a.token })).body, { users: [], products: [] })
 })
+
+test('« déjà bue » : sans date ni note, hors score et hors journal ; compte dans les buveurs et le profil', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  const p = (await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', abv: 8 } })).body
+  assert.equal((await s.call('PUT', `/products/${p.id}/tried`, { token: b.token })).status, 200)
+  assert.equal((await s.call('PUT', `/products/${p.id}/tried`, { token: b.token })).status, 200) // idempotent
+  assert.equal((await s.call('PUT', '/products/9999/tried', { token: b.token })).status, 404)
+  const f = (await s.call('GET', `/products/${p.id}`, { token: b.token })).body
+  assert.deepEqual([f.marked, f.tried, f.mine, f.drinkers, f.logs], [true, true, 0, 1, 0])
+  assert.deepEqual(f.people.map((x) => [x.name, x.count]), [['Bob', 0]])
+  assert.equal((await s.call('GET', '/products', { token: b.token })).body.find((x) => x.id === p.id).tried, true)
+  assert.equal((await s.call('GET', '/products', { token: a.token })).body.find((x) => x.id === p.id).tried, false)
+  // Dans ses boissons : 0 conso, marquée ; rien dans le journal ni au classement
+  const list = (await s.call('GET', `/users/${b.id}/drinks`, { token: a.token })).body
+  assert.deepEqual(list.map((d) => [d.name, d.count, d.marked]), [['Chouffe', 0, true]])
+  assert.deepEqual((await s.call('GET', `/users/${b.id}/diary`, { token: b.token })).body.items, [])
+  // Une vraie conso ensuite : plus de doublon dans ses boissons
+  await s.drink(b.token, '2026-11-02', { product_id: p.id })
+  assert.deepEqual((await s.call('GET', `/users/${b.id}/drinks`, { token: b.token })).body.map((d) => d.count), [1])
+  assert.equal((await s.call('DELETE', `/products/${p.id}/tried`, { token: b.token })).body.marked, false)
+})

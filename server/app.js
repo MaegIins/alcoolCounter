@@ -276,6 +276,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     CREATE UNIQUE INDEX IF NOT EXISTS drinks_photo_key ON drinks(photo_key);
     CREATE UNIQUE INDEX IF NOT EXISTS products_photo_key ON products(photo_key);
     -- Top 4 de chacun (4 places, un produit de la carte par place)
+    -- « Déjà bue » : je l'ai bue un jour, sans date ni note (hors score, hors journal)
+    CREATE TABLE IF NOT EXISTS product_tried (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, product_id)
+    );
     CREATE TABLE IF NOT EXISTS user_tops (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
@@ -618,7 +625,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       GROUP BY d.name COLLATE NOCASE, d.cl, d.abv
       ORDER BY count DESC, last_at DESC
     `).all(id)
-    res.json(rows.map((r) => ({ ...r, units: round1(unitsOf(r) * r.count) })))
+    const marked = db.prepare(`
+      SELECT p.name, p.cat, p.cl, p.abv, p.id AS product_id, p.photo_key AS product_photo_key, t.created_at AS marked_at
+      FROM product_tried t JOIN products p ON p.id = t.product_id WHERE t.user_id = ?
+    `).all(id).filter((m) => !rows.some((r) => r.product_id === m.product_id || (fold(r.name) === fold(m.name) && r.cl === m.cl && r.abv === m.abv)))
+    res.json([
+      ...rows.map((r) => ({ ...r, units: round1(unitsOf(r) * r.count) })),
+      ...marked.map((m) => ({ ...m, count: 0, rating: null, ratings: 0, reviews: 0, photos: 0, first_day: null, last_day: null, last_at: null, last_photo_key: null, units: 0, marked: true })),
+    ])
   })
 
   // Toutes les consos d'une personne pour une boisson donnée (?name=&cl=&abv=), plus récentes d'abord
@@ -804,13 +818,20 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     return p
   }
 
+  // Boissons que j'ai bues : avec au moins une conso, ou marquées « déjà bue »
+  const triedSet = (userId) => new Set(db.prepare(`
+    SELECT product_id FROM drinks WHERE user_id = ? AND product_id IS NOT NULL
+    UNION SELECT product_id FROM product_tried WHERE user_id = ?
+  `).all(userId, userId).map((r) => r.product_id))
+
   // Toute la carte (commune), les plus mis en favori d'abord
   app.get('/api/products', auth, (req, res) => {
     const rows = db.prepare(`
       SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by
       ORDER BY favs DESC, p.name
     `).all(req.user.id)
-    res.json(rows.map(productOut))
+    const tried = triedSet(req.user.id)
+    res.json(rows.map((r) => ({ ...productOut(r), tried: tried.has(r.id) })))
   })
 
   // Fiche d'un produit : chiffres, répartition des notes (tout le monde), avis et photos de mes potes
@@ -819,7 +840,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!p) return
     const hist = Array(10).fill(0)
     for (const r of db.prepare('SELECT rating, COUNT(*) AS n FROM drinks WHERE product_id = ? AND rating IS NOT NULL GROUP BY rating').all(p.id)) hist[r.rating - 1] = r.n
-    const { drinkers } = db.prepare('SELECT COUNT(DISTINCT user_id) AS drinkers FROM drinks WHERE product_id = ?').get(p.id)
+    const { drinkers } = db.prepare(`SELECT COUNT(*) AS drinkers FROM (
+      SELECT user_id FROM drinks WHERE product_id = ? UNION SELECT user_id FROM product_tried WHERE product_id = ?
+    )`).get(p.id, p.id)
+    const marked = !!db.prepare('SELECT 1 FROM product_tried WHERE product_id = ? AND user_id = ?').get(p.id, req.user.id)
     const mine = db.prepare('SELECT COUNT(*) AS n, MAX(rating) AS best FROM drinks WHERE product_id = ? AND user_id = ?').get(p.id, req.user.id)
     const reviews = db.prepare(`
       SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
@@ -833,8 +857,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       SELECT u.id, u.name, u.avatar_v, COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating, MAX(d.at) AS last_at
       FROM drinks d JOIN users u ON u.id = d.user_id
       WHERE d.product_id = ? AND d.user_id IN (${FRIENDS})
-      GROUP BY u.id ORDER BY count DESC, last_at DESC
-    `).all(p.id, req.user.id, req.user.id)
+      GROUP BY u.id
+      UNION ALL
+      SELECT u.id, u.name, u.avatar_v, 0, NULL, t.created_at FROM product_tried t JOIN users u ON u.id = t.user_id
+      WHERE t.product_id = ? AND t.user_id IN (${FRIENDS})
+        AND NOT EXISTS (SELECT 1 FROM drinks WHERE product_id = t.product_id AND user_id = t.user_id)
+      ORDER BY count DESC, last_at DESC
+    `).all(p.id, req.user.id, req.user.id, p.id, req.user.id, req.user.id)
     // Dans le même genre : même catégorie, les mieux notées puis les plus bues
     const similar = db.prepare(`
       SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by
@@ -842,7 +871,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     `).all(req.user.id, p.cat, p.id)
     const myLast = db.prepare('SELECT rating FROM drinks WHERE product_id = ? AND user_id = ? AND rating IS NOT NULL ORDER BY at DESC LIMIT 1').get(p.id, req.user.id)
     res.json({
-      ...productOut(p), hist, drinkers, mine: mine.n, myRating: myLast?.rating ?? null,
+      ...productOut(p), hist, drinkers, mine: mine.n, marked, tried: marked || mine.n > 0, myRating: myLast?.rating ?? null,
       reviews: reviews.map(logOut), people, similar: similar.map(productOut),
     })
   })
@@ -911,6 +940,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut le retirer", 403)
     db.prepare('DELETE FROM products WHERE id = ?').run(p.id)
     res.json({ ok: true })
+  })
+
+  // « Déjà bue » : sans date ni note, hors score et hors journal (comme « vu » sans entrée de journal)
+  app.put('/api/products/:id/tried', auth, (req, res) => {
+    if (!productOf(req, res)) return
+    db.prepare('INSERT OR IGNORE INTO product_tried (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, Number(req.params.id), now())
+    res.json({ marked: true })
+  })
+  app.delete('/api/products/:id/tried', auth, (req, res) => {
+    db.prepare('DELETE FROM product_tried WHERE user_id = ? AND product_id = ?').run(req.user.id, Number(req.params.id))
+    res.json({ marked: false })
   })
 
   // Infos d'un produit (producteur, origine, style, description) : n'importe qui peut compléter un champ vide ;

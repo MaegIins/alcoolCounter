@@ -276,7 +276,9 @@ async function create() {
             <Poster :drink="p" :width="36" :icon="40" />
           </button>
           <span class="min-w-0 flex-1 leading-tight">
-            <button class="block max-w-full truncate text-left text-lg font-bold hover:text-hi hover:underline" @click="openProduct(p.id)">{{ p.name }}</button>
+            <button class="block max-w-full truncate text-left text-lg font-bold hover:text-hi hover:underline" @click="openProduct(p.id)">
+              {{ p.name }}<span v-if="p.tried" class="ml-1.5 text-sm text-hi" title="Tu l'as déjà bue">✓</span>
+            </button>
             <span v-if="p.rating" class="flex items-center gap-1.5 text-xs text-muted"><Stars :value="Math.round(p.rating)" :size="11" /> {{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</span>
             <span class="text-sm text-muted">
               {{ fmtDrink(p) }}

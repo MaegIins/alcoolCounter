@@ -49,6 +49,25 @@ async function toggleFav(e) {
   }
 }
 const drinkIt = () => openLog({ product: p.value })
+// « Déjà bue » : je l'ai bue un jour, sans date ni note (hors score, hors journal)
+const marking = ref(false)
+async function toggleTried(e) {
+  const [x, y] = centerOf(e)
+  marking.value = true
+  try {
+    const r = await api(`/products/${p.value.id}/tried`, { method: p.value.marked ? 'DELETE' : 'PUT' })
+    if (r.marked) {
+      burst(x, y, { text: '✓', color: '#d4bc35', bubbles: 6 })
+      vibrate(15)
+      toast(`${p.value.name} : déjà bue`)
+    }
+    bump()
+  } catch (err) {
+    toast(err.message)
+  } finally {
+    marking.value = false
+  }
+}
 
 // --- Modifier (auteur ou admin : tout ; les autres : compléter les infos vides) -------------------
 const editing = ref(null) // { drink, info, photo }
@@ -196,7 +215,7 @@ const zoom = ref('')
       <!-- Panneau d'actions -->
       <section class="box mt-6 divide-y divide-white/5">
         <div class="grid grid-cols-2 gap-2 p-3">
-          <button class="btn btn-hi py-2.5 font-bold" @click="drinkIt">＋ {{ p.mine ? 'Encore une' : "Je l'ai bue" }}</button>
+          <button class="btn btn-hi py-2.5 font-bold" @click="drinkIt">＋ {{ p.mine ? 'Encore une' : "J'en bois une" }}</button>
           <button class="btn py-2.5 font-bold" :class="p.fav ? 'bg-hi/15 text-hi' : 'btn-ghost'" :aria-pressed="p.fav" @click="toggleFav">
             {{ p.fav ? '★ En favori' : '☆ Favori' }}
           </button>
@@ -206,9 +225,20 @@ const zoom = ref('')
           <span v-if="p.myRating" class="flex items-center gap-2"><Stars :value="p.myRating" :size="16" /></span>
           <button v-else class="font-semibold text-hi hover:underline" @click="drinkIt">Pas encore notée</button>
         </div>
-        <div class="flex items-center justify-between px-4 py-3 text-sm">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
           <span class="text-muted">Tu l'as bue</span>
-          <span class="font-bold">{{ p.mine ? `${p.mine} fois` : 'jamais' }}</span>
+          <span v-if="p.mine" class="font-bold">{{ p.mine }} fois<template v-if="p.marked"> · ✓</template></span>
+          <!-- Pas de conso : « déjà bue » sans date ni note -->
+          <button
+            v-else
+            class="btn px-3 py-1.5 font-bold"
+            :class="p.marked ? 'bg-hi/15 text-hi' : 'btn-ghost'"
+            :aria-pressed="p.marked"
+            :disabled="marking"
+            @click="toggleTried"
+          >
+            {{ p.marked ? '✓ Déjà bue' : 'Je l’ai déjà bue' }}
+          </button>
         </div>
         <div class="flex flex-wrap gap-2 px-3 py-3">
           <button v-if="canManage || missingInfo.length" class="btn btn-ghost px-3 py-1.5 text-sm font-semibold" @click="startEdit">
@@ -273,7 +303,7 @@ const zoom = ref('')
             <Avatar :user="u" :color="colors[u.id]" :size="48" class="rounded-full" />
             <span class="mt-1 w-full truncate text-xs font-semibold">{{ u.id === me.id ? 'Toi' : u.name }}</span>
             <Stars v-if="u.rating" :value="Math.round(u.rating)" :size="9" />
-            <span class="text-[10px] text-muted">×{{ u.count }}</span>
+            <span class="text-[10px] text-muted">{{ u.count ? `×${u.count}` : 'déjà bue' }}</span>
           </button>
         </div>
       </section>
