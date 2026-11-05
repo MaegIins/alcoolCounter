@@ -10,6 +10,7 @@ import PhotoField from './PhotoField.vue'
 import InfoFields from './InfoFields.vue'
 import { burst, centerOf, vibrate, toast, ask, celebrateBadges } from '../juice'
 import { ui, openProduct } from '../nav'
+import Icon from './Icon.vue'
 
 const props = defineProps({ me: Object })
 const emit = defineEmits(['back', 'saved'])
@@ -91,7 +92,7 @@ async function toggleFav(p, e) {
     const [x, y] = centerOf(e)
     replace(await api(`/products/${p.id}/fav`, { method: p.fav ? 'DELETE' : 'PUT' }))
     if (!p.fav) {
-      burst(x, y, { text: '★', color: '#d4bc35', bubbles: 6 })
+      burst(x, y, { icon: 'fa-star', color: '#d4bc35', bubbles: 6 })
       vibrate(15)
     }
   } catch (e) {
@@ -111,9 +112,9 @@ async function drinkNow(p, e) {
   try {
     const row = await api('/drinks', { method: 'POST', body: { day: today(), name: p.name, cat: p.cat, cl: p.cl, abv: p.abv } })
     emit('saved')
-    burst(x, y, { text: p.units ? `+${num(p.units)}` : catOf(p.cat).icon, color: catOf(p.cat).hex })
+    burst(x, y, { text: p.units ? `+${num(p.units)}` : '', icon: p.units ? '' : catOf(p.cat).fa, color: catOf(p.cat).hex })
     vibrate(30)
-    toast(`${catOf(p.cat).icon} ${p.name}${p.units ? ` +${num(p.units)}` : ''}`, { action: { label: 'Annuler', run: () => undo(row) } })
+    toast(`${p.name}${p.units ? ` +${num(p.units)}` : ''}`, { icon: catOf(p.cat).fa, action: { label: 'Annuler', run: () => undo(row) } })
     celebrateBadges(row.badges)
   } catch (e) {
     error.value = e.message
@@ -123,7 +124,7 @@ async function drinkNow(p, e) {
 async function removeProduct(p) {
   const mine = p.created_by === props.me.id
   const ok = await ask({
-    icon: catOf(p.cat).icon,
+    icon: catOf(p.cat).fa,
     title: `Retirer « ${p.name} » ?`,
     message: mine
       ? 'Il disparaîtra de la carte et des favoris de tout le monde. Les verres déjà bus restent comptés.'
@@ -175,11 +176,11 @@ async function create() {
     <div>
       <div class="flex items-center justify-between">
         <h2 class="font-display text-2xl">La carte</h2>
-        <button class="text-sm font-semibold text-muted hover:text-hi" @click="emit('back')">← Retour</button>
+        <button class="text-sm font-semibold text-muted hover:text-hi" @click="emit('back')"><Icon name="back" /> Retour</button>
       </div>
       <p class="mt-2 text-muted">
-        Les boissons de tout le monde, toutes bandes confondues. Mets-en en favori <span class="text-hi">★</span>
-        pour les retrouver en haut du ＋.
+        Les boissons de tout le monde, toutes bandes confondues. Mets-en en favori <Icon name="star" class="text-hi" />
+        pour les retrouver en haut du <Icon name="plus" />.
       </p>
     </div>
 
@@ -189,7 +190,7 @@ async function create() {
       class="btn tile lift flex w-full items-center gap-4 border-dashed !border-hi/50 px-5 py-4 text-left"
       @click="draft = { name: search.trim(), cat: cat || 'biere', cl: 33, abv: 5, info: { maker: '', origin: '', style: '', description: '' } }"
     >
-      <span class="text-3xl text-hi">＋</span>
+      <Icon name="plus" :size="26" class="text-hi" />
       <span>
         <span class="block text-lg font-bold text-hi">Ajouter un produit</span>
         <span class="text-sm text-muted">Bière, vin, alcool fort, cocktail, Monster, soda…</span>
@@ -203,7 +204,7 @@ async function create() {
       <DrinkFields v-model="draft" name-placeholder="Nom : Chouffe, Leffe Ruby, Ricard…" />
       <PhotoField v-model="draft.photo" label="Ajouter une photo (canette, bouteille…)" />
       <details class="rounded-xl bg-white/[.03] px-4 py-3">
-        <summary class="cursor-pointer text-sm font-semibold text-muted">＋ Infos : producteur, origine, style, description</summary>
+        <summary class="cursor-pointer text-sm font-semibold text-muted"><Icon name="plus" /> Infos : producteur, origine, style, description</summary>
         <InfoFields v-model="draft.info" class="mt-3" />
       </details>
       <button :disabled="!draftValid" class="btn btn-hi w-full py-3 text-lg font-bold disabled:opacity-40">
@@ -216,14 +217,17 @@ async function create() {
 
     <!-- Filtres + liste -->
     <div ref="listTop" class="scroll-mt-4 space-y-4">
-      <input v-model="search" type="search" placeholder="🔍  Chercher une boisson…" class="field w-full px-4 py-3 text-base" />
+      <label class="relative block">
+        <Icon name="search" class="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted" />
+        <input v-model="search" type="search" placeholder="Chercher une boisson…" class="field w-full py-3 pr-4 pl-11 text-base" />
+      </label>
       <div class="-mx-4 flex gap-2 overflow-x-auto px-4 text-sm font-semibold">
         <button
           class="shrink-0 rounded-full px-3 py-1.5"
           :class="onlyFavs ? 'bg-hi text-paper' : 'bg-white/5 text-muted hover:bg-white/10'"
           @click="onlyFavs = !onlyFavs"
         >
-          ★ Mes favoris · {{ favCount }}
+          <Icon name="star" /> Mes favoris · {{ favCount }}
         </button>
         <button
           v-for="c in CATS"
@@ -233,7 +237,7 @@ async function create() {
           :style="cat === c.key ? { background: c.hex } : {}"
           @click="cat = cat === c.key ? '' : c.key"
         >
-          {{ c.icon }} {{ c.label }}
+          <Icon :name="c.fa" /> {{ c.label }}
         </button>
       </div>
 
@@ -270,14 +274,14 @@ async function create() {
             :aria-pressed="p.fav"
             @click="toggleFav(p, $event)"
           >
-            {{ p.fav ? '★' : '☆' }}
+            <Icon name="star" :regular="!p.fav" :size="20" />
           </button>
           <button class="shrink-0" :aria-label="`Fiche de ${p.name}`" @click="openProduct(p.id)">
             <Poster :drink="p" :width="36" :icon="40" />
           </button>
           <span class="min-w-0 flex-1 leading-tight">
             <button class="block max-w-full truncate text-left text-lg font-bold hover:text-hi hover:underline" @click="openProduct(p.id)">
-              {{ p.name }}<span v-if="p.tried" class="ml-1.5 text-sm text-hi" title="Tu l'as déjà bue">✓</span>
+              {{ p.name }}<Icon v-if="p.tried" name="check" class="ml-1.5 text-sm text-hi" title="Tu l'as déjà bue" />
             </button>
             <span v-if="p.rating" class="flex items-center gap-1.5 text-xs text-muted"><Stars :value="Math.round(p.rating)" :size="11" /> {{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</span>
             <span class="text-sm text-muted">
@@ -293,7 +297,7 @@ async function create() {
             title="Modifier"
             @click="editing = { id: p.id, name: p.name, cat: p.cat, cl: p.cl, abv: p.abv }"
           >
-            ✎
+            <Icon name="edit" />
           </button>
           <button
             v-if="canRemove(p)"
@@ -302,7 +306,7 @@ async function create() {
             :aria-label="`Retirer ${p.name} de la carte`"
             @click="removeProduct(p)"
           >
-            ✕
+            <Icon name="close" />
           </button>
           <button class="btn btn-hi shrink-0 px-3 py-2 font-bold" :aria-label="`Je bois un ${p.name}`" @click="drinkNow(p, $event)">
             {{ p.units ? `+${num(p.units)}` : '+1' }}

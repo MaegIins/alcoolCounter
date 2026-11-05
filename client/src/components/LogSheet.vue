@@ -84,7 +84,8 @@ async function addExtra(kind) {
   try {
     const row = await api('/extras', { method: 'POST', body: { day: today(), kind } })
     vibrate(15)
-    toast(kind === 'eau' ? `💧 Verre d'eau n°${row.count}` : `🚬 Clope n°${row.count}`, {
+    toast(kind === 'eau' ? `Verre d'eau n°${row.count}` : `Clope n°${row.count}`, {
+      icon: kind === 'eau' ? 'fa-droplet' : 'fa-smoking',
       action: { label: 'Annuler', run: () => api(`/extras/${row.id}`, { method: 'DELETE' }).then(bump).catch(() => {}) },
     })
     celebrateBadges(row.badges)
@@ -145,7 +146,8 @@ async function save() {
         body: { ...extra, ...(d.product_id ? { product_id: d.product_id } : drink), ...(photo.value ? { photo: photo.value } : {}) },
       })
       vibrate(30)
-      toast(`${catOf(row.cat).icon} ${row.name}${row.units ? ` · +${num(row.units)}` : ''}`, {
+      toast(`${row.name}${row.units ? ` · +${num(row.units)}` : ''}`, {
+        icon: catOf(row.cat).fa,
         action: { label: 'Annuler', run: () => api(`/drinks/${row.id}`, { method: 'DELETE' }).then(() => (bump(), toast(`${row.name} annulé`))).catch(() => {}) },
       })
       celebrateBadges(row.badges)
@@ -283,7 +285,7 @@ async function remove() {
                   class="tile flex flex-col items-center gap-0.5 px-1 py-2.5 text-center"
                   @click="chooseFormat(f)"
                 >
-                  <span class="text-xl leading-none">{{ catOf(f.cat).icon }}</span>
+                  <Icon :name="catOf(f.cat).fa" :size="18" :style="{ color: catOf(f.cat).hex }" />
                   <span class="w-full truncate text-sm font-medium">{{ f.name }}</span>
                   <span class="text-xs text-faint">{{ num(f.cl) }} cl</span>
                 </button>
@@ -296,8 +298,8 @@ async function remove() {
 
             <section class="flex items-center gap-2 border-t border-line pt-4">
               <span class="flex-1 text-sm text-muted">Hors score, ce soir</span>
-              <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('eau')">💧 Eau</button>
-              <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('clope')">🚬 Clope</button>
+              <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('eau')"><Icon name="water" class="text-fort" /> Eau</button>
+              <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('clope')"><Icon name="smoke" /> Clope</button>
             </section>
           </template>
         </div>
@@ -313,10 +315,10 @@ async function remove() {
                 {{ units ? `+${num(units)} verre${units >= 2 ? 's' : ''} standard` : 'Hors score (sans alcool)' }}
               </div>
               <button v-if="sel.product_id" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" @click="toPage(sel.product_id)">
-                Page de la boisson →
+                Page de la boisson <Icon name="next" />
               </button>
               <button v-else-if="edit" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" :disabled="busy" @click="createPage">
-                ＋ Lui créer une page sur la carte
+                <Icon name="plus" /> Lui créer une page sur la carte
               </button>
             </div>
           </div>

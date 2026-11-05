@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { api, ALCO_CATS as CATS, SUSPECT_UNITS, fmt, num, prettyDay, today, addDays, mondayOf, monthBounds } from '../api'
 import Avatar from './Avatar.vue'
 import { confetti, toast, vibrate } from '../juice'
+import Icon from './Icon.vue'
 
 const props = defineProps({ day: String, me: Object, colors: Object, refreshKey: Number })
 const emit = defineEmits(['open']) // clic sur quelqu'un : ouvrir sa fiche
@@ -169,7 +170,7 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
               </span>
             </span>
             <span class="block text-sm text-muted">
-              {{ r.count }} conso{{ r.count > 1 ? 's' : '' }}<template v-if="r.wins"> · ♛ {{ r.wins }}</template><template v-if="r.eau"> · 💧{{ r.eau }}</template><template v-if="r.clope"> · 🚬{{ r.clope }}</template>
+              {{ r.count }} conso{{ r.count > 1 ? 's' : '' }}<template v-if="r.wins"> · <Icon name="crown" class="text-hi" /> {{ r.wins }}</template><template v-if="r.eau"> · <Icon name="water" class="text-fort" /> {{ r.eau }}</template><template v-if="r.clope"> · <Icon name="smoke" /> {{ r.clope }}</template>
             </span>
             <span v-if="r.total" class="mt-1.5 flex h-1.5 gap-px overflow-hidden rounded-full bg-white/5">
               <span

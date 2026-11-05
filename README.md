@@ -3,7 +3,7 @@
 Ton journal de verres, noté et daté, l'activité de ta bande, et qui a le plus bu ce soir. Adapté de
 [Scroll Competition](https://github.com/MaegIins/scrollCompetition).
 
-- **Front** : Vue 3 + Vite + Tailwind v4 (`client/`)
+- **Front** : Vue 3 + Vite + Tailwind v4 + icônes Font Awesome Free (npm, embarquées dans le build) (`client/`)
 - **Back** : Express + SQLite natif de Node (`node:sqlite`, Node ≥ 22) (`server/`)
 
 ## Lancer en dev

@@ -6,6 +6,7 @@ import { openUser, openProduct } from '../nav'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
+import Icon from './Icon.vue'
 
 defineProps({ colors: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['close'])
@@ -55,14 +56,17 @@ onBeforeUnmount(() => {
     <div class="fixed inset-0 z-[60] flex items-start justify-center bg-black/70 backdrop-blur-sm sm:p-4" @click.self="emit('close')">
       <div class="sheet-panel box flex max-h-[100dvh] w-full max-w-lg flex-col rounded-none sm:mt-12 sm:max-h-[80vh] sm:rounded-[.6rem]" role="dialog" aria-modal="true" aria-label="Recherche">
         <div class="flex items-center gap-2 border-b border-white/5 p-3">
-          <input
-            ref="input"
-            v-model="q"
-            type="search"
-            placeholder="🔍  Une personne, une boisson…"
-            class="field min-w-0 flex-1 px-4 py-3 text-base"
-            aria-label="Rechercher"
-          />
+          <label class="relative min-w-0 flex-1">
+            <Icon name="search" class="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted" />
+            <input
+              ref="input"
+              v-model="q"
+              type="search"
+              placeholder="Une personne, une boisson…"
+              class="field w-full py-3 pr-4 pl-11 text-base"
+              aria-label="Rechercher"
+            />
+          </label>
           <button class="shrink-0 px-2 text-sm font-semibold text-muted hover:text-ink" @click="emit('close')">Fermer</button>
         </div>
 

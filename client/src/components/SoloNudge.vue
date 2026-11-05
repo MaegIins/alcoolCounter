@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import { api, setGroup } from '../api'
 import { toast, confetti } from '../juice'
+import Icon from './Icon.vue'
 
 defineProps({ variant: { type: String, default: 'banner' } })
 const emit = defineEmits(['changed', 'focus'])
@@ -50,7 +51,7 @@ const FAKE = [
   <!-- Encart -->
   <section v-if="variant === 'banner'" class="box border-hi/30 p-5">
     <div class="flex items-start gap-3">
-      <span class="text-3xl leading-none">🪑</span>
+      <Icon name="chair" :size="28" class="text-hi" />
       <div>
         <h3 class="font-display text-xl">Tu bois seul.</h3>
         <p class="mt-1 text-sm text-muted">
@@ -97,7 +98,7 @@ const FAKE = [
         </li>
       </ol>
       <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-paper/50 p-6 text-center">
-        <span class="text-3xl">🔒</span>
+        <Icon name="lock" :size="28" class="text-hi" />
         <p class="font-bold">Le classement, c'est entre potes.</p>
         <p class="text-sm text-muted">Qui boit le plus ce soir, qui gagne la semaine, qui est suspect : il te faut une bande.</p>
         <button class="btn btn-hi px-5 py-2.5 font-bold" @click="emit('focus')">Rejoindre ou créer une bande</button>

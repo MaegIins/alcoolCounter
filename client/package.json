@@ -8,6 +8,7 @@
     "test": "TZ=Europe/Paris node --test --test-reporter=spec \"test/**/*.test.js\""
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.7.2",
     "vue": "^3.5.44"
   },
   "devDependencies": {

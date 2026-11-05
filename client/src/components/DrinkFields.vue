@@ -3,6 +3,7 @@
 // v-model = objet { name, cat, cl, abv } modifié sur place. Sans alcool : pas de degré (0).
 import { watch } from 'vue'
 import { CATS, MAX_CL, catOf, num } from '../api'
+import Icon from './Icon.vue'
 
 const drink = defineModel({ type: Object, required: true })
 defineProps({
@@ -30,7 +31,7 @@ const chip = 'rounded-full px-3 py-1 text-sm font-medium transition-colors'
         :style="drink.cat === c.key ? { background: c.hex } : {}"
         @click="drink.cat = c.key"
       >
-        {{ c.icon }} {{ c.label }}
+        <Icon :name="c.fa" /> {{ c.label }}
       </button>
     </div>
 

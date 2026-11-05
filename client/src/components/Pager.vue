@@ -1,6 +1,7 @@
 <script setup>
 // Pagination : ‹ 1 … 4 5 6 … 12 ›. v-model = page courante (à partir de 1).
 import { computed } from 'vue'
+import Icon from './Icon.vue'
 
 const page = defineModel({ type: Number, required: true })
 const props = defineProps({ pages: { type: Number, required: true }, label: { type: String, default: 'Pages' } })
@@ -20,7 +21,7 @@ const nums = computed(() => {
 
 <template>
   <nav v-if="pages > 1" class="flex items-center justify-center gap-1.5" :aria-label="label">
-    <button class="h-10 w-10 rounded-full bg-white/5 text-lg font-bold hover:bg-white/10 disabled:opacity-30" :disabled="page === 1" aria-label="Page précédente" @click="go(page - 1)">‹</button>
+    <button class="h-10 w-10 rounded-full bg-white/5 text-lg font-bold hover:bg-white/10 disabled:opacity-30" :disabled="page === 1" aria-label="Page précédente" @click="go(page - 1)"><Icon name="prev" /></button>
     <template v-for="(n, i) in nums" :key="i">
       <span v-if="n === '…'" class="w-6 text-center text-muted">…</span>
       <button
@@ -33,6 +34,6 @@ const nums = computed(() => {
         {{ n }}
       </button>
     </template>
-    <button class="h-10 w-10 rounded-full bg-white/5 text-lg font-bold hover:bg-white/10 disabled:opacity-30" :disabled="page === pages" aria-label="Page suivante" @click="go(page + 1)">›</button>
+    <button class="h-10 w-10 rounded-full bg-white/5 text-lg font-bold hover:bg-white/10 disabled:opacity-30" :disabled="page === pages" aria-label="Page suivante" @click="go(page + 1)"><Icon name="more" /></button>
   </nav>
 </template>

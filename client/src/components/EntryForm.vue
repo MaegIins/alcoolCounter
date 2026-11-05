@@ -11,6 +11,7 @@ import AnimatedNumber from './AnimatedNumber.vue'
 import Pager from './Pager.vue'
 import Stars from './Stars.vue'
 import Poster from './Poster.vue'
+import Icon from './Icon.vue'
 import { burst, centerOf, vibrate, toast, milestoneBetween, celebrateBadges, smokeLine, waterLine } from '../juice'
 import { ui, openLog, openProduct } from '../nav'
 
@@ -82,7 +83,7 @@ function react(before, after) {
   const step = milestoneBetween(sum(before), sum(after))
   if (step) setTimeout(() => toast(step.text, { kind: 'big' }), 700)
   if (isToday.value && sinceWater.value >= 3 && sinceWater.value % 3 === 0) {
-    setTimeout(() => toast(`${sinceWater.value} verres sans eau`, { ms: 6000, action: { label: '+ 💧', run: () => addExtra('eau') } }), 1200)
+    setTimeout(() => toast(`${sinceWater.value} verres sans eau`, { ms: 6000, icon: 'fa-droplet', action: { label: '+ Eau', run: () => addExtra('eau') } }), 1200)
   }
   // Solo : au 1er verre de la soirée puis tous les 4, petit rappel qu'à plusieurs c'est une compet
   if (props.solo && (after.length === 1 || after.length % 4 === 0)) {
@@ -134,9 +135,9 @@ async function addExtra(kind, e) {
   try {
     const row = await api('/extras', { method: 'POST', body: { day: d, kind } })
     if (d === day.value) extras.value = [row, ...extras.value]
-    burst(x, y, kind === 'eau' ? { text: '💧', color: '#6f93ad' } : { text: '🚬', color: '#6e6a62', bubbles: 12 })
+    burst(x, y, kind === 'eau' ? { icon: 'fa-droplet', color: '#6f93ad' } : { icon: 'fa-smoking', color: '#8a857a', bubbles: 12 })
     vibrate(kind === 'eau' ? 15 : [20, 30, 20])
-    toast(kind === 'eau' ? waterLine(row.count) : smokeLine(row.count), { action: { label: 'Annuler', run: () => removeExtra(row) } })
+    toast(kind === 'eau' ? waterLine(row.count) : smokeLine(row.count), { icon: kind === 'eau' ? 'fa-droplet' : 'fa-smoking', action: { label: 'Annuler', run: () => removeExtra(row) } })
     celebrateBadges(row.badges)
     emit('saved')
   } catch (err) {
@@ -166,7 +167,7 @@ const sinceLast = computed(() => {
     <div class="flex items-center justify-between gap-3">
       <h2 class="font-display text-2xl">Ma soirée</h2>
       <div class="flex items-center rounded-full bg-white/5 p-1 text-sm font-semibold">
-        <button class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10" aria-label="Soirée précédente" @click="day = addDays(day, -1)">‹</button>
+        <button class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10" aria-label="Soirée précédente" @click="day = addDays(day, -1)"><Icon name="prev" /></button>
         <span class="min-w-24 px-1 text-center first-letter:uppercase">{{ prettyDay(day) }}</span>
         <button
           class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10 disabled:opacity-20"
@@ -174,7 +175,7 @@ const sinceLast = computed(() => {
           aria-label="Soirée suivante"
           @click="day = addDays(day, 1)"
         >
-          ›
+          <Icon name="more" />
         </button>
       </div>
     </div>
@@ -206,7 +207,7 @@ const sinceLast = computed(() => {
         </div>
         <div class="mt-1 text-lg font-semibold">verre{{ units >= 2 ? 's' : '' }} standard</div>
         <div class="text-sm text-muted">
-          {{ grams }} g d'alcool<template v-if="waters || smokes"> · 💧{{ waters }} 🚬{{ smokes }}</template> · {{ drinks.length }} conso{{ drinks.length > 1 ? 's' : '' }}<template v-if="sinceLast"> · dernier {{ sinceLast }}</template>
+          {{ grams }} g d'alcool<template v-if="waters || smokes"> · <Icon name="water" class="text-fort" /> {{ waters }} <Icon name="smoke" /> {{ smokes }}</template> · {{ drinks.length }} conso{{ drinks.length > 1 ? 's' : '' }}<template v-if="sinceLast"> · dernier {{ sinceLast }}</template>
         </div>
       </div>
     </div>
@@ -214,11 +215,11 @@ const sinceLast = computed(() => {
     <!-- Hors score : eau et clopes -->
     <div class="grid grid-cols-2 gap-2.5">
       <button class="btn tile lift flex items-center justify-center gap-2 py-3 font-bold disabled:opacity-40" :disabled="loadFailed" @click="addExtra('eau', $event)">
-        <span class="text-2xl">💧</span> Verre d'eau
+        <Icon name="water" :size="22" class="text-fort" /> Verre d'eau
         <span v-if="waters" class="rounded-full bg-fort/20 px-2 text-sm text-fort">×{{ waters }}</span>
       </button>
       <button class="btn tile lift flex items-center justify-center gap-2 py-3 font-bold disabled:opacity-40" :disabled="loadFailed" @click="addExtra('clope', $event)">
-        <span class="text-2xl">🚬</span> Clope
+        <Icon name="smoke" :size="22" class="text-muted" /> Clope
         <span v-if="smokes" class="rounded-full bg-white/10 px-2 text-sm text-muted">×{{ smokes }}</span>
       </button>
     </div>
@@ -260,17 +261,17 @@ const sinceLast = computed(() => {
                   <Stars v-if="d.rating" :value="d.rating" :size="11" />
                 </span>
                 <span v-if="d.review" class="mt-0.5 block truncate text-sm text-ink/70 italic">« {{ d.review }} »</span>
-                <span v-else-if="!d.rating" class="mt-0.5 block text-xs font-semibold text-hi/80">★ Noter</span>
+                <span v-else-if="!d.rating" class="mt-0.5 block text-xs font-semibold text-hi/80"><Icon name="star" /> Noter</span>
               </span>
               <span class="shrink-0 font-semibold tabular-nums" :style="{ color: catOf(d.cat).hex }">{{ d.units ? `+${num(d.units)}` : '0' }}</span>
             </button>
-            <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Supprimer ${d.name}`" @click="remove(d)">✕</button>
+            <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Supprimer ${d.name}`" @click="remove(d)" ><Icon name="close" /></button>
           </template>
           <template v-else>
-            <span class="text-2xl">{{ d.type === 'eau' ? '💧' : '🚬' }}</span>
+            <span class="flex w-11 justify-center"><Icon :name="d.type === 'eau' ? 'water' : 'smoke'" :size="20" :class="d.type === 'eau' ? 'text-fort' : 'text-muted'" /></span>
             <span class="flex-1">{{ d.type === 'eau' ? "Verre d'eau" : 'Clope' }}</span>
             <span class="text-sm">hors score</span>
-            <button class="h-9 w-9 rounded-full hover:bg-alert hover:text-white" :aria-label="d.type === 'eau' ? 'Supprimer ce verre d’eau' : 'Supprimer cette clope'" @click="removeExtra(d)">✕</button>
+            <button class="h-9 w-9 rounded-full hover:bg-alert hover:text-white" :aria-label="d.type === 'eau' ? 'Supprimer ce verre d’eau' : 'Supprimer cette clope'" @click="removeExtra(d)" ><Icon name="close" /></button>
           </template>
         </li>
       </TransitionGroup>
@@ -278,7 +279,7 @@ const sinceLast = computed(() => {
     </div>
     <p v-else-if="!loading && !loadFailed" class="text-center text-sm text-muted">
       Rien {{ isToday ? 'ce soir' : 'cette soirée-là' }}.
-      <button class="font-semibold text-hi hover:underline" @click="openLog({ day })">＋ Ajouter un verre</button>
+      <button class="font-semibold text-hi hover:underline" @click="openLog({ day })"><Icon name="plus" /> Ajouter un verre</button>
     </p>
   </section>
 </template>

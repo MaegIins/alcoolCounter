@@ -4,10 +4,11 @@ import { reactive } from 'vue'
 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-const spawn = (cls, style, text = '') => {
+const spawn = (cls, style, text = '', icon = '') => {
   const el = document.createElement('span')
   el.className = `fx ${cls}`
-  el.textContent = text
+  if (icon) el.innerHTML = `<i class="fa-solid ${icon}"></i>` // icône Font Awesome (classe fixe, pas de saisie)
+  else el.textContent = text
   Object.assign(el.style, style)
   el.addEventListener('animationend', () => el.remove(), { once: true })
   document.body.append(el)
@@ -15,8 +16,9 @@ const spawn = (cls, style, text = '') => {
 }
 
 /** « +2,1 » qui s'envole depuis (x, y), et des gouttes qui giclent puis retombent. */
-export function burst(x, y, { text = '', color = '#d4bc35', bubbles = 9 } = {}) {
-  if (text) spawn('fx-float', { left: `${x}px`, top: `${y}px`, color }, text)
+// icon = classe Font Awesome à faire s'envoler à la place du texte
+export function burst(x, y, { text = '', icon = '', color = '#d4bc35', bubbles = 9 } = {}) {
+  if (text || icon) spawn('fx-float', { left: `${x}px`, top: `${y}px`, color }, text, icon)
   if (reduced()) return
   for (let i = 0; i < bubbles; i++) {
     const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6 // surtout vers le haut, en éventail
@@ -61,9 +63,10 @@ export const vibrate = (p = 25) => navigator.vibrate?.(p)
 export const toasts = reactive([])
 let seq = 0
 // action = { label, run } : bouton dans le toast (ex. « Annuler »), qui reste alors affiché plus longtemps
-export function toast(text, { kind = 'info', ms, action } = {}) {
+// icon = classe Font Awesome affichée devant le texte (ex. 'fa-droplet')
+export function toast(text, { kind = 'info', ms, action, icon } = {}) {
   const id = ++seq
-  toasts.push({ id, text, kind, action })
+  toasts.push({ id, text, kind, action, icon })
   setTimeout(() => dismiss(id), ms ?? (action ? 5000 : 2200))
   return id
 }
@@ -84,8 +87,8 @@ export function celebrateBadges(badges = []) {
 }
 
 // Clopes et eau : juste le compte, pas de commentaire
-export const smokeLine = (n) => `🚬 Clope n°${n}`
-export const waterLine = (n) => `💧 Verre d'eau n°${n}`
+export const smokeLine = (n) => `Clope n°${n}`
+export const waterLine = (n) => `Verre d'eau n°${n}`
 
 // Paliers de la soirée (en verres standard) : info sobre, avec un rappel d'eau aux gros paliers
 export const MILESTONES = [

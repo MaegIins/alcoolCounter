@@ -19,6 +19,7 @@ import ProductPage from './components/ProductPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
 import Grime from './components/Grime.vue'
+import Icon from './components/Icon.vue'
 import SearchSheet from './components/SearchSheet.vue'
 
 const me = ref(null)
@@ -103,11 +104,11 @@ function myProfile() {
 }
 
 const TABS = [
-  { k: 'home', l: 'Ma soirée', icon: '🍺' },
-  { k: 'feed', l: 'Activité', icon: '📰' },
+  { k: 'home', l: 'Ma soirée', icon: 'home' },
+  { k: 'feed', l: 'Activité', icon: 'feed' },
   { k: 'plus' },
-  { k: 'carte', l: 'La carte', icon: '📜' },
-  { k: 'me', l: 'Profil', icon: '👤' },
+  { k: 'carte', l: 'La carte', icon: 'carte' },
+  { k: 'me', l: 'Profil', icon: 'user' },
 ]
 const active = (k) => (k === 'me' ? (ui.view === 'user' && ui.userId === me.value?.id) || ui.view === 'settings' : ui.view === k)
 function tap(k) {
@@ -136,21 +137,14 @@ async function logout() {
           Picole<br /><span class="flicker text-ink/80">Compet</span>
         </h1>
       </button>
-      <div v-if="me" class="flex items-center gap-3">
-        <button
-          class="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-lg hover:bg-white/10"
-          title="Chercher une personne ou une boisson"
-          aria-label="Rechercher"
-          @click="searching = true"
-        >🔍</button>
-        <div class="text-right text-sm leading-5">
-          <div class="font-bold">{{ me.name }}<span v-if="me.is_admin" class="ml-1.5 rounded-full bg-neon/20 px-1.5 py-0.5 text-xs text-neon">admin</span></div>
-          <button class="text-muted underline underline-offset-4 hover:text-hi" @click="logout">quitter</button>
-        </div>
-        <button title="Mon profil" @click="myProfile">
-          <Avatar :user="me" :color="colors[me.id]" :size="48" class="rounded-full ring-2 ring-hi/60" />
-        </button>
-      </div>
+      <!-- Le profil est dans la barre du bas ; ici, juste la recherche -->
+      <button
+        v-if="me"
+        class="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 text-xl hover:bg-white/10"
+        title="Chercher une personne ou une boisson"
+        aria-label="Rechercher"
+        @click="searching = true"
+      ><Icon name="search" :size="19" /></button>
     </header>
 
     <div class="relative mx-auto mb-10 flex max-w-lg flex-wrap items-center justify-between gap-2">
@@ -172,7 +166,7 @@ async function logout() {
             @click="pickGroup(g.id)"
           >
             <span class="truncate font-semibold">{{ g.name }}</span>
-            <span v-if="g.id === currentGroup" class="text-hi">✓</span>
+            <Icon v-if="g.id === currentGroup" name="check" class="text-hi" />
           </button>
           <button class="w-full border-t border-white/5 px-4 py-2.5 text-left text-sm font-semibold text-hi hover:bg-white/5" @click="groupMenu = false; go('settings')">
             Gérer mes bandes →
@@ -186,6 +180,13 @@ async function logout() {
       <Transition v-else name="page" mode="out-in">
         <div v-if="ui.view === 'settings'" key="s" class="space-y-8">
           <ProfilePage :me="me" :color="colors[me.id]" :groups="groups" @update="onProfileUpdate" @groups="loadGroups" @back="myProfile" />
+          <section class="box flex items-center justify-between gap-3 p-5">
+            <span class="text-sm text-muted">
+              Connecté en tant que <b class="text-ink">{{ me.name }}</b>
+              <span v-if="me.is_admin" class="ml-1 rounded-full bg-neon/20 px-1.5 py-0.5 text-xs font-semibold text-neon">admin</span>
+            </span>
+            <button class="btn btn-ghost shrink-0 px-4 py-2 font-bold" @click="logout">Se déconnecter</button>
+          </section>
         </div>
         <FeedPage v-else-if="ui.view === 'feed'" :key="'f' + currentGroup" :me="me" :colors="colors" :solo="solo" />
         <!-- La carte est commune à tout le monde, bande ou pas -->
@@ -226,11 +227,11 @@ async function logout() {
         <template v-for="t in TABS" :key="t.k">
           <button
             v-if="t.k === 'plus'"
-            class="btn btn-hi mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-3xl leading-none font-bold"
+            class="btn btn-hi mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
             aria-label="Ajouter une conso (date, note, avis, photo)"
             @click="tap('plus')"
           >
-            ＋
+            <Icon name="plus" :size="24" />
           </button>
           <button
             v-else
@@ -239,7 +240,8 @@ async function logout() {
             :aria-current="active(t.k) ? 'page' : undefined"
             @click="tap(t.k)"
           >
-            <span class="text-xl leading-none">{{ t.icon }}</span>
+            <Avatar v-if="t.k === 'me'" :user="me" :color="colors[me.id]" :size="22" class="rounded-full" />
+            <Icon v-else :name="t.icon" :size="19" class="h-[22px] leading-[22px]" />
             <span class="w-full truncate">{{ t.l }}</span>
           </button>
         </template>
@@ -265,7 +267,7 @@ async function logout() {
             'bg-neon text-[#f0e6cc]': t.kind === 'big',
           }"
         >
-          <span>{{ t.text }}</span>
+          <span><i v-if="t.icon" :class="['fa-solid', t.icon, 'mr-1.5']" aria-hidden="true" />{{ t.text }}</span>
           <button
             v-if="t.action"
             class="rounded-sm bg-black/15 px-2.5 py-1 text-xs uppercase hover:bg-black/25"

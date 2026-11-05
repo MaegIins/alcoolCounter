@@ -2,16 +2,16 @@
 
 // Catégories (couleurs des graphes). Pour en ajouter une : ici + CATS côté serveur (server/app.js) + style.css.
 // degrees = raccourcis proposés quand on choisit le degré d'un verre de cette catégorie.
-// alco: false = sans alcool (dégustations : Monster, sodas, café…), noté comme le reste mais hors score.
+// icon = emoji (textes simples), fa = icône Font Awesome (affichage). alco: false = sans alcool (dégustations : Monster, sodas, café…), noté comme le reste mais hors score.
 export const CATS = [
-  { key: 'biere', label: 'Bière', icon: '🍺', color: 'bg-biere', hex: '#d4ac3a', alco: true, degrees: [0, 4.5, 5, 6, 6.5, 7, 8, 8.5, 10] },
-  { key: 'vin', label: 'Vin', icon: '🍷', color: 'bg-vin', hex: '#a33447', alco: true, degrees: [11, 12, 12.5, 13, 14] },
-  { key: 'fort', label: 'Fort', icon: '🥃', color: 'bg-fort', hex: '#6f93ad', alco: true, degrees: [18, 25, 35, 40, 45, 50] },
-  { key: 'cocktail', label: 'Cocktail', icon: '🍹', color: 'bg-cocktail', hex: '#739b4f', alco: true, degrees: [0, 6, 8, 10, 12, 15] },
-  { key: 'autre', label: 'Autre alcool', icon: '🍾', color: 'bg-autre', hex: '#9277a8', alco: true, degrees: [4, 5, 6, 8, 12] },
-  { key: 'energy', label: 'Énergisant', icon: '⚡', color: 'bg-energy', hex: '#9fb33a', alco: false, degrees: [] },
-  { key: 'soft', label: 'Soft', icon: '🥤', color: 'bg-soft', hex: '#4f8f8a', alco: false, degrees: [] },
-  { key: 'chaud', label: 'Café, thé', icon: '☕', color: 'bg-chaud', hex: '#8a6448', alco: false, degrees: [] },
+  { key: 'biere', label: 'Bière', icon: '🍺', fa: 'fa-beer-mug-empty', color: 'bg-biere', hex: '#d4ac3a', alco: true, degrees: [0, 4.5, 5, 6, 6.5, 7, 8, 8.5, 10] },
+  { key: 'vin', label: 'Vin', icon: '🍷', fa: 'fa-wine-glass', color: 'bg-vin', hex: '#a33447', alco: true, degrees: [11, 12, 12.5, 13, 14] },
+  { key: 'fort', label: 'Fort', icon: '🥃', fa: 'fa-whiskey-glass', color: 'bg-fort', hex: '#6f93ad', alco: true, degrees: [18, 25, 35, 40, 45, 50] },
+  { key: 'cocktail', label: 'Cocktail', icon: '🍹', fa: 'fa-martini-glass-citrus', color: 'bg-cocktail', hex: '#739b4f', alco: true, degrees: [0, 6, 8, 10, 12, 15] },
+  { key: 'autre', label: 'Autre alcool', icon: '🍾', fa: 'fa-champagne-glasses', color: 'bg-autre', hex: '#9277a8', alco: true, degrees: [4, 5, 6, 8, 12] },
+  { key: 'energy', label: 'Énergisant', icon: '⚡', fa: 'fa-bolt', color: 'bg-energy', hex: '#9fb33a', alco: false, degrees: [] },
+  { key: 'soft', label: 'Soft', icon: '🥤', fa: 'fa-glass-water', color: 'bg-soft', hex: '#4f8f8a', alco: false, degrees: [] },
+  { key: 'chaud', label: 'Café, thé', icon: '☕', fa: 'fa-mug-hot', color: 'bg-chaud', hex: '#8a6448', alco: false, degrees: [] },
 ]
 export const ALCO_CATS = CATS.filter((c) => c.alco)
 export const catOf = (key) => CATS.find((c) => c.key === key) ?? CATS[4]

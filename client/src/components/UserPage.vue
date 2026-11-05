@@ -119,7 +119,7 @@ const dayNum = (day) => Number(day.slice(8))
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
         <p class="text-sm text-muted">
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
-          Depuis {{ since }}<template v-if="data.wins"> · ♛ {{ data.wins }} soirée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
+          Depuis {{ since }}<template v-if="data.wins"> · <Icon name="crown" class="text-hi" /> {{ data.wins }} soirée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
         </p>
         <div class="mt-5 flex divide-x divide-line">
           <div v-for="s in [
@@ -157,7 +157,7 @@ const dayNum = (day) => Number(day.slice(8))
                   class="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-xs text-ink hover:bg-black"
                   :aria-label="`Changer la boisson n°${i + 1}`"
                   @click="picking = i"
-                >✎</button>
+                ><Icon name="edit" /></button>
               </div>
               <button
                 v-else-if="isMe"
@@ -177,7 +177,7 @@ const dayNum = (day) => Number(day.slice(8))
         <section v-if="recent.length">
           <h2 class="kicker mb-3 flex items-center justify-between border-b border-line pb-2">
             Activité récente
-            <button class="font-medium normal-case tracking-normal text-muted hover:text-ink" @click="tab = 'journal'">Journal →</button>
+            <button class="font-medium normal-case tracking-normal text-muted hover:text-ink" @click="tab = 'journal'">Journal <Icon name="next" /></button>
           </h2>
           <div class="grid grid-cols-4 items-start gap-2.5">
             <button v-for="d in recent" :key="d.id" class="text-left" @click="openEntry(d)">
@@ -194,13 +194,13 @@ const dayNum = (day) => Number(day.slice(8))
         <section v-if="data.top.length">
           <h2 class="kicker mb-1 flex items-center justify-between border-b border-line pb-2">
             Les plus bues
-            <button class="font-medium normal-case tracking-normal text-muted hover:text-ink" @click="tab = 'boissons'">Toutes →</button>
+            <button class="font-medium normal-case tracking-normal text-muted hover:text-ink" @click="tab = 'boissons'">Toutes <Icon name="next" /></button>
           </h2>
           <ul class="divide-y divide-line">
             <li v-for="(d, i) in data.top" :key="i" class="flex items-center gap-3 py-2.5">
               <span class="w-4 text-center text-sm text-faint">{{ i + 1 }}</span>
               <button class="min-w-0 flex-1 text-left" :class="d.product_id && 'hover:text-hi'" @click="d.product_id && openProduct(d.product_id)">
-                <span class="block truncate font-semibold">{{ catOf(d.cat).icon }} {{ d.name }}</span>
+                <span class="block truncate font-semibold"><Icon :name="catOf(d.cat).fa" :style="{ color: catOf(d.cat).hex }" /> {{ d.name }}</span>
                 <span class="flex items-center gap-2 text-sm text-muted">
                   {{ fmtDrink(d) }} · {{ d.count }} fois
                   <Stars v-if="d.rating" :value="Math.round(d.rating)" :size="11" />
@@ -220,8 +220,8 @@ const dayNum = (day) => Number(day.slice(8))
             <div class="flex justify-between"><dt class="text-muted">Par soirée</dt><dd class="font-semibold tabular-nums">{{ num(data.avg) }}</dd></div>
             <div v-if="data.record" class="flex justify-between"><dt class="text-muted">Record</dt><dd class="font-semibold">{{ num(data.record.units) }} <span class="font-normal text-faint">· {{ dayLabel(data.record.day, true) }}</span></dd></div>
             <div class="flex justify-between"><dt class="text-muted">Avis écrits</dt><dd class="font-semibold tabular-nums">{{ data.reviews }}</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">💧 Eau</dt><dd class="font-semibold tabular-nums">{{ data.eau }}</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">🚬 Clopes</dt><dd class="font-semibold tabular-nums">{{ data.clope }}</dd></div>
+            <div class="flex justify-between"><dt class="text-muted"><Icon name="water" class="text-fort" /> Eau</dt><dd class="font-semibold tabular-nums">{{ data.eau }}</dd></div>
+            <div class="flex justify-between"><dt class="text-muted"><Icon name="smoke" /> Clopes</dt><dd class="font-semibold tabular-nums">{{ data.clope }}</dd></div>
           </dl>
           <div v-if="data.units" class="mt-5">
             <div class="flex h-2 gap-px overflow-hidden rounded-full bg-sunk">

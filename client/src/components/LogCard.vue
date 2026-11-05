@@ -1,6 +1,6 @@
 <script setup>
 // Une conso dans un fil : qui, quoi, quand, la note, l'avis, la photo.
-// Toucher l'affiche ouvre la fiche du produit ; le nom de la personne, son profil ; ✎ pour compléter les siennes.
+// Toucher l'affiche ouvre la fiche du produit ; le nom de la personne, son profil ; le crayon pour compléter les siennes.
 import { ref, computed } from 'vue'
 import { catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
 import { openUser, openProduct, openLog } from '../nav'

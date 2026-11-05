@@ -3,6 +3,7 @@
 // `current` = URL de la photo déjà en place (affichée tant qu'on n'y touche pas).
 import { ref, computed } from 'vue'
 import { resizePhoto } from '../api'
+import Icon from './Icon.vue'
 
 const photo = defineModel({ type: [String, null], default: undefined })
 const props = defineProps({ current: { type: String, default: '' }, label: { type: String, default: 'Photo' } })
@@ -28,7 +29,7 @@ async function onFile(e) {
     <div class="flex items-center gap-3">
       <img v-if="shown" :src="shown" alt="" class="h-20 w-14 rounded object-cover ring-1 ring-black/50" />
       <button type="button" class="btn btn-ghost px-3 py-2 text-sm font-semibold" @click="input.click()">
-        📷 {{ shown ? 'Changer la photo' : label }}
+        <Icon name="camera" /> {{ shown ? 'Changer la photo' : label }}
       </button>
       <button v-if="shown" type="button" class="text-sm font-semibold text-muted hover:text-alert" @click="photo = props.current ? null : undefined">
         Retirer

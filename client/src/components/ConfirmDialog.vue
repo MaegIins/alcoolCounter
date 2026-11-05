@@ -27,7 +27,10 @@ watch(
       @click.self="answer(false)"
     >
       <div class="sheet-panel box w-full max-w-sm p-6 text-center" role="alertdialog" aria-modal="true" :aria-label="dialog.title">
-        <div v-if="dialog.icon" class="mb-2 text-4xl">{{ dialog.icon }}</div>
+        <div v-if="dialog.icon" class="mb-2 text-4xl text-hi">
+          <i v-if="dialog.icon.startsWith('fa-')" :class="['fa-solid', dialog.icon]" aria-hidden="true" />
+          <template v-else>{{ dialog.icon }}</template>
+        </div>
         <h2 class="text-xl font-bold">{{ dialog.title }}</h2>
         <p v-if="dialog.message" class="mt-2 text-muted">{{ dialog.message }}</p>
         <div class="mt-6 flex gap-3">

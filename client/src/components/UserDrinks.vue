@@ -6,6 +6,7 @@ import { api, CATS, catOf, num, fmtDrink, dayLabel, photoUrl } from '../api'
 import { ui, openLog, openProduct } from '../nav'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({ userId: Number, isMe: Boolean })
 
@@ -103,9 +104,12 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
       · {{ total }} conso{{ total > 1 ? 's' : '' }}
     </p>
 
-    <input v-model="search" type="search" placeholder="🔍  Chercher une boisson…" class="field w-full px-4 py-2.5 text-base" />
+    <label class="relative block">
+      <Icon name="search" class="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted" />
+      <input v-model="search" type="search" placeholder="Chercher une boisson…" class="field w-full py-2.5 pr-4 pl-11 text-base" />
+    </label>
     <div class="-mx-4 flex gap-2 overflow-x-auto px-4">
-      <button :class="[chip, onlyReviews ? 'bg-hi text-paper' : 'bg-white/5 text-muted hover:bg-white/10']" @click="onlyReviews = !onlyReviews">💬 Avec avis</button>
+      <button :class="[chip, onlyReviews ? 'bg-hi text-paper' : 'bg-white/5 text-muted hover:bg-white/10']" @click="onlyReviews = !onlyReviews"><Icon name="review" /> Avec avis</button>
       <button
         v-for="c in presentCats"
         :key="c.key"
@@ -113,7 +117,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
         :style="cat === c.key ? { background: c.hex } : {}"
         @click="cat = cat === c.key ? '' : c.key"
       >
-        {{ c.icon }} {{ c.label }}
+        <Icon :name="c.fa" /> {{ c.label }}
       </button>
     </div>
     <label class="flex items-center justify-between gap-2 text-sm text-muted">
@@ -135,14 +139,14 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
             <span class="flex flex-wrap items-center gap-x-2 text-sm text-muted">
               <span class="whitespace-nowrap">{{ fmtDrink(d) }}</span>
               <Stars v-if="d.rating" :value="Math.round(d.rating)" :size="11" />
-              <span v-if="d.reviews" class="text-xs">💬{{ d.reviews }}</span>
+              <span v-if="d.reviews" class="text-xs"><Icon name="review" /> {{ d.reviews }}</span>
             </span>
             <span v-if="d.last_day" class="text-xs text-faint">dernière : {{ dayLabel(d.last_day, true) }}</span>
             <span v-else class="text-xs text-faint">sans date ni note</span>
           </span>
           <span class="shrink-0 text-right">
             <span v-if="d.count" class="block font-display text-xl leading-none text-hi">×{{ d.count }}</span>
-            <span v-else class="block text-sm font-bold text-hi">✓ déjà bue</span>
+            <span v-else class="block text-sm font-bold text-hi"><Icon name="check" /> déjà bue</span>
             <span v-if="d.units" class="text-xs text-muted">{{ num(d.units) }} verres</span>
           </span>
         </button>
@@ -165,12 +169,12 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
                   <button v-if="open.product_id" class="text-left hover:text-hi hover:underline" @click="toProduct">{{ open.name }}</button>
                   <template v-else>{{ open.name }}</template>
                 </h3>
-                <p class="text-sm text-muted">{{ catOf(open.cat).icon }} {{ catOf(open.cat).label }} · {{ fmtDrink(open) }}</p>
+                <p class="text-sm text-muted"><Icon :name="catOf(open.cat).fa" /> {{ catOf(open.cat).label }} · {{ fmtDrink(open) }}</p>
                 <div v-if="open.rating" class="mt-1 flex items-center gap-2 text-sm text-muted">
                   <Stars :value="Math.round(open.rating)" :size="14" /> {{ num(open.rating / 2) }}/5 · {{ open.ratings }} note{{ open.ratings > 1 ? 's' : '' }}
                 </div>
               </div>
-              <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink" aria-label="Fermer" @click="close">✕</button>
+              <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink" aria-label="Fermer" @click="close"><Icon name="close" /></button>
             </div>
 
             <div class="mx-5 grid grid-cols-3 gap-2 text-center">
@@ -192,7 +196,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
             </p>
 
             <div class="mx-5 mt-4 flex gap-2">
-              <button class="btn btn-hi flex-1 py-2.5 font-bold" @click="again">{{ isMe ? '＋ Encore une' : '＋ Moi aussi' }}</button>
+              <button class="btn btn-hi flex-1 py-2.5 font-bold" @click="again"><Icon name="plus" /> {{ isMe ? 'Encore une' : 'Moi aussi' }}</button>
               <button v-if="open.product_id" class="btn btn-ghost px-4 py-2.5 text-sm font-semibold" @click="toProduct">Fiche de la carte</button>
             </div>
 
@@ -222,7 +226,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
                       <span v-if="l.review" class="mt-1 block text-sm whitespace-pre-line text-ink/90">« {{ l.review }} »</span>
                       <img v-if="l.photo_key" :src="photoUrl(l.photo_key)" alt="" loading="lazy" class="mt-2 max-h-48 rounded-lg" />
                     </span>
-                    <span v-if="isMe" class="shrink-0 text-sm text-muted">✎</span>
+                    <Icon v-if="isMe" name="edit" class="shrink-0 text-sm text-muted" />
                   </component>
                 </li>
               </ul>

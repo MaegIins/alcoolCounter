@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { api, resizeImage } from '../api'
 import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({ me: Object, color: String, groups: Array })
 const emit = defineEmits(['update', 'back', 'groups'])
@@ -67,7 +68,7 @@ async function savePin() {
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <h2 class="font-display text-2xl">Mon profil</h2>
-      <button class="text-sm font-semibold text-muted hover:text-hi" @click="emit('back')">← Retour</button>
+      <button class="text-sm font-semibold text-muted hover:text-hi" @click="emit('back')"><Icon name="back" /> Mon profil</button>
     </div>
 
     <section>
@@ -89,7 +90,7 @@ async function savePin() {
           <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onAvatar" />
         </div>
       </div>
-      <p v-if="avatarMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ avatarMsg.ok }} ✓</p>
+      <p v-if="avatarMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ avatarMsg.ok }} <Icon name="check" /></p>
       <p v-if="avatarMsg.err" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ avatarMsg.err }}</p>
     </section>
 
@@ -104,7 +105,7 @@ async function savePin() {
           OK
         </button>
       </div>
-      <p v-if="nameMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ nameMsg.ok }} ✓</p>
+      <p v-if="nameMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ nameMsg.ok }} <Icon name="check" /></p>
       <p v-if="nameMsg.err" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ nameMsg.err }}</p>
     </form>
 
@@ -127,7 +128,7 @@ async function savePin() {
           Changer le PIN
         </button>
       </div>
-      <p v-if="pinMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ pinMsg.ok }} ✓</p>
+      <p v-if="pinMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ pinMsg.ok }} <Icon name="check" /></p>
       <p v-if="pinMsg.err" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ pinMsg.err }}</p>
     </form>
 

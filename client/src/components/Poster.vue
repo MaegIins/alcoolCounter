@@ -40,7 +40,7 @@ defineExpose({ hasPhoto: () => !!src.value })
     }"
     :title="drink.name"
   >
-    {{ cat.icon }}
+    <i :class="['fa-solid', cat.fa]" :style="{ color: cat.hex, fontSize: fluid ? '1.6rem' : `${side * 0.42}px` }" aria-hidden="true" />
   </div>
   <div v-else class="shrink-0 rounded-lg bg-sunk" :style="fluid ? { width: '100%', aspectRatio: '1' } : { width: `${side}px`, height: `${side}px` }" />
 </template>

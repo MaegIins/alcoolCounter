@@ -11,6 +11,7 @@ import Stars from './Stars.vue'
 import DrinkFields from './DrinkFields.vue'
 import InfoFields from './InfoFields.vue'
 import PhotoField from './PhotoField.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({ productId: Number, me: Object, colors: Object })
 
@@ -41,7 +42,7 @@ async function toggleFav(e) {
     const r = await api(`/products/${p.value.id}/fav`, { method: p.value.fav ? 'DELETE' : 'PUT' })
     p.value = { ...p.value, fav: r.fav, favs: r.favs }
     if (r.fav) {
-      burst(x, y, { text: '★', color: '#d4bc35', bubbles: 6 })
+      burst(x, y, { icon: 'fa-star', color: '#d4bc35', bubbles: 6 })
       vibrate(15)
     }
   } catch (err) {
@@ -57,7 +58,7 @@ async function toggleTried(e) {
   try {
     const r = await api(`/products/${p.value.id}/tried`, { method: p.value.marked ? 'DELETE' : 'PUT' })
     if (r.marked) {
-      burst(x, y, { text: '✓', color: '#d4bc35', bubbles: 6 })
+      burst(x, y, { icon: 'fa-check', color: '#d4bc35', bubbles: 6 })
       vibrate(15)
       toast(`${p.value.name} : déjà bue`)
     }
@@ -110,7 +111,7 @@ async function saveEdit() {
 async function remove() {
   const mine = p.value.created_by === props.me.id
   const ok = await ask({
-    icon: cat.value.icon,
+    icon: cat.value.fa,
     title: `Retirer « ${p.value.name} » de la carte ?`,
     message: mine
       ? 'Elle disparaît de la carte, des favoris et des tops de tout le monde. Les consos restent dans les journaux.'
@@ -170,7 +171,7 @@ const zoom = ref('')
 
 <template>
   <div>
-    <button class="mb-4 text-sm font-semibold text-muted hover:text-hi" @click="goBack">← Retour</button>
+    <button class="mb-4 text-sm font-semibold text-muted hover:text-hi" @click="goBack"><Icon name="back" /> Retour</button>
 
     <p v-if="error && !p" class="rounded-xl bg-alert px-4 py-2.5 text-sm font-semibold text-white">{{ error }}</p>
     <div v-else-if="!p" class="py-20 text-center text-muted">Chargement…</div>
@@ -196,7 +197,7 @@ const zoom = ref('')
             <h1 class="font-display text-3xl leading-[1.05] break-words">{{ p.name }}</h1>
             <p v-if="p.maker" class="mt-1 font-semibold text-ink/90">{{ p.maker }}</p>
             <p class="mt-1 text-sm text-muted">
-              {{ cat.icon }} {{ cat.label }}<template v-if="p.style"> · {{ p.style }}</template><template v-if="p.origin"> · {{ p.origin }}</template>
+              <Icon :name="cat.fa" :style="{ color: cat.hex }" /> {{ cat.label }}<template v-if="p.style"> · {{ p.style }}</template><template v-if="p.origin"> · {{ p.origin }}</template>
             </p>
             <p class="text-sm text-muted">{{ fmtDrink(p) }}</p>
             <p class="mt-1 text-sm font-semibold" :class="p.units ? 'text-hi' : 'text-faint'">
@@ -215,9 +216,9 @@ const zoom = ref('')
       <!-- Panneau d'actions -->
       <section class="box mt-6 divide-y divide-white/5">
         <div class="grid grid-cols-2 gap-2 p-3">
-          <button class="btn btn-hi py-2.5 font-bold" @click="drinkIt">＋ {{ p.mine ? 'Encore une' : "J'en bois une" }}</button>
+          <button class="btn btn-hi py-2.5 font-bold" @click="drinkIt"><Icon name="plus" /> {{ p.mine ? 'Encore une' : "J'en bois une" }}</button>
           <button class="btn py-2.5 font-bold" :class="p.fav ? 'bg-hi/15 text-hi' : 'btn-ghost'" :aria-pressed="p.fav" @click="toggleFav">
-            {{ p.fav ? '★ En favori' : '☆ Favori' }}
+            <Icon name="star" :regular="!p.fav" /> {{ p.fav ? 'En favori' : 'Favori' }}
           </button>
         </div>
         <div class="flex items-center justify-between px-4 py-3 text-sm">
@@ -227,7 +228,7 @@ const zoom = ref('')
         </div>
         <div class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
           <span class="text-muted">Tu l'as bue</span>
-          <span v-if="p.mine" class="font-bold">{{ p.mine }} fois<template v-if="p.marked"> · ✓</template></span>
+          <span v-if="p.mine" class="font-bold">{{ p.mine }} fois<template v-if="p.marked"> · <Icon name="check" /></template></span>
           <!-- Pas de conso : « déjà bue » sans date ni note -->
           <button
             v-else
@@ -237,15 +238,15 @@ const zoom = ref('')
             :disabled="marking"
             @click="toggleTried"
           >
-            {{ p.marked ? '✓ Déjà bue' : 'Je l’ai déjà bue' }}
+            <Icon :name="p.marked ? 'check' : 'fa-circle-check'" :regular="!p.marked" /> {{ p.marked ? 'Déjà bue' : 'Je l’ai déjà bue' }}
           </button>
         </div>
         <div class="flex flex-wrap gap-2 px-3 py-3">
           <button v-if="canManage || missingInfo.length" class="btn btn-ghost px-3 py-1.5 text-sm font-semibold" @click="startEdit">
-            ✎ {{ canManage ? 'Modifier la fiche' : 'Compléter la fiche' }}
+            <Icon name="edit" /> {{ canManage ? 'Modifier la fiche' : 'Compléter la fiche' }}
           </button>
           <button v-if="!p.photo_key" class="btn btn-ghost px-3 py-1.5 text-sm font-semibold" :disabled="uploading" @click="quickInput.click()">
-            📷 {{ uploading ? 'Envoi…' : 'Ajouter une photo' }}
+            <Icon name="camera" /> {{ uploading ? 'Envoi…' : 'Ajouter une photo' }}
           </button>
           <input ref="quickInput" type="file" accept="image/*" class="hidden" @change="quickPhoto" />
         </div>
@@ -292,7 +293,7 @@ const zoom = ref('')
             <div class="text-xs text-muted">{{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</div>
           </div>
         </div>
-        <div class="mt-1 flex justify-between text-xs text-faint"><span>½★</span><span>★★★★★</span></div>
+        <div class="mt-1 flex justify-between text-xs text-faint"><span><Icon name="fa-star-half-stroke" /></span><span>5 <Icon name="star" /></span></div>
       </section>
 
       <!-- Qui l'a bue -->
@@ -329,7 +330,7 @@ const zoom = ref('')
                 <button class="font-bold hover:text-hi" @click="openUser(r.user_id)">{{ r.user_id === me.id ? 'Toi' : r.user_name }}</button>
                 <Stars v-if="r.rating" :value="r.rating" :size="12" />
                 <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}</span>
-                <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })">✎</button>
+                <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
               </div>
               <p v-if="r.review" class="mt-1.5 whitespace-pre-line text-ink/90">{{ r.review }}</p>
               <button v-if="r.photo_key" class="mt-2 block" aria-label="Agrandir la photo" @click="zoom = photoUrl(r.photo_key)">

@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import { api, currentGroup, setGroup } from '../api'
 import { ask, toast, confetti } from '../juice'
+import Icon from './Icon.vue'
 
 const props = defineProps({ groups: Array, me: Object, intro: Boolean })
 const emit = defineEmits(['changed'])
@@ -54,7 +55,7 @@ async function share(g) {
 async function leave(g) {
   const last = g.members === 1
   const ok = await ask({
-    icon: '🚪',
+    icon: 'fa-door-open',
     title: `Quitter « ${g.name} » ?`,
     message: last
       ? 'Tu es le dernier : la bande sera supprimée. Tes verres restent à toi.'
@@ -88,18 +89,18 @@ async function leave(g) {
           @click="setGroup(g.id); emit('changed')"
         >
           <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2" :class="currentGroup === g.id ? 'border-hi bg-hi' : 'border-line'">
-            <span v-if="currentGroup === g.id" class="text-xs text-paper">✓</span>
+            <Icon v-if="currentGroup === g.id" name="check" class="text-xs text-paper" />
           </span>
           <span class="min-w-0">
             <span class="block truncate font-bold">{{ g.name }}</span>
             <span class="text-sm text-muted">
-              {{ g.members }} membre{{ g.members > 1 ? 's' : '' }}<template v-if="g.owner_id === me.id"> · 👑 patron</template>
+              {{ g.members }} membre{{ g.members > 1 ? 's' : '' }}<template v-if="g.owner_id === me.id"> · <Icon name="crown" class="text-hi" /> patron</template>
               · code <b class="tracking-wider text-ink">{{ g.code }}</b>
             </span>
           </span>
         </button>
         <button class="btn shrink-0 rounded-full bg-white/5 px-3 py-1.5 text-sm font-bold hover:bg-white/10" @click="share(g)">Inviter</button>
-        <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Quitter ${g.name}`" @click="leave(g)">🚪</button>
+        <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Quitter ${g.name}`" @click="leave(g)"><Icon name="door" /></button>
       </li>
     </ul>
 
