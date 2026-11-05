@@ -51,6 +51,11 @@ personne : ils comptent dans toutes ses bandes. Le **patron** (créateur) peut m
 s'il part, le plus ancien membre prend la suite ; une bande vide disparaît.
 Une base d'avant les bandes est migrée automatiquement dans une bande « La bande » avec tout le monde.
 
+**Sans bande (solo)** : on peut quand même ajouter ses verres, son eau et ses clopes, et voir sa propre fiche
+(badges compris). Le classement (affiché flouté et verrouillé), les stats et la carte attendent une bande.
+Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'en créer une, et un rappel
+apparaît au premier verre de la soirée puis tous les 4 verres.
+
 ### Soirée
 
 Chacun s'inscrit avec un pseudo + PIN, puis tape sur ce qu'il boit au fil de la soirée : **un tap = un verre**,

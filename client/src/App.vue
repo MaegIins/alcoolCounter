@@ -12,7 +12,7 @@ import ProfilePage from './components/ProfilePage.vue'
 import CartePage from './components/CartePage.vue'
 import PlayerSheet from './components/PlayerSheet.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
-import GroupsPanel from './components/GroupsPanel.vue'
+import SoloNudge from './components/SoloNudge.vue'
 import { toasts, dismiss, ask, toast } from './juice'
 import Grime from './components/Grime.vue'
 
@@ -27,6 +27,15 @@ const player = ref(null) // id du joueur dont la fiche est ouverte
 const colors = computed(() => colorMap(users.value))
 const group = computed(() => groups.value.find((g) => g.id === currentGroup.value) ?? null)
 const groupMenu = ref(false)
+// Mode solo : connecté mais dans aucune bande. On peut boire et voir sa fiche ; le reste attend une bande.
+const solo = computed(() => !!me.value && !groups.value.length)
+const nudge = ref(null)
+async function focusNudge() {
+  goto('home')
+  await new Promise((r) => setTimeout(r, 250)) // le temps que la page s'affiche
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  nudge.value?.focus()
+}
 
 // Lien d'invitation : /?bande=CODE (rejoint direct si connecté, sinon pré-remplit l'inscription)
 const inviteCode = new URLSearchParams(window.location.search).get('bande')?.toUpperCase() ?? ''
@@ -72,7 +81,14 @@ onMounted(async () => {
 async function loadUsers() {
   users.value = await api('/users').catch(() => [])
 }
-watch([() => me.value?.id, currentGroup, refreshKey], () => me.value && currentGroup.value && loadUsers(), { immediate: true })
+watch(
+  [() => me.value?.id, currentGroup, refreshKey],
+  () => {
+    if (me.value && currentGroup.value) loadUsers()
+    else if (me.value) users.value = [me.value] // solo : juste moi (pour la couleur de mon avatar)
+  },
+  { immediate: true }
+)
 
 function onProfileUpdate(user) {
   me.value = user
@@ -155,7 +171,6 @@ async function logout() {
 
     <main v-if="ready" class="relative mx-auto max-w-lg">
       <AuthCard v-if="!me" :invite="inviteCode" @logged="onLogged" />
-      <GroupsPanel v-else-if="!groups.length" :groups="groups" :me="me" intro @changed="loadGroups" />
       <Transition v-else name="page" mode="out-in">
         <ProfilePage
           v-if="view === 'profile'"
@@ -167,11 +182,21 @@ async function logout() {
           @groups="loadGroups"
           @back="goto('home')"
         />
+        <!-- La carte appartient à une bande : en solo, on explique et on pousse à en rejoindre une -->
+        <div v-else-if="view === 'carte' && solo" key="c-solo" class="space-y-6">
+          <h2 class="font-display text-2xl">La carte</h2>
+          <p class="text-muted">Chaque bande a sa carte : les boissons de vos soirées, remplies par tout le monde, à mettre en raccourci.</p>
+          <SoloNudge @changed="loadGroups" />
+        </div>
         <CartePage v-else-if="view === 'carte'" :key="'c' + currentGroup" :me="me" :group="group" @saved="refreshKey++" @back="goto('home')" />
         <div v-else :key="'h' + currentGroup" class="space-y-16">
-          <EntryForm v-model:day="day" @saved="refreshKey++" @carte="goto('carte')" />
-          <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="refreshKey" @open="player = $event" />
-          <Stats :users="users" :colors="colors" :me="me" :refresh-key="refreshKey" />
+          <SoloNudge v-if="solo" ref="nudge" @changed="loadGroups" />
+          <EntryForm v-model:day="day" :solo="solo" @saved="refreshKey++" @carte="goto('carte')" @bandes="focusNudge" />
+          <SoloNudge v-if="solo" variant="teaser" @focus="focusNudge" />
+          <template v-else>
+            <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="refreshKey" @open="player = $event" />
+            <Stats :users="users" :colors="colors" :me="me" :refresh-key="refreshKey" />
+          </template>
           <p class="text-sm text-muted">
             Score en verres standard : 10 g d'alcool pur, calculé sur le volume et le degré de chaque verre
             (une pinte de triple compte presque double d'une pinte de blonde). La soirée court jusqu'à 6h du matin.
@@ -190,7 +215,7 @@ async function logout() {
 
     <!-- Onglets en bas d'écran -->
     <nav
-      v-if="me && groups.length"
+      v-if="me"
       class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/85 backdrop-blur-md"
       style="padding-bottom: env(safe-area-inset-bottom)"
     >

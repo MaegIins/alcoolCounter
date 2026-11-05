@@ -343,6 +343,17 @@ describe('bandes', () => {
     assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).status, 404)
   })
 
+  test('sans bande (solo) : on boit et on voit sa propre fiche, pas celle des autres ni le classement', async () => {
+    const a = await s.register('Alice', '1234', { group: false })
+    const b = await s.register('Bob', '1234', { group: false })
+    assert.equal((await s.drink(a.token, '2026-11-02')).status, 200)
+    const me = await s.call('GET', `/users/${a.id}/stats?day=2026-11-02`, { token: a.token })
+    assert.equal(me.status, 200)
+    assert.deepEqual([me.body.units, me.body.wins, me.body.drinks.length], [2, 0, 1])
+    assert.equal((await s.call('GET', `/users/${b.id}/stats`, { token: a.token })).status, 404)
+    assert.equal((await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })).body.code, 'NO_GROUP')
+  })
+
   test('inscription avec un code de bande ; code inconnu refusé', async () => {
     const a = await s.register('Alice', '1234', { group: false })
     const g = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Bar' } })).body

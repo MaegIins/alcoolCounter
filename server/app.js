@@ -246,6 +246,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     req.memberIds = db.prepare('SELECT user_id FROM group_members WHERE group_id = ?').all(g.id).map((r) => r.user_id)
     next()
   }
+  // Variante tolérante : sans bande, on continue en solo (req.group = null, seul membre = soi)
+  const groupOrSolo = (req, res, next) => {
+    if (req.headers['x-group'] || myGroups(req.user.id).length) return group(req, res, next)
+    req.group = null
+    req.memberIds = [req.user.id]
+    next()
+  }
   // Peut modifier/retirer un produit : son auteur, le patron de la bande, ou un admin
   const canManage = (p, req) => p.created_by === req.user.id || req.group.owner_id === req.user.id || req.user.is_admin
   const joinGroup = (groupId, userId) =>
@@ -486,7 +493,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   }
 
   // Fiche d'un joueur : stats depuis le début, boissons préférées, dernières soirées, détail d'une soirée
-  app.get('/api/users/:id/stats', auth, group, (req, res) => {
+  // Sans bande (mode solo), on ne voit que sa propre fiche
+  app.get('/api/users/:id/stats', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
     const user = db.prepare('SELECT id, name, avatar_v, created_at FROM users WHERE id = ?').get(id)
     if (!user || !req.memberIds.includes(id)) return bad(res, 'Joueur introuvable', 404)
@@ -511,7 +519,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       : []
     const extraCount = (kind, d) =>
       db.prepare(`SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND kind = ?${d ? ' AND day = ?' : ''}`).get(...[id, kind, d].filter(Boolean)).n
-    const wins = winsMap(req.query.winsBefore, req.group.id)[id] || 0
+    const wins = req.group ? winsMap(req.query.winsBefore, req.group.id)[id] || 0 : 0
     const got = computeBadges({ ...historyOf(id), wins })
 
     res.json({

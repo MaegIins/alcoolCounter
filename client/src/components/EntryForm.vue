@@ -13,7 +13,8 @@ import Pager from './Pager.vue'
 import { burst, centerOf, vibrate, toast, milestoneBetween, celebrateBadges, smokeLine, waterLine } from '../juice'
 
 const day = defineModel('day', { required: true })
-const emit = defineEmits(['saved', 'carte'])
+const props = defineProps({ solo: Boolean }) // sans bande : on rappelle de temps en temps d'en rejoindre une
+const emit = defineEmits(['saved', 'carte', 'bandes'])
 
 const drinks = ref([]) // consos de la soirée, plus récente en premier
 const extras = ref([]) // eau et clopes de la soirée
@@ -126,6 +127,10 @@ async function add(drink, e) {
       })
     }
     celebrateBadges(row.badges)
+    // Solo : au 1er verre de la soirée puis tous les 4, petit rappel qu'à plusieurs c'est une compet
+    if (props.solo && d === day.value && (drinks.value.length === 1 || drinks.value.length % 4 === 0)) {
+      setTimeout(() => toast('Seul au comptoir ? Monte une bande', { ms: 6000, action: { label: 'Bandes', run: () => emit('bandes') } }), 900)
+    }
     emit('saved')
     loadFavorites()
   } catch (e) {
