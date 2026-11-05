@@ -849,22 +849,50 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(rows.map((r) => ({ ...r, private: !!r.private, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [] })))
   })
 
-  // Confidentialité d'un lieu : { private, groups: [id de bande…] } — son créateur, ou un admin.
-  // Privé = visible par moi et les bandes cochées (parmi les miennes) ; public = par tout le monde.
+  // Modifier un lieu (tout est facultatif dans le corps) :
+  //   name                         renommer                      — son créateur, ou un admin
+  //   private, groups: [id…]       visibilité et bandes autorisées — son créateur, ou un admin
+  //   lat, lng (null, null = vider) position, pour une future carte — créateur/admin ; les autres peuvent
+  //                                 seulement remplir une position encore vide (comme la photo d'une boisson)
   app.patch('/api/places/:id', auth, (req, res) => {
     const pl = db.prepare('SELECT * FROM places WHERE id = ?').get(Number(req.params.id))
     if (!pl || !canSeePlace.get(pl.id, req.user.id, req.user.id)) return bad(res, 'Lieu introuvable', 404)
-    if (pl.created_by !== req.user.id && !req.user.is_admin) return bad(res, "Seul celui qui l'a créé peut changer sa visibilité", 403)
-    const priv = req.body.private === true
-    const groups = Array.isArray(req.body.groups) ? req.body.groups.map(Number) : []
-    if (groups.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
+    const owner = pl.created_by === req.user.id || req.user.is_admin
+    const b = req.body
+    const set = {}
+    if ('name' in b) {
+      const name = String(b.name ?? '').trim()
+      if (!name || name.length > 60 || /\p{Cc}/u.test(name)) return bad(res, 'Nom de lieu entre 1 et 60 caractères')
+      set.name = name
+    }
+    if ('private' in b) set.private = b.private === true ? 1 : 0
+    if ('lat' in b || 'lng' in b) {
+      const clear = b.lat == null && b.lng == null
+      const lat = Number(b.lat)
+      const lng = Number(b.lng)
+      if (!clear && !(Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180)) {
+        return bad(res, 'Position invalide (latitude -90 à 90, longitude -180 à 180)')
+      }
+      set.lat = clear ? null : Math.round(lat * 1e6) / 1e6
+      set.lng = clear ? null : Math.round(lng * 1e6) / 1e6
+    }
+    const onlyFillingCoords = Object.keys(set).every((k) => k === 'lat' || k === 'lng') && pl.lat == null && set.lat != null && !('groups' in b)
+    if (!owner && !onlyFillingCoords) return bad(res, "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent juste ajouter une position manquante)", 403)
+    const groups = Array.isArray(b.groups) ? b.groups.map(Number) : null
+    if (groups?.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
+    // Pas deux lieux de même nom dans la même portée (public, ou privés d'une même personne)
+    const name = set.name ?? pl.name
+    const priv = set.private ?? pl.private
     const clash = db.prepare(`SELECT 1 FROM places WHERE id != ? AND name = ? AND ${priv ? 'private = 1 AND created_by = ?' : 'private = 0'}`)
-      .get(pl.id, pl.name, ...(priv ? [pl.created_by] : []))
+      .get(pl.id, name, ...(priv ? [pl.created_by] : []))
     if (clash) return bad(res, priv ? 'Tu as déjà un lieu privé de ce nom' : 'Un lieu public porte déjà ce nom', 409)
     db.exec('BEGIN')
-    db.prepare('UPDATE places SET private = ? WHERE id = ?').run(+priv, pl.id)
-    db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
-    if (priv) for (const g of groups) db.prepare('INSERT INTO place_groups (place_id, group_id) VALUES (?, ?)').run(pl.id, g)
+    for (const [k, v] of Object.entries(set)) db.prepare(`UPDATE places SET ${k} = ? WHERE id = ?`).run(v, pl.id)
+    if (!priv) db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
+    else if (groups) {
+      db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
+      for (const g of groups) db.prepare('INSERT INTO place_groups (place_id, group_id) VALUES (?, ?)').run(pl.id, g)
+    }
     db.exec('COMMIT')
     res.json({ ok: true })
   })

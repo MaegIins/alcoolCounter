@@ -875,3 +875,21 @@ test('lieu privé : visible par moi et les bandes autorisées seulement (nom mas
   await s.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: false } })
   assert.deepEqual(await seen(c.token), ['Chez moi', 'Chez moi'])
 })
+
+test('modifier un lieu : nom et position par le créateur ; les autres ajoutent seulement une position manquante', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  await s.drink(a.token, '2026-11-02', { place: 'Le Rade' })
+  const id = (await s.call('GET', '/places', { token: a.token })).body[0].id
+  const patch = (t, body) => s.call('PATCH', `/places/${id}`, { token: t, body })
+  assert.equal((await patch(b.token, { name: 'Autre' })).status, 403)
+  assert.equal((await patch(b.token, { lat: 48.8566, lng: 2.3522 })).status, 200) // position manquante : OK
+  assert.equal((await patch(b.token, { lat: 1, lng: 1 })).status, 403) // déjà renseignée
+  assert.equal((await patch(a.token, { lat: 91, lng: 0 })).status, 400)
+  assert.equal((await patch(a.token, { name: 'Le Vieux Rade', lat: 45.764043, lng: 4.835659 })).status, 200)
+  const p = (await s.call('GET', '/places', { token: b.token })).body[0]
+  assert.deepEqual([p.name, p.lat, p.lng], ['Le Vieux Rade', 45.764043, 4.835659])
+  assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: a.token })).body.items[0].place, 'Le Vieux Rade') // les consos suivent
+  assert.equal((await patch(a.token, { lat: null, lng: null })).status, 200)
+  assert.equal((await patch(a.token, { name: '' })).status, 400)
+})

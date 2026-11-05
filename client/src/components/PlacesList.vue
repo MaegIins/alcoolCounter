@@ -29,20 +29,43 @@ const shown = computed(() => {
   return places.value.filter((p) => (!q || norm(p.name).includes(q)) && (!onlyMine.value || p.my_logs))
 })
 
-// --- Visibilité d'un de mes lieux ---------------------------------------------------------------
-const editing = ref(null) // { id, private, groups: Set }
-const startEdit = (p) => (editing.value = { id: p.id, private: p.private, groups: p.groups.map((g) => g.id) })
+// --- Modifier un lieu ----------------------------------------------------------------------------
+// Le créateur (ou un admin) : nom, position, visibilité. Les autres : seulement ajouter une position manquante.
+const canEdit = (p) => p.mine || props.me.is_admin
+const editing = ref(null) // { id, owner, name, private, groups, lat, lng }
+const startEdit = (p) =>
+  (editing.value = { id: p.id, owner: canEdit(p), name: p.name, private: p.private, groups: p.groups.map((g) => g.id), lat: p.lat ?? '', lng: p.lng ?? '' })
+const locating = ref(false)
+function locate() {
+  if (!navigator.geolocation) return toast("Ton navigateur ne donne pas ta position")
+  locating.value = true
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      editing.value.lat = Math.round(pos.coords.latitude * 1e6) / 1e6
+      editing.value.lng = Math.round(pos.coords.longitude * 1e6) / 1e6
+      locating.value = false
+    },
+    () => {
+      toast('Position refusée ou introuvable')
+      locating.value = false
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  )
+}
 async function save() {
   const e = editing.value
+  const coords = e.lat === '' && e.lng === '' ? { lat: null, lng: null } : { lat: Number(e.lat), lng: Number(e.lng) }
+  const body = e.owner ? { name: e.name, private: e.private, groups: e.private ? e.groups : [], ...coords } : coords
   try {
-    await api(`/places/${e.id}`, { method: 'PATCH', body: { private: e.private, groups: e.private ? e.groups : [] } })
+    await api(`/places/${e.id}`, { method: 'PATCH', body })
     editing.value = null
-    toast('Visibilité du lieu enregistrée')
+    toast('Lieu enregistré')
     bump()
   } catch (err) {
     toast(err.message)
   }
 }
+const osm = (p) => `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=17/${p.lat}/${p.lng}`
 const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
 </script>
 
@@ -81,19 +104,48 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
               <template v-else>Public</template>
               <template v-if="p.last_at"> · dernière fois {{ lastLabel(p.last_at) }}</template>
             </span>
+            <a v-if="p.lat != null" :href="osm(p)" target="_blank" rel="noopener" class="text-xs font-semibold text-hi hover:underline">
+              <Icon name="fa-map-location-dot" /> Voir sur la carte
+            </a>
+            <span v-else class="text-xs text-faint">Pas encore de position</span>
           </span>
-          <button v-if="p.mine || me.is_admin" class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink" :aria-label="`Visibilité de ${p.name}`" @click="editing?.id === p.id ? (editing = null) : startEdit(p)">
-            <Icon name="fa-sliders" />
+          <button
+            v-if="canEdit(p) || p.lat == null"
+            class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink"
+            :aria-label="canEdit(p) ? `Modifier ${p.name}` : `Ajouter la position de ${p.name}`"
+            @click="editing?.id === p.id ? (editing = null) : startEdit(p)"
+          >
+            <Icon :name="canEdit(p) ? 'edit' : 'fa-location-crosshairs'" />
           </button>
         </div>
 
         <!-- Visibilité -->
-        <form v-if="editing?.id === p.id" class="mt-3 space-y-3 rounded-xl bg-white/[.03] p-4" @submit.prevent="save">
-          <div class="flex rounded-full bg-white/5 p-1">
+        <form v-if="editing?.id === p.id" class="mt-3 space-y-4 rounded-xl bg-white/[.03] p-4" @submit.prevent="save">
+          <label v-if="editing.owner" class="block">
+            <span class="kicker">Nom</span>
+            <input v-model="editing.name" maxlength="60" required class="field mt-1 w-full px-3.5 py-2 text-base" />
+          </label>
+          <div>
+            <span class="kicker">Position (pour la carte)</span>
+            <div class="mt-1 grid grid-cols-2 gap-2">
+              <input v-model="editing.lat" type="number" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Latitude" class="field px-3 py-2 text-base" />
+              <input v-model="editing.lng" type="number" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Longitude" class="field px-3 py-2 text-base" />
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <button type="button" class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="locating" @click="locate">
+                <Icon name="fa-location-crosshairs" /> {{ locating ? 'Localisation…' : 'Ma position actuelle' }}
+              </button>
+              <button v-if="editing.owner && (editing.lat !== '' || editing.lng !== '')" type="button" class="font-semibold text-muted hover:text-alert" @click="editing.lat = ''; editing.lng = ''">
+                Effacer
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-faint">Astuce : sur OpenStreetMap ou Google Maps, un appui long sur un point donne ses coordonnées.</p>
+          </div>
+          <div v-if="editing.owner" class="flex rounded-full bg-white/5 p-1">
             <button type="button" class="seg flex-1" :aria-pressed="!editing.private" @click="editing.private = false"><Icon name="fa-globe" /> Public</button>
             <button type="button" class="seg flex-1" :aria-pressed="editing.private" @click="editing.private = true"><Icon name="lock" /> Privé</button>
           </div>
-          <div v-if="editing.private">
+          <div v-if="editing.owner && editing.private">
             <p class="mb-2 text-sm text-muted">Bandes qui le voient (et sa position, quand il y aura la carte) :</p>
             <label v-for="g in groups" :key="g.id" class="flex items-center gap-2.5 py-1">
               <input v-model="editing.groups" type="checkbox" :value="g.id" class="h-4 w-4 accent-[#d4bc35]" />
