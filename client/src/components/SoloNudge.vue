@@ -54,7 +54,7 @@ const FAKE = [
       <div>
         <h3 class="font-display text-xl">Tu bois seul.</h3>
         <p class="mt-1 text-sm text-muted">
-          Tes verres comptent déjà. Rejoins une bande pour avoir le classement, les victoires et une carte commune.
+          Tes verres comptent déjà. Rejoins une bande pour avoir le classement et les victoires.
         </p>
       </div>
     </div>

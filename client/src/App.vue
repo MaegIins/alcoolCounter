@@ -182,13 +182,8 @@ async function logout() {
           @groups="loadGroups"
           @back="goto('home')"
         />
-        <!-- La carte appartient à une bande : en solo, on explique et on pousse à en rejoindre une -->
-        <div v-else-if="view === 'carte' && solo" key="c-solo" class="space-y-6">
-          <h2 class="font-display text-2xl">La carte</h2>
-          <p class="text-muted">Chaque bande a sa carte : les boissons de vos soirées, remplies par tout le monde, à mettre en raccourci.</p>
-          <SoloNudge @changed="loadGroups" />
-        </div>
-        <CartePage v-else-if="view === 'carte'" :key="'c' + currentGroup" :me="me" :group="group" @saved="refreshKey++" @back="goto('home')" />
+        <!-- La carte est commune à tout le monde, bande ou pas -->
+        <CartePage v-else-if="view === 'carte'" key="carte" :me="me" @saved="refreshKey++" @back="goto('home')" />
         <div v-else :key="'h' + currentGroup" class="space-y-16">
           <SoloNudge v-if="solo" ref="nudge" @changed="loadGroups" />
           <EntryForm v-model:day="day" :solo="solo" @saved="refreshKey++" @carte="goto('carte')" @bandes="focusNudge" />

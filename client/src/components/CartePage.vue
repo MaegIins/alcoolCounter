@@ -6,7 +6,7 @@ import DrinkFields from './DrinkFields.vue'
 import Pager from './Pager.vue'
 import { burst, centerOf, vibrate, toast, ask, celebrateBadges } from '../juice'
 
-const props = defineProps({ me: Object, group: Object })
+const props = defineProps({ me: Object })
 const emit = defineEmits(['back', 'saved'])
 
 const products = ref([])
@@ -36,8 +36,8 @@ const shown = computed(() => {
   )
 })
 const favCount = computed(() => products.value.filter((p) => p.fav).length)
-// Modifier / retirer : l'auteur du produit, le patron de la bande, ou un admin
-const canRemove = (p) => p.created_by === props.me.id || props.group?.owner_id === props.me.id || props.me.is_admin
+// Modifier / retirer : l'auteur du produit, ou un admin
+const canRemove = (p) => p.created_by === props.me.id || props.me.is_admin
 
 // --- Modifier un produit (corriger un degré…) ----------------------------------
 const editing = ref(null) // { id, name, cat, cl, abv }
@@ -118,7 +118,7 @@ async function removeProduct(p) {
     title: `Retirer « ${p.name} » ?`,
     message: mine
       ? 'Il disparaîtra de la carte et des raccourcis de tout le monde. Les verres déjà bus restent comptés.'
-      : `Ajouté par ${p.created_by_name ?? 'quelqu’un'}. Tu le retires pour toute la bande. Les verres déjà bus restent comptés.`,
+      : `Ajouté par ${p.created_by_name ?? 'quelqu’un'}. Tu le retires pour tout le monde. Les verres déjà bus restent comptés.`,
     confirm: 'Retirer',
     danger: true,
   })
@@ -165,7 +165,7 @@ async function create() {
         <button class="text-sm font-semibold text-muted hover:text-hi" @click="emit('back')">← Retour</button>
       </div>
       <p class="mt-2 text-muted">
-        Les boissons de <b class="text-ink">{{ group?.name ?? 'la bande' }}</b>, remplies par tout le monde. Mets-en en favori <span class="text-hi">★</span>
+        Les boissons de tout le monde, toutes bandes confondues. Mets-en en favori <span class="text-hi">★</span>
         pour les retrouver en raccourci sur l'accueil.
       </p>
     </div>
@@ -274,7 +274,7 @@ async function create() {
           <button
             v-if="canRemove(p)"
             class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white"
-            :title="p.created_by === me.id ? 'Retirer de la carte' : 'Retirer (patron / admin)'"
+            :title="p.created_by === me.id ? 'Retirer de la carte' : 'Retirer (admin)'"
             :aria-label="`Retirer ${p.name} de la carte`"
             @click="removeProduct(p)"
           >

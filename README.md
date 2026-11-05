@@ -35,7 +35,7 @@ Variables d'env :
 - `INVITE_CODE` : si défini, requis pour s'inscrire
 - `DATA_DIR` : dossier de la base SQLite (défaut `server/data/`)
 - `ADMINS` : pseudos admin séparés par des virgules (ex. `ADMINS=tristan,léa`). Un admin peut modifier ou retirer
-  n'importe quel produit de n'importe quelle carte. Relu à chaque démarrage.
+  n'importe quel produit de la carte. Relu à chaque démarrage.
 - `APP_TZ` : fuseau des soirées, pour les badges liés à l'heure (défaut `Europe/Paris`)
 
 Ces variables peuvent aussi aller dans `server/.env` (non versionné), lu par `npm run dev` et `npm start`.
@@ -44,15 +44,15 @@ Ces variables peuvent aussi aller dans `server/.env` (non versionné), lu par `n
 ## Fonctionnement
 
 ### Bandes
-Chaque **bande** a sa compet (classement, stats, fiches) et sa carte. On en crée une, ou on en rejoint une avec
+Chaque **bande** a sa compet (classement, stats, fiches) ; la carte, elle, est commune à tout le monde. On en crée une, ou on en rejoint une avec
 son code à 6 caractères (Profil › Mes bandes, ou à l'inscription). « Inviter » partage un lien `/?bande=CODE`.
 On peut être dans plusieurs bandes et passer de l'une à l'autre (sélecteur sous le titre). Les verres sont à la
-personne : ils comptent dans toutes ses bandes. Le **patron** (créateur) peut modifier/retirer les produits de sa carte ;
+personne : ils comptent dans toutes ses bandes. Le **patron** est le créateur ;
 s'il part, le plus ancien membre prend la suite ; une bande vide disparaît.
 Une base d'avant les bandes est migrée automatiquement dans une bande « La bande » avec tout le monde.
 
 **Sans bande (solo)** : on peut quand même ajouter ses verres, son eau et ses clopes, et voir sa propre fiche
-(badges compris). Le classement (affiché flouté et verrouillé), les stats et la carte attendent une bande.
+(badges compris). Le classement (affiché flouté et verrouillé), les stats attendent une bande ; la carte est accessible à tous.
 Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'en créer une, et un rappel
 apparaît au premier verre de la soirée puis tous les 4 verres.
 
@@ -73,8 +73,8 @@ enregistré tout de suite. On se base sur la confiance.
   Rappel tous les 3 verres d'affilée sans eau (avec un bouton « + 💧 »).
 - **Badges** : 18 succès (Enchaînement, Bières fortes, After, 3 soirs de suite…), calculés depuis
   l'historique (`server/badges.js`) ; toast + confettis quand on en débloque un, vitrine dans la fiche joueur.
-- **La carte** (une par bande) : produits partagés (nom, catégorie, volume, degré) que tout le monde peut compléter,
-  et corriger (✎) par leur auteur, le patron ou un admin. Recherche,
+- **La carte** (une seule, commune à toutes les bandes) : produits partagés (nom, catégorie, volume, degré) que tout le monde peut compléter,
+  et corriger (✎) par leur auteur ou un admin. Recherche,
   filtres, ★ pour mettre en favori (= raccourci sur l'accueil), « +1 » pour l'ajouter direct à ta soirée.
   12 produits par page. Doublons refusés (même nom, volume et degré) ; seul celui qui a ajouté un produit
   (ou un admin) peut le retirer.

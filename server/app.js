@@ -74,6 +74,9 @@ const DUMMY_HASH = hashPin('0000')
  */
 export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now, distDir, admins = [], tz = 'Europe/Paris' } = {}) {
   const db = new DatabaseSync(dbPath)
+  const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
+  const hadGroups = hasTable('groups')
+  const hadProducts = hasTable('products')
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -124,17 +127,16 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       joined_at INTEGER NOT NULL,
       PRIMARY KEY (group_id, user_id)
     );
-    -- La carte d'une bande : produits remplis par ses membres
+    -- La carte : une seule, commune à tout le monde (quelle que soit la bande), remplie par tous
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       name TEXT NOT NULL COLLATE NOCASE,
       cat TEXT NOT NULL,
       cl REAL NOT NULL,
       abv REAL NOT NULL,
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE (group_id, name, cl, abv)
+      UNIQUE (name, cl, abv)
     );
     -- Favoris de chacun : raccourcis sur l'accueil
     CREATE TABLE IF NOT EXISTS product_favs (
@@ -153,29 +155,43 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const setAdmin = db.prepare('UPDATE users SET is_admin = 1 WHERE name = ?')
   for (const a of adminNames) setAdmin.run(a)
 
-  // Migration : avant les bandes, tout le monde était dans une seule compet → bande « La bande » pour tous,
-  // et la carte (sans group_id) lui est rattachée. Table recréée pour l'unicité par bande.
-  const productCols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
-  if (!productCols.includes('group_id')) {
+  // Migration : avant les bandes, tout le monde était dans une seule compet → bande « La bande » pour tous
+  if (hadProducts && !hadGroups) {
     const first = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()
-    db.exec('PRAGMA foreign_keys = OFF; BEGIN')
-    let gid = null
     if (first) {
-      gid = Number(db.prepare('INSERT INTO groups (name, code, owner_id) VALUES (?, ?, ?)').run('La bande', newCode(), first.id).lastInsertRowid)
+      db.exec('BEGIN')
+      const gid = Number(db.prepare('INSERT INTO groups (name, code, owner_id) VALUES (?, ?, ?)').run('La bande', newCode(), first.id).lastInsertRowid)
       db.prepare('INSERT INTO group_members (group_id, user_id, joined_at) SELECT ?, id, ? FROM users').run(gid, now())
+      db.exec('COMMIT')
     }
+  }
+  // Migration : une carte par bande → une carte commune. Les doublons (même nom, volume, degré) sont
+  // fusionnés sur le plus ancien ; les favoris suivent. Table recréée pour l'unicité globale.
+  const productCols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
+  if (productCols.includes('group_id')) {
     db.exec(`
+      PRAGMA foreign_keys = OFF; BEGIN;
       CREATE TABLE products_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
         name TEXT NOT NULL COLLATE NOCASE, cat TEXT NOT NULL, cl REAL NOT NULL, abv REAL NOT NULL,
         created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE (group_id, name, cl, abv)
+        UNIQUE (name, cl, abv)
       );
+      CREATE TEMP TABLE product_map AS
+        SELECT p.id AS old_id, (SELECT MIN(q.id) FROM products q WHERE q.name = p.name AND q.cl = p.cl AND q.abv = p.abv) AS new_id
+        FROM products p;
+      INSERT INTO products_new (id, name, cat, cl, abv, created_by, created_at)
+        SELECT id, name, cat, cl, abv, created_by, created_at FROM products WHERE id IN (SELECT new_id FROM product_map);
+      CREATE TEMP TABLE favs_old AS SELECT * FROM product_favs;
+      DELETE FROM product_favs;
+      INSERT OR IGNORE INTO product_favs (user_id, product_id, created_at)
+        SELECT f.user_id, m.new_id, MIN(f.created_at) FROM favs_old f JOIN product_map m ON m.old_id = f.product_id
+        GROUP BY f.user_id, m.new_id;
+      DROP TABLE favs_old; DROP TABLE product_map;
+      DROP TABLE products; ALTER TABLE products_new RENAME TO products;
+      COMMIT; PRAGMA foreign_keys = ON;
     `)
-    if (gid) db.prepare('INSERT INTO products_new (id, group_id, name, cat, cl, abv, created_by, created_at) SELECT id, ?, name, cat, cl, abv, created_by, created_at FROM products').run(gid)
-    db.exec('DROP TABLE products; ALTER TABLE products_new RENAME TO products; COMMIT; PRAGMA foreign_keys = ON')
   }
 
   // Migration : ancienne table « entries » (compteurs par type) → une conso par verre
@@ -253,8 +269,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     req.memberIds = [req.user.id]
     next()
   }
-  // Peut modifier/retirer un produit : son auteur, le patron de la bande, ou un admin
-  const canManage = (p, req) => p.created_by === req.user.id || req.group.owner_id === req.user.id || req.user.is_admin
+  // Peut modifier/retirer un produit de la carte commune : son auteur, ou un admin
+  const canManage = (p, req) => p.created_by === req.user.id || req.user.is_admin
   const joinGroup = (groupId, userId) =>
     db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)').run(groupId, userId, now())
   const groupOut = (g) => ({ id: g.id, name: g.name, code: g.code, owner_id: g.owner_id, members: g.members })
@@ -547,81 +563,81 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav`
   const productOut = (r) => ({ ...r, fav: !!r.fav, units: round1(unitsOf(r)) })
   const getProduct = (id, userId) =>
-    db.prepare(`SELECT ${PRODUCT_COLS}, p.group_id FROM products p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?`).get(userId, id)
+    db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?`).get(userId, id)
   const productOf = (req, res) => {
     const p = getProduct(Number(req.params.id), req.user.id)
-    if (!p || p.group_id !== req.group.id) {
+    if (!p) {
       bad(res, 'Produit introuvable', 404)
       return null
     }
     return p
   }
 
-  // Toute la carte de la bande, les plus mis en favori d'abord
-  app.get('/api/products', auth, group, (req, res) => {
+  // Toute la carte (commune), les plus mis en favori d'abord
+  app.get('/api/products', auth, (req, res) => {
     const rows = db.prepare(`
       SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by
-      WHERE p.group_id = ? ORDER BY favs DESC, p.name
-    `).all(req.user.id, req.group.id)
+      ORDER BY favs DESC, p.name
+    `).all(req.user.id)
     res.json(rows.map(productOut))
   })
 
-  // Mes favoris (cartes de toutes mes bandes), dans l'ordre où je les ai ajoutés
+  // Mes favoris, dans l'ordre où je les ai ajoutés
   app.get('/api/products/favorites', auth, (req, res) => {
     const rows = db.prepare(`
       SELECT ${PRODUCT_COLS} FROM product_favs f JOIN products p ON p.id = f.product_id
       LEFT JOIN users u ON u.id = p.created_by
-      WHERE f.user_id = ? AND p.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
+      WHERE f.user_id = ?
       ORDER BY f.created_at, p.id
-    `).all(req.user.id, req.user.id, req.user.id)
+    `).all(req.user.id, req.user.id)
     res.json(rows.map(productOut))
   })
 
   // Ajouter un produit à la carte (il passe direct dans mes favoris)
-  app.post('/api/products', auth, group, (req, res) => {
+  app.post('/api/products', auth, (req, res) => {
     const { drink, error } = checkDrink(req.body)
     if (error) return bad(res, error)
-    const dup = db.prepare('SELECT id FROM products WHERE group_id = ? AND name = ? AND cl = ? AND abv = ?').get(req.group.id, drink.name, drink.cl, drink.abv)
+    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ?').get(drink.name, drink.cl, drink.abv)
     if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
     const { lastInsertRowid } = db.prepare(
-      'INSERT INTO products (group_id, name, cat, cl, abv, created_by) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(req.group.id, drink.name, drink.cat, drink.cl, drink.abv, req.user.id)
+      'INSERT INTO products (name, cat, cl, abv, created_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(drink.name, drink.cat, drink.cl, drink.abv, req.user.id)
     const id = Number(lastInsertRowid)
     db.prepare('INSERT INTO product_favs (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
     res.json(productOut(getProduct(id, req.user.id)))
   })
 
-  // Corriger un produit (nom, catégorie, volume, degré) : son auteur, le patron de la bande, ou un admin.
+  // Corriger un produit (nom, catégorie, volume, degré) : son auteur, ou un admin.
   // Les verres déjà bus ne changent pas (ils gardent leurs propres volume et degré).
-  app.patch('/api/products/:id', auth, group, (req, res) => {
+  app.patch('/api/products/:id', auth, (req, res) => {
     const p = productOf(req, res)
     if (!p) return
-    if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté, le patron de la bande ou un admin peut le modifier", 403)
+    if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut le modifier", 403)
     const { drink, error } = checkDrink(req.body)
     if (error) return bad(res, error)
-    const dup = db.prepare('SELECT id FROM products WHERE group_id = ? AND name = ? AND cl = ? AND abv = ? AND id != ?')
-      .get(req.group.id, drink.name, drink.cl, drink.abv, p.id)
+    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ? AND id != ?')
+      .get(drink.name, drink.cl, drink.abv, p.id)
     if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
     db.prepare('UPDATE products SET name = ?, cat = ?, cl = ?, abv = ? WHERE id = ?').run(drink.name, drink.cat, drink.cl, drink.abv, p.id)
     res.json(productOut(getProduct(p.id, req.user.id)))
   })
 
-  // Retirer un produit de la carte : son auteur, le patron de la bande, ou un admin
-  app.delete('/api/products/:id', auth, group, (req, res) => {
+  // Retirer un produit de la carte : son auteur, ou un admin
+  app.delete('/api/products/:id', auth, (req, res) => {
     const p = productOf(req, res)
     if (!p) return
-    if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté, le patron de la bande ou un admin peut le retirer", 403)
+    if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut le retirer", 403)
     db.prepare('DELETE FROM products WHERE id = ?').run(p.id)
     res.json({ ok: true })
   })
 
-  app.put('/api/products/:id/fav', auth, group, (req, res) => {
+  app.put('/api/products/:id/fav', auth, (req, res) => {
     const id = Number(req.params.id)
     if (!productOf(req, res)) return
     db.prepare('INSERT OR IGNORE INTO product_favs (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
     res.json(productOut(getProduct(id, req.user.id)))
   })
-  app.delete('/api/products/:id/fav', auth, group, (req, res) => {
+  app.delete('/api/products/:id/fav', auth, (req, res) => {
     const id = Number(req.params.id)
     db.prepare('DELETE FROM product_favs WHERE user_id = ? AND product_id = ?').run(req.user.id, id)
     const p = getProduct(id, req.user.id)

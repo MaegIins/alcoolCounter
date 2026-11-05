@@ -57,7 +57,7 @@ async function leave(g) {
     icon: '🚪',
     title: `Quitter « ${g.name} » ?`,
     message: last
-      ? 'Tu es le dernier : la bande et sa carte seront supprimées. Tes verres restent à toi.'
+      ? 'Tu es le dernier : la bande sera supprimée. Tes verres restent à toi.'
       : `Tu disparais de son classement. Tes verres restent à toi.${g.owner_id === props.me.id ? ' Le plus ancien membre devient patron.' : ''}`,
     confirm: 'Quitter',
     danger: true,
@@ -77,7 +77,7 @@ async function leave(g) {
   <div class="space-y-6">
     <div v-if="intro" class="text-center">
       <h2 class="font-display text-2xl">Rejoins une bande</h2>
-      <p class="mt-1 text-muted">Chaque bande a son classement et sa carte. Entre le code d’un pote, ou crée la tienne.</p>
+      <p class="mt-1 text-muted">Chaque bande a son classement. Entre le code d’un pote, ou crée la tienne.</p>
     </div>
 
     <ul v-if="groups.length" class="box divide-y divide-white/5">

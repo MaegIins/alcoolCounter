@@ -374,15 +374,19 @@ describe('bandes', () => {
     assert.equal((await s.call('GET', '/users', { token: b.token, headers: { 'X-Group': String(g1.id) } })).status, 409)
   })
 
-  test('chaque bande a sa carte ; le même produit peut exister dans deux bandes', async () => {
+  test('une seule carte pour tout le monde, quelle que soit la bande (et même en solo)', async () => {
     const a = await s.register('Alice', '1234', { group: false })
+    const solo = await s.register('Solo', '1234', { group: false })
     const g1 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Un' } })).body
     const g2 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Deux' } })).body
     const add = (g) => s.call('POST', '/products', { token: a.token, headers: { 'X-Group': String(g.id) }, body: SHOT })
     assert.equal((await add(g1)).status, 200)
-    assert.equal((await add(g2)).status, 200)
-    const list = (await s.call('GET', '/products', { token: a.token, headers: { 'X-Group': String(g1.id) } })).body
+    assert.equal((await add(g2)).status, 409) // déjà sur la carte commune
+    const list = (await s.call('GET', '/products', { token: a.token, headers: { 'X-Group': String(g2.id) } })).body
     assert.equal(list.length, 1)
+    assert.deepEqual((await s.call('GET', '/products', { token: solo.token })).body.map((p) => p.name), ['Shot'])
+    assert.equal((await s.call('PUT', `/products/${list[0].id}/fav`, { token: solo.token })).status, 200)
+    assert.deepEqual((await s.call('GET', '/products/favorites', { token: solo.token })).body.map((p) => p.name), ['Shot'])
   })
 
   test('quitter : le patron passe la main, la bande vide disparaît', async () => {
@@ -436,7 +440,7 @@ describe('badges', () => {
 })
 
 describe('modifier un produit', () => {
-  test('auteur ou patron de la bande ; doublon refusé', async () => {
+  test('auteur seulement (le patron de la bande non) ; doublon refusé', async () => {
     const owner = await s.register('Patron') // crée la bande de test
     const a = await s.register('Alice')
     const b = await s.register('Bob')
@@ -447,7 +451,7 @@ describe('modifier un produit', () => {
     const r = await s.call('PATCH', `/products/${p.id}`, { token: a.token, body: fix })
     assert.equal(r.body.abv, 8)
     assert.equal(r.body.units, 2.1)
-    assert.equal((await s.call('PATCH', `/products/${p.id}`, { token: owner.token, body: { ...fix, name: 'Chouffe Houblon' } })).status, 200)
+    assert.equal((await s.call('PATCH', `/products/${p.id}`, { token: owner.token, body: { ...fix, name: 'Chouffe Houblon' } })).status, 403)
     assert.equal((await s.call('PATCH', `/products/${p.id}`, { token: a.token, body: { name: 'Leffe', cat: 'biere', cl: 33, abv: 6.6 } })).status, 409)
   })
 })
@@ -474,8 +478,42 @@ describe('migration', () => {
       const g = db.prepare('SELECT * FROM groups').get()
       assert.equal(g.name, 'La bande')
       assert.equal(db.prepare('SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?').get(g.id).n, 2)
-      assert.equal(db.prepare('SELECT group_id FROM products').get().group_id, g.id)
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM products').get().n, 1) // la carte reste, commune
       assert.equal(db.prepare('SELECT COUNT(*) AS n FROM product_favs').get().n, 1) // favoris conservés
+    } finally {
+      close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('une carte par bande → une carte commune : doublons fusionnés, favoris suivis', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'alcool-test-'))
+    const file = path.join(dir, 'bandes.db')
+    createApp({ dbPath: file }).close() // schéma actuel, puis on remet l'ancienne table products
+    const old = new DatabaseSync(file)
+    old.exec(`
+      PRAGMA foreign_keys = OFF;
+      INSERT INTO users (name, pin_hash) VALUES ('A', 'x:y'), ('B', 'x:y');
+      INSERT INTO groups (name, code, owner_id) VALUES ('Un', 'AAAAAA', 1), ('Deux', 'BBBBBB', 2);
+      DROP TABLE products;
+      CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE,
+        cat TEXT NOT NULL, cl REAL NOT NULL, abv REAL NOT NULL, created_by INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (group_id, name, cl, abv));
+      INSERT INTO products (group_id, name, cat, cl, abv, created_by) VALUES
+        (1, 'Chouffe', 'biere', 33, 8, 1), (1, 'Ricard', 'fort', 2, 45, 1), (2, 'chouffe', 'biere', 33, 8, 2);
+      INSERT INTO product_favs VALUES (1, 1, 5), (1, 3, 9), (2, 3, 7);
+    `)
+    old.close()
+    const { db, close } = createApp({ dbPath: file })
+    try {
+      const cols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
+      assert.ok(!cols.includes('group_id'))
+      assert.deepEqual(db.prepare('SELECT id, name FROM products ORDER BY id').all().map((r) => ({ ...r })), [
+        { id: 1, name: 'Chouffe' }, { id: 2, name: 'Ricard' },
+      ])
+      assert.deepEqual(db.prepare('SELECT user_id, product_id, created_at FROM product_favs ORDER BY user_id').all().map((r) => ({ ...r })), [
+        { user_id: 1, product_id: 1, created_at: 5 }, { user_id: 2, product_id: 1, created_at: 7 },
+      ])
     } finally {
       close()
       rmSync(dir, { recursive: true, force: true })
