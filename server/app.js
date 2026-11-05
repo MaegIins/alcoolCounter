@@ -20,6 +20,30 @@ export const MAX_DRINKS_PER_DAY = 100
 export const SUSPECT_UNITS = 30 // au-delà : badge « suspect » (on ne bloque pas, on affiche)
 export const EXTRAS = ['eau', 'clope'] // comptés à part, hors score
 // Code de bande : 6 caractères sans ambiguïté (pas de 0/O, 1/I/L)
+/**
+ * Fusionne la fiche `dupId` dans `keepId` puis la supprime : verres, favoris, « déjà bue », tops suivent ;
+ * la photo et les infos manquantes de la fiche gardée sont reprises du doublon. À appeler dans une transaction.
+ */
+export function mergeProducts(db, keepId, dupId) {
+  if (keepId === dupId) return
+  db.prepare('UPDATE drinks SET product_id = ? WHERE product_id = ?').run(keepId, dupId)
+  for (const t of ['product_favs', 'product_tried']) {
+    db.prepare(`INSERT OR IGNORE INTO ${t} (user_id, product_id, created_at) SELECT user_id, ?, created_at FROM ${t} WHERE product_id = ?`).run(keepId, dupId)
+    db.prepare(`DELETE FROM ${t} WHERE product_id = ?`).run(dupId)
+  }
+  // Top 4 : si la fiche gardée y est déjà, la place du doublon se libère
+  db.prepare('DELETE FROM user_tops WHERE product_id = ? AND user_id IN (SELECT user_id FROM user_tops WHERE product_id = ?)').run(dupId, keepId)
+  db.prepare('UPDATE user_tops SET product_id = ? WHERE product_id = ?').run(keepId, dupId)
+  const dup = db.prepare('SELECT photo, photo_key, maker, origin, style, description FROM products WHERE id = ?').get(dupId)
+  db.prepare('DELETE FROM products WHERE id = ?').run(dupId) // avant de reprendre sa photo (clé unique)
+  if (dup) {
+    db.prepare(`UPDATE products SET
+      photo_key = CASE WHEN photo IS NULL THEN ? ELSE photo_key END, photo = COALESCE(photo, ?),
+      maker = COALESCE(maker, ?), origin = COALESCE(origin, ?), style = COALESCE(style, ?), description = COALESCE(description, ?)
+      WHERE id = ?`).run(dup.photo_key, dup.photo, dup.maker, dup.origin, dup.style, dup.description, keepId)
+  }
+}
+
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const newCode = () => Array.from(randomBytes(6), (b) => CODE_CHARS[b % CODE_CHARS.length]).join('')
 // Verres standard d'une conso, en SQL (préfixe de table optionnel) et en JS
@@ -186,7 +210,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       abv REAL NOT NULL,
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE (name, cl, abv)
+      UNIQUE (name, abv) -- une fiche par boisson ; cl = format proposé par défaut, chaque verre a le sien
     );
     -- Favoris de chacun : raccourcis sur l'accueil
     CREATE TABLE IF NOT EXISTS product_favs (
@@ -376,6 +400,40 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     db.exec(`UPDATE drinks SET product_id = (
       SELECT p.id FROM products p WHERE p.name = drinks.name COLLATE NOCASE AND p.cl = drinks.cl AND p.abv = drinks.abv
     )`)
+  }
+  // Migration : une fiche par boisson, plus une par contenance (« Kronenbourg 25 cl » et « 50 cl » → une seule).
+  // Les doublons (même nom sans la casse, même degré) sont fusionnés sur la fiche la plus bue (puis la plus ancienne),
+  // puis la table est recréée avec l'unicité (nom, degré).
+  const productsSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'products'").get().sql
+  if (/UNIQUE \(name, cl, abv\)/.test(productsSql)) {
+    const groups = db.prepare(`
+      SELECT p.id, p.name, p.abv, (SELECT COUNT(*) FROM drinks d WHERE d.product_id = p.id) AS n FROM products p
+      ORDER BY lower(p.name), p.abv, n DESC, p.id
+    `).all()
+    const keepOf = new Map()
+    db.exec('BEGIN')
+    for (const p of groups) {
+      const k = `${p.name.toLowerCase()}|${p.abv}`
+      if (!keepOf.has(k)) keepOf.set(k, p.id)
+      else mergeProducts(db, keepOf.get(k), p.id)
+    }
+    db.exec('COMMIT')
+    db.exec(`
+      PRAGMA foreign_keys = OFF; BEGIN;
+      CREATE TABLE products_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL COLLATE NOCASE, cat TEXT NOT NULL, cl REAL NOT NULL, abv REAL NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        photo TEXT, photo_key TEXT, maker TEXT, origin TEXT, style TEXT, description TEXT,
+        UNIQUE (name, abv)
+      );
+      INSERT INTO products_new (id, name, cat, cl, abv, created_by, created_at, photo, photo_key, maker, origin, style, description)
+        SELECT id, name, cat, cl, abv, created_by, created_at, photo, photo_key, maker, origin, style, description FROM products;
+      DROP TABLE products; ALTER TABLE products_new RENAME TO products;
+      CREATE UNIQUE INDEX IF NOT EXISTS products_photo_key ON products(photo_key);
+      COMMIT; PRAGMA foreign_keys = ON;
+    `)
   }
   const photoKey = () => randomBytes(12).toString('hex')
 
@@ -795,12 +853,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     let productId = req.body.product_id == null ? null : Number(req.body.product_id)
     const prod = productId ? db.prepare('SELECT name, cat, cl, abv FROM products WHERE id = ?').get(productId) : null
     if (productId && !prod) return bad(res, 'Produit introuvable', 404)
-    const { drink, error } = checkDrink(prod ?? req.body)
+    // Depuis la carte : nom, catégorie et degré du produit ; le volume est celui choisi (demi, pinte…), sinon celui de la fiche
+    const { drink, error } = checkDrink(prod ? { ...prod, cl: req.body.cl ?? prod.cl } : req.body)
     if (error) return bad(res, error)
     const { log, error: logError } = checkLog(req.body)
     if (logError) return bad(res, logError)
     // Pas de produit donné : on rattache quand même à la carte si la boisson y est
-    productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ?').get(drink.name, drink.cl, drink.abv)?.id ?? null
+    productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)?.id ?? null
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND day = ?').get(req.user.id, day)
     if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par soirée`)
     const at = now()
@@ -1291,8 +1350,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (photoError) return bad(res, photoError)
     const { info, error: infoError } = checkInfo(req.body)
     if (infoError) return bad(res, infoError)
-    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ?').get(drink.name, drink.cl, drink.abv)
-    if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
+    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)
+    if (dup) return bad(res, 'Cette boisson est déjà sur la carte (la contenance se choisit à chaque verre)', 409)
     const { lastInsertRowid } = db.prepare(
       `INSERT INTO products (name, cat, cl, abv, created_by, photo, photo_key, maker, origin, style, description)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -1301,7 +1360,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const id = Number(lastInsertRowid)
     db.prepare('INSERT INTO product_favs (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
     // Les consos déjà bues de cette boisson (par tout le monde) rejoignent sa fiche
-    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND cl = ? AND abv = ?').run(id, drink.name, drink.cl, drink.abv)
+    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND abv = ?').run(id, drink.name, drink.abv)
     res.json(productOut(getProduct(id, req.user.id)))
   })
 
@@ -1318,14 +1377,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (infoError) return bad(res, infoError)
     const { log, error: photoError } = 'photo' in req.body ? checkLog({ photo: req.body.photo }) : { log: {} }
     if (photoError) return bad(res, photoError)
-    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ? AND id != ?')
-      .get(drink.name, drink.cl, drink.abv, p.id)
-    if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
+    const dup = db.prepare('SELECT id FROM products WHERE name = ? AND abv = ? AND id != ?')
+      .get(drink.name, drink.abv, p.id)
+    if (dup) return bad(res, 'Cette boisson est déjà sur la carte', 409)
     db.prepare('UPDATE products SET name = ?, cat = ?, cl = ?, abv = ? WHERE id = ?').run(drink.name, drink.cat, drink.cl, drink.abv, p.id)
     for (const [k, v] of Object.entries(info)) db.prepare(`UPDATE products SET ${k} = ? WHERE id = ?`).run(v, p.id)
     if ('photo' in log) db.prepare('UPDATE products SET photo = ?, photo_key = ? WHERE id = ?').run(log.photo, log.photo ? photoKey() : null, p.id)
     // Les consos sans lien qui correspondent au produit corrigé y sont rattachées
-    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND cl = ? AND abv = ?').run(p.id, drink.name, drink.cl, drink.abv)
+    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND abv = ?').run(p.id, drink.name, drink.abv)
     res.json(productOut(getProduct(p.id, req.user.id)))
   })
 

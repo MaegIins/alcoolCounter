@@ -1,7 +1,7 @@
 <script setup>
 // Le « + » : choisir ce qu'on boit (carte, habitudes, format ou sur mesure), puis la date, une note,
 // un avis et une photo, tous facultatifs. Sert aussi à compléter ou supprimer une conso (preset.edit).
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
   api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, today, addDays, prettyDay, resizePhoto, photoUrl,
 } from '../api'
@@ -126,6 +126,17 @@ async function addExtra(kind) {
 
 // --- Étape 2 : détails ----------------------------------------------------------------
 const free = computed(() => sel.value && (sel.value.mode === 'format' || sel.value.mode === 'custom'))
+
+// Une fiche de la carte = une boisson ; pour une bière, la contenance se choisit à chaque verre (demi, bouteille,
+// pinte…) : celle de la fiche et les formats usuels. Cocktails, alcools, vins : la dose de la fiche, fixe.
+const baseCl = ref(null)
+watch(() => sel.value?.mode === 'product' && sel.value.product_id, (id) => (baseCl.value = id ? Number(sel.value.cl) : null), { immediate: true })
+const sizes = computed(() => {
+  if (baseCl.value == null || sel.value.cat !== 'biere') return []
+  const out = new Map([[baseCl.value, null]])
+  for (const f of FORMATS) if (f.cat === sel.value.cat && !out.get(f.cl)) out.set(f.cl, f.name)
+  return [...out].map(([cl, label]) => ({ cl, label })).sort((a, b) => a.cl - b.cl)
+})
 const name = computed(() => sel.value?.name?.trim() || sel.value?.label || '')
 const units = computed(() => (sel.value && sel.value.cl > 0 && sel.value.abv > 0 ? unitsOf(sel.value) : 0))
 const valid = computed(() => {
@@ -172,7 +183,7 @@ async function save() {
       if (toCarte.value && d.mode !== 'product') await api('/products', { method: 'POST', body: drink }).catch(() => {})
       const row = await api('/drinks', {
         method: 'POST',
-        body: { ...extra, ...(d.product_id ? { product_id: d.product_id } : drink), ...(photo.value ? { photo: photo.value } : {}) },
+        body: { ...extra, ...(d.product_id ? { product_id: d.product_id, cl: Number(d.cl) } : drink), ...(photo.value ? { photo: photo.value } : {}) },
       })
       vibrate(30)
       toast(`${row.name}${row.units ? ` · +${num(row.units)}` : ''}`, {
@@ -348,6 +359,23 @@ async function remove() {
               </button>
               <button v-else-if="edit" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" :disabled="busy" @click="createPage">
                 <Icon name="plus" /> Lui créer une page sur la carte
+              </button>
+            </div>
+          </div>
+
+          <!-- Contenance (boisson de la carte) -->
+          <div v-if="sizes.length > 1">
+            <span class="kicker">Contenance</span>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <button
+                v-for="z in sizes"
+                :key="z.cl"
+                type="button"
+                class="rounded-full px-3 py-1 text-sm font-medium"
+                :class="Number(sel.cl) === z.cl ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink'"
+                @click="sel.cl = z.cl"
+              >
+                {{ z.label ? `${z.label} · ` : '' }}{{ num(z.cl) }} cl
               </button>
             </div>
           </div>

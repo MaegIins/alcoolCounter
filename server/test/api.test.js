@@ -257,11 +257,18 @@ describe('la carte', () => {
     assert.deepEqual(seenByBob.map((p) => [p.name, p.fav, p.favs]), [['Chouffe', false, 1]])
   })
 
-  test('doublon refusé (même nom sans la casse, même volume, même degré) ; autre volume accepté', async () => {
+  test('une fiche par boisson : doublon refusé (même nom sans la casse, même degré), même dans un autre volume', async () => {
     const a = await s.register('Alice')
-    await s.call('POST', '/products', { token: a.token, body: CHOUFFE })
+    const p = (await s.call('POST', '/products', { token: a.token, body: CHOUFFE })).body
     assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, name: 'chouffe' } })).status, 409)
-    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, cl: 50 } })).status, 200)
+    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, cl: 50 } })).status, 409)
+    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, abv: 9 } })).status, 200) // autre degré : autre boisson
+    // Le volume se choisit à chaque verre ; sans volume, celui de la fiche
+    const pinte = await s.call('POST', '/drinks', { token: a.token, body: { day: '2026-11-02', product_id: p.id, cl: 50 } })
+    assert.deepEqual([pinte.body.name, pinte.body.cl, pinte.body.product_id], ['Chouffe', 50, p.id])
+    assert.equal((await s.call('POST', '/drinks', { token: a.token, body: { day: '2026-11-02', product_id: p.id } })).body.cl, 33)
+    // Une conso libre du même nom et degré est rattachée à la fiche, quel que soit son volume
+    assert.equal((await s.drink(a.token, '2026-11-02', { ...CHOUFFE, cl: 25 })).body.product_id, p.id)
   })
 
   test('produit invalide refusé', async () => {
@@ -1068,4 +1075,44 @@ test('un lieu privé n’est jamais partagé avec la bande proposée à tous', a
   } finally {
     await s2.stop()
   }
+})
+
+test('migration : une fiche par contenance → une fiche par boisson (verres, favoris, tops, déjà bue suivent)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'alcool-'))
+  const file = path.join(dir, 'a.db')
+  // Base actuelle, puis table products remise à l'ancienne : unicité (nom, volume, degré)
+  const first = createApp({ dbPath: file })
+  first.db.exec(`PRAGMA foreign_keys = OFF;
+    DROP TABLE products;
+    CREATE TABLE products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE, cat TEXT NOT NULL, cl REAL NOT NULL, abv REAL NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      photo TEXT, photo_key TEXT, maker TEXT, origin TEXT, style TEXT, description TEXT,
+      UNIQUE (name, cl, abv));
+    PRAGMA foreign_keys = ON;`)
+  first.db.exec(`INSERT INTO products (id, name, cat, cl, abv) VALUES
+    (1, 'Kro', 'biere', 25, 4.2), (2, 'Kro', 'biere', 50, 4.2), (3, 'Helles', 'biere', 33, 4.9), (4, 'helles', 'biere', 50, 4.9), (5, 'Kro', 'biere', 50, 6)`)
+  first.db.exec("UPDATE products SET photo = 'data:image/png;base64,AA', photo_key = 'k1' WHERE id = 2")
+  first.db.exec("INSERT INTO users (id, name, pin_hash) VALUES (1, 'A', 'x:y')")
+  first.db.exec(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id) VALUES
+    (1, '2026-11-01', 1, 'Helles', 'biere', 50, 4.9, 4), (1, '2026-11-01', 2, 'Helles', 'biere', 50, 4.9, 4), (1, '2026-11-01', 3, 'Helles', 'biere', 33, 4.9, 3)`)
+  first.db.exec('INSERT INTO product_favs (user_id, product_id, created_at) VALUES (1, 1, 0), (1, 2, 0)')
+  first.db.exec('INSERT INTO product_tried (user_id, product_id, created_at) VALUES (1, 3, 0)')
+  first.db.exec('INSERT INTO user_tops (user_id, slot, product_id) VALUES (1, 0, 3), (1, 1, 4)')
+  first.close()
+  const again = createApp({ dbPath: file })
+  const prods = again.db.prepare('SELECT id, name, cl, abv, photo_key FROM products ORDER BY id').all().map((r) => ({ ...r }))
+  // Helles : la 50 cl (la plus bue) est gardée ; Kro 4,2 % : la plus ancienne, qui reprend la photo du doublon ; Kro 6 % : autre boisson
+  assert.deepEqual(prods, [
+    { id: 1, name: 'Kro', cl: 25, abv: 4.2, photo_key: 'k1' },
+    { id: 4, name: 'helles', cl: 50, abv: 4.9, photo_key: null },
+    { id: 5, name: 'Kro', cl: 50, abv: 6, photo_key: null },
+  ])
+  assert.deepEqual(again.db.prepare('SELECT DISTINCT product_id FROM drinks').all().map((r) => r.product_id), [4])
+  assert.deepEqual(again.db.prepare('SELECT product_id FROM product_favs').all().map((r) => r.product_id), [1])
+  assert.deepEqual(again.db.prepare('SELECT slot, product_id FROM user_tops ORDER BY slot').all().map((r) => [r.slot, r.product_id]), [[1, 4]])
+  assert.deepEqual(again.db.prepare('SELECT product_id FROM product_tried').all().map((r) => r.product_id), [4])
+  assert.ok(/UNIQUE \(name, abv\)/.test(again.db.prepare("SELECT sql FROM sqlite_master WHERE name = 'products'").get().sql))
+  again.close()
+  rmSync(dir, { recursive: true })
 })
