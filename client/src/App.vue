@@ -3,35 +3,38 @@ import { ref, computed, watch, onMounted } from 'vue'
 import {
   api, setToken, hasToken, today, colorMap, setUnauthorizedHandler, currentGroup, setGroup, setNoGroupHandler,
 } from './api'
+import { ui, go, openUser, openLog, bump } from './nav'
+import { toasts, dismiss, ask, toast } from './juice'
 import AuthCard from './components/AuthCard.vue'
 import Avatar from './components/Avatar.vue'
 import EntryForm from './components/EntryForm.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import Stats from './components/Stats.vue'
-import ProfilePage from './components/ProfilePage.vue'
+import FeedPage from './components/FeedPage.vue'
 import CartePage from './components/CartePage.vue'
-import PlayerSheet from './components/PlayerSheet.vue'
+import UserPage from './components/UserPage.vue'
+import ProfilePage from './components/ProfilePage.vue'
+import LogSheet from './components/LogSheet.vue'
+import ProductPage from './components/ProductPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
-import { toasts, dismiss, ask, toast } from './juice'
 import Grime from './components/Grime.vue'
+import SearchSheet from './components/SearchSheet.vue'
 
 const me = ref(null)
 const ready = ref(false)
-const view = ref('home') // 'home' | 'carte' | 'profile'
 const day = ref(today())
-const refreshKey = ref(0)
 const users = ref([])
 const groups = ref([])
-const player = ref(null) // id du joueur dont la fiche est ouverte
 const colors = computed(() => colorMap(users.value))
 const group = computed(() => groups.value.find((g) => g.id === currentGroup.value) ?? null)
 const groupMenu = ref(false)
-// Mode solo : connecté mais dans aucune bande. On peut boire et voir sa fiche ; le reste attend une bande.
+const searching = ref(false) // recherche de personnes et de boissons (loupe de l'en-tête)
+// Mode solo : connecté mais dans aucune bande. On peut boire, noter, avoir son profil ; le reste attend une bande.
 const solo = computed(() => !!me.value && !groups.value.length)
 const nudge = ref(null)
 async function focusNudge() {
-  goto('home')
+  go('home')
   await new Promise((r) => setTimeout(r, 250)) // le temps que la page s'affiche
   window.scrollTo({ top: 0, behavior: 'smooth' })
   nudge.value?.focus()
@@ -39,13 +42,12 @@ async function focusNudge() {
 
 // Lien d'invitation : /?bande=CODE (rejoint direct si connecté, sinon pré-remplit l'inscription)
 const inviteCode = new URLSearchParams(window.location.search).get('bande')?.toUpperCase() ?? ''
-if (inviteCode) history.replaceState(null, '', window.location.pathname)
-
+if (inviteCode) history.replaceState(history.state, '', window.location.pathname) // on retire ?bande= de l'URL
 
 // Session expirée ou révoquée (PIN changé ailleurs) : retour à l'écran de connexion
 setUnauthorizedHandler(() => {
   me.value = null
-  view.value = 'home'
+  go('home')
 })
 // Plus dans la bande courante (quittée ailleurs…) : on recharge la liste
 setNoGroupHandler(() => loadGroups())
@@ -53,7 +55,7 @@ setNoGroupHandler(() => loadGroups())
 // Nouvelle soirée (6h du matin), l'appli ouverte : on suit et on recharge
 watch(today, (now, before) => {
   if (day.value === before) day.value = now
-  refreshKey.value++
+  bump()
 })
 
 async function loadGroups() {
@@ -78,13 +80,10 @@ onMounted(async () => {
   ready.value = true
 })
 
-async function loadUsers() {
-  users.value = await api('/users').catch(() => [])
-}
 watch(
-  [() => me.value?.id, currentGroup, refreshKey],
-  () => {
-    if (me.value && currentGroup.value) loadUsers()
+  [() => me.value?.id, currentGroup, () => ui.refresh],
+  async () => {
+    if (me.value && currentGroup.value) users.value = await api('/users').catch(() => users.value)
     else if (me.value) users.value = [me.value] // solo : juste moi (pour la couleur de mon avatar)
   },
   { immediate: true }
@@ -92,24 +91,31 @@ watch(
 
 function onProfileUpdate(user) {
   me.value = user
-  refreshKey.value++
-}
-
-function goto(v) {
-  view.value = v
-  groupMenu.value = false
-  window.scrollTo({ top: 0 })
+  bump()
 }
 function pickGroup(id) {
   setGroup(id)
   groupMenu.value = false
-  player.value = null
+  if (ui.view === 'user' && ui.userId !== me.value.id) go('home')
 }
+function myProfile() {
+  openUser(me.value.id, { fromTab: true })
+}
+
 const TABS = [
   { k: 'home', l: 'Ma soirée', icon: '🍺' },
+  { k: 'feed', l: 'Activité', icon: '📰' },
+  { k: 'plus' },
   { k: 'carte', l: 'La carte', icon: '📜' },
-  { k: 'profile', l: 'Profil', icon: '👤' },
+  { k: 'me', l: 'Profil', icon: '👤' },
 ]
+const active = (k) => (k === 'me' ? (ui.view === 'user' && ui.userId === me.value?.id) || ui.view === 'settings' : ui.view === k)
+function tap(k) {
+  groupMenu.value = false
+  if (k === 'plus') return openLog(ui.view === 'home' ? { day: day.value } : {}) // sur Ma soirée : la soirée affichée
+  if (k === 'me') return myProfile()
+  go(k)
+}
 
 async function logout() {
   if (!(await ask({ title: 'Se déconnecter ?', message: 'Il faudra retaper ton PIN.', confirm: 'Se déconnecter' }))) return
@@ -117,7 +123,7 @@ async function logout() {
   setToken('')
   me.value = null
   groups.value = []
-  view.value = 'home'
+  go('home')
 }
 </script>
 
@@ -125,17 +131,23 @@ async function logout() {
   <div class="relative min-h-screen px-4" :class="me ? 'pb-32' : 'pb-16'">
     <Grime />
     <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2">
-      <button class="text-left" @click="goto('home')">
+      <button class="text-left" @click="go('home')">
         <h1 class="font-drip text-[2.9rem] leading-[.85] text-hi sm:text-6xl">
           Picole<br /><span class="flicker text-ink/80">Compet</span>
         </h1>
       </button>
       <div v-if="me" class="flex items-center gap-3">
+        <button
+          class="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-lg hover:bg-white/10"
+          title="Chercher une personne ou une boisson"
+          aria-label="Rechercher"
+          @click="searching = true"
+        >🔍</button>
         <div class="text-right text-sm leading-5">
           <div class="font-bold">{{ me.name }}<span v-if="me.is_admin" class="ml-1.5 rounded-full bg-neon/20 px-1.5 py-0.5 text-xs text-neon">admin</span></div>
           <button class="text-muted underline underline-offset-4 hover:text-hi" @click="logout">quitter</button>
         </div>
-        <button title="Ma fiche" @click="player = me.id">
+        <button title="Mon profil" @click="myProfile">
           <Avatar :user="me" :color="colors[me.id]" :size="48" class="rounded-full ring-2 ring-hi/60" />
         </button>
       </div>
@@ -162,7 +174,7 @@ async function logout() {
             <span class="truncate font-semibold">{{ g.name }}</span>
             <span v-if="g.id === currentGroup" class="text-hi">✓</span>
           </button>
-          <button class="w-full border-t border-white/5 px-4 py-2.5 text-left text-sm font-semibold text-hi hover:bg-white/5" @click="goto('profile')">
+          <button class="w-full border-t border-white/5 px-4 py-2.5 text-left text-sm font-semibold text-hi hover:bg-white/5" @click="groupMenu = false; go('settings')">
             Gérer mes bandes →
           </button>
         </div>
@@ -172,30 +184,26 @@ async function logout() {
     <main v-if="ready" class="relative mx-auto max-w-lg">
       <AuthCard v-if="!me" :invite="inviteCode" @logged="onLogged" />
       <Transition v-else name="page" mode="out-in">
-        <ProfilePage
-          v-if="view === 'profile'"
-          :key="'p' + currentGroup"
-          :me="me"
-          :color="colors[me.id]"
-          :groups="groups"
-          @update="onProfileUpdate"
-          @groups="loadGroups"
-          @back="goto('home')"
-        />
+        <div v-if="ui.view === 'settings'" key="s" class="space-y-8">
+          <ProfilePage :me="me" :color="colors[me.id]" :groups="groups" @update="onProfileUpdate" @groups="loadGroups" @back="myProfile" />
+        </div>
+        <FeedPage v-else-if="ui.view === 'feed'" :key="'f' + currentGroup" :me="me" :colors="colors" :solo="solo" />
         <!-- La carte est commune à tout le monde, bande ou pas -->
-        <CartePage v-else-if="view === 'carte'" key="carte" :me="me" @saved="refreshKey++" @back="goto('home')" />
+        <CartePage v-else-if="ui.view === 'carte'" key="carte" :me="me" @saved="bump" @back="go('home')" />
+        <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
+        <UserPage v-else-if="ui.view === 'user'" :key="'u' + ui.userId + '-' + currentGroup" :user-id="ui.userId" :me="me" :colors="colors" />
         <div v-else :key="'h' + currentGroup" class="space-y-16">
           <SoloNudge v-if="solo" ref="nudge" @changed="loadGroups" />
-          <EntryForm v-model:day="day" :solo="solo" @saved="refreshKey++" @carte="goto('carte')" @bandes="focusNudge" />
+          <EntryForm v-model:day="day" :solo="solo" @saved="bump" @carte="go('carte')" @bandes="focusNudge" />
           <SoloNudge v-if="solo" variant="teaser" @focus="focusNudge" />
           <template v-else>
-            <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="refreshKey" @open="player = $event" />
-            <Stats :users="users" :colors="colors" :me="me" :refresh-key="refreshKey" />
+            <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="ui.refresh" @open="openUser" />
+            <Stats :users="users" :colors="colors" :me="me" :refresh-key="ui.refresh" />
           </template>
           <p class="text-sm text-muted">
             Score en verres standard : 10 g d'alcool pur, calculé sur le volume et le degré de chaque verre
             (une pinte de triple compte presque double d'une pinte de blonde). La soirée court jusqu'à 6h du matin.
-            L'eau et les clopes sont comptées à part.
+            L'eau, les clopes et le sans alcool (Monster, sodas…) sont comptés à part.
           </p>
         </div>
       </Transition>
@@ -208,44 +216,44 @@ async function logout() {
       Tabac Info Service <a href="tel:3989" class="text-ink underline underline-offset-4">39 89</a> (gratuits, anonymes).
     </footer>
 
-    <!-- Onglets en bas d'écran -->
+    <!-- Onglets en bas d'écran, avec le « + » au milieu -->
     <nav
       v-if="me"
       class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/85 backdrop-blur-md"
       style="padding-bottom: env(safe-area-inset-bottom)"
     >
-      <div class="mx-auto flex max-w-lg gap-2 px-3 py-2">
-        <button
-          v-for="t in TABS"
-          :key="t.k"
-          class="btn flex flex-1 flex-col items-center gap-0.5 py-2 text-sm font-bold transition-colors"
-          :class="view === t.k ? 'btn-hi' : t.k === 'carte' ? 'bg-hi/10 text-hi' : 'text-muted hover:text-ink'"
-          :aria-current="view === t.k ? 'page' : undefined"
-          @click="goto(t.k)"
-        >
-          <span class="text-xl leading-none">{{ t.icon }}</span>
-          {{ t.l }}
-        </button>
+      <div class="mx-auto flex max-w-lg items-center gap-1.5 px-2 py-2">
+        <template v-for="t in TABS" :key="t.k">
+          <button
+            v-if="t.k === 'plus'"
+            class="btn btn-hi mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-3xl leading-none font-bold"
+            aria-label="Ajouter une conso (date, note, avis, photo)"
+            @click="tap('plus')"
+          >
+            ＋
+          </button>
+          <button
+            v-else
+            class="btn flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-xs font-bold transition-colors"
+            :class="active(t.k) ? 'btn-hi' : 'text-muted hover:text-ink'"
+            :aria-current="active(t.k) ? 'page' : undefined"
+            @click="tap(t.k)"
+          >
+            <span class="text-xl leading-none">{{ t.icon }}</span>
+            <span class="w-full truncate">{{ t.l }}</span>
+          </button>
+        </template>
       </div>
     </nav>
 
-    <!-- Fiche joueur -->
     <Transition name="sheet">
-      <PlayerSheet
-        v-if="player && me"
-        :user-id="player"
-        :day="day"
-        :me="me"
-        :color="colors[player]"
-        @close="player = null"
-        @saved="refreshKey++"
-      />
+      <LogSheet v-if="ui.log && me" :preset="ui.log" />
     </Transition>
-
+    <SearchSheet v-if="searching && me" :colors="colors" @close="searching = false" />
     <ConfirmDialog />
 
     <!-- Toasts -->
-    <div class="pointer-events-none fixed inset-x-0 top-3 z-[70] flex flex-col items-center gap-2 px-4">
+    <div class="pointer-events-none fixed inset-x-0 top-3 z-[95] flex flex-col items-center gap-2 px-4">
       <TransitionGroup name="toast">
         <div
           v-for="t in toasts"

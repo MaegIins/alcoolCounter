@@ -81,6 +81,29 @@ export async function resizeImage(file, size = 192) {
   return canvas.toDataURL('image/jpeg', 0.85)
 }
 
+// Photo de conso ou de produit, compressée pour prendre peu de place sur le serveur :
+// plus grand côté à `max` px, WebP si le navigateur sait l'encoder (sinon JPEG), qualité baissée puis image
+// réduite jusqu'à passer sous PHOTO_BUDGET (≈ 100 ko). Le serveur refuse au-delà de 200 000 caractères.
+export const PHOTO_BUDGET = 140_000 // caractères de data URL (base64 : ~4/3 de la taille réelle)
+export async function resizePhoto(file, max = 800) {
+  const img = await createImageBitmap(file)
+  let k = Math.min(1, max / Math.max(img.width, img.height))
+  for (let attempt = 0; attempt < 4; attempt++, k *= 0.75) {
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) })
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    for (const q of [0.72, 0.6, 0.48]) {
+      let url = canvas.toDataURL('image/webp', q)
+      if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', q) // Safari ancien : pas de WebP
+      if (url.length <= PHOTO_BUDGET) return url
+    }
+  }
+  throw new Error('Photo trop lourde, même compressée')
+}
+export const photoUrl = (key) => (key ? `/api/photos/${key}` : '')
+
 // v-digits : n'accepte que des chiffres (frappe, collage, autocorrection). v-digits="59" plafonne la valeur.
 export const vDigits = {
   mounted(el, binding) {

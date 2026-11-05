@@ -1,10 +1,15 @@
 <script setup>
-// La carte : produits partagés que tout le monde peut compléter. ★ = raccourci sur l'accueil.
+// La carte : produits partagés que tout le monde peut compléter. ★ = favori (en haut du ＋).
 import { ref, computed, watch, onMounted } from 'vue'
-import { api, CATS, MAX_CL, catOf, num, fmtDrink, unitsOf, today } from '../api'
+import { api, CATS, MAX_CL, catOf, num, fmtDrink, unitsOf, today, photoUrl } from '../api'
 import DrinkFields from './DrinkFields.vue'
 import Pager from './Pager.vue'
+import Stars from './Stars.vue'
+import Poster from './Poster.vue'
+import PhotoField from './PhotoField.vue'
+import InfoFields from './InfoFields.vue'
 import { burst, centerOf, vibrate, toast, ask, celebrateBadges } from '../juice'
+import { ui, openProduct } from '../nav'
 
 const props = defineProps({ me: Object })
 const emit = defineEmits(['back', 'saved'])
@@ -27,6 +32,7 @@ async function load() {
   }
 }
 onMounted(load)
+watch(() => ui.refresh, load) // fiche produit corrigée, favori changé…
 
 const norm = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 const shown = computed(() => {
@@ -40,17 +46,20 @@ const favCount = computed(() => products.value.filter((p) => p.fav).length)
 const canRemove = (p) => p.created_by === props.me.id || props.me.is_admin
 
 // --- Modifier un produit (corriger un degré…) ----------------------------------
-const editing = ref(null) // { id, name, cat, cl, abv }
+const editing = ref(null) // { id, name, cat, cl, abv, photo (undefined = inchangée) }
 const editValid = computed(() => {
   const d = editing.value
-  return d && d.name.trim() && d.cl > 0 && d.cl <= MAX_CL && d.abv > 0 && d.abv <= 100
+  return d && d.name.trim() && d.cl > 0 && d.cl <= MAX_CL && d.abv >= 0 && d.abv <= 100
 })
 async function saveEdit() {
   if (!editValid.value) return
   const d = editing.value
   error.value = ''
   try {
-    replace(await api(`/products/${d.id}`, { method: 'PATCH', body: { name: d.name.trim(), cat: d.cat, cl: Number(d.cl), abv: Number(d.abv) } }))
+    replace(await api(`/products/${d.id}`, {
+      method: 'PATCH',
+      body: { name: d.name.trim(), cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), ...(d.photo !== undefined ? { photo: d.photo } : {}) },
+    }))
     editing.value = null
     toast(`${d.name} modifié`)
   } catch (e) {
@@ -102,9 +111,9 @@ async function drinkNow(p, e) {
   try {
     const row = await api('/drinks', { method: 'POST', body: { day: today(), name: p.name, cat: p.cat, cl: p.cl, abv: p.abv } })
     emit('saved')
-    burst(x, y, { text: `+${num(p.units)}`, color: catOf(p.cat).hex })
+    burst(x, y, { text: p.units ? `+${num(p.units)}` : catOf(p.cat).icon, color: catOf(p.cat).hex })
     vibrate(30)
-    toast(`${catOf(p.cat).icon} ${p.name} +${num(p.units)}`, { action: { label: 'Annuler', run: () => undo(row) } })
+    toast(`${catOf(p.cat).icon} ${p.name}${p.units ? ` +${num(p.units)}` : ''}`, { action: { label: 'Annuler', run: () => undo(row) } })
     celebrateBadges(row.badges)
   } catch (e) {
     error.value = e.message
@@ -117,7 +126,7 @@ async function removeProduct(p) {
     icon: catOf(p.cat).icon,
     title: `Retirer « ${p.name} » ?`,
     message: mine
-      ? 'Il disparaîtra de la carte et des raccourcis de tout le monde. Les verres déjà bus restent comptés.'
+      ? 'Il disparaîtra de la carte et des favoris de tout le monde. Les verres déjà bus restent comptés.'
       : `Ajouté par ${p.created_by_name ?? 'quelqu’un'}. Tu le retires pour tout le monde. Les verres déjà bus restent comptés.`,
     confirm: 'Retirer',
     danger: true,
@@ -137,7 +146,7 @@ async function removeProduct(p) {
 const draft = ref(null)
 const draftValid = computed(() => {
   const d = draft.value
-  return d && d.name.trim() && d.cl > 0 && d.cl <= MAX_CL && d.abv > 0 && d.abv <= 100
+  return d && d.name.trim() && d.cl > 0 && d.cl <= MAX_CL && d.abv >= 0 && d.abv <= 100
 })
 const draftUnits = computed(() => (draft.value?.cl > 0 && draft.value?.abv > 0 ? unitsOf(draft.value) : 0))
 async function create() {
@@ -146,11 +155,15 @@ async function create() {
   try {
     const p = await api('/products', {
       method: 'POST',
-      body: { name: draft.value.name.trim(), cat: draft.value.cat, cl: Number(draft.value.cl), abv: Number(draft.value.abv) },
+      body: {
+        name: draft.value.name.trim(), cat: draft.value.cat, cl: Number(draft.value.cl), abv: Number(draft.value.abv),
+        ...(draft.value.photo ? { photo: draft.value.photo } : {}),
+        ...draft.value.info,
+      },
     })
     products.value = [p, ...products.value]
     draft.value = null
-    say(`${p.name} ajouté à la carte et à tes raccourcis`)
+    say(`${p.name} ajouté à la carte et à tes favoris`)
   } catch (e) {
     error.value = e.message
   }
@@ -166,7 +179,7 @@ async function create() {
       </div>
       <p class="mt-2 text-muted">
         Les boissons de tout le monde, toutes bandes confondues. Mets-en en favori <span class="text-hi">★</span>
-        pour les retrouver en raccourci sur l'accueil.
+        pour les retrouver en haut du ＋.
       </p>
     </div>
 
@@ -174,12 +187,12 @@ async function create() {
     <button
       v-if="!draft"
       class="btn tile lift flex w-full items-center gap-4 border-dashed !border-hi/50 px-5 py-4 text-left"
-      @click="draft = { name: search.trim(), cat: cat || 'biere', cl: 33, abv: 5 }"
+      @click="draft = { name: search.trim(), cat: cat || 'biere', cl: 33, abv: 5, info: { maker: '', origin: '', style: '', description: '' } }"
     >
       <span class="text-3xl text-hi">＋</span>
       <span>
         <span class="block text-lg font-bold text-hi">Ajouter un produit</span>
-        <span class="text-sm text-muted">Bière, vin, alcool fort, cocktail…</span>
+        <span class="text-sm text-muted">Bière, vin, alcool fort, cocktail, Monster, soda…</span>
       </span>
     </button>
     <form v-else class="box space-y-5 p-5" @submit.prevent="create">
@@ -188,8 +201,13 @@ async function create() {
         <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="draft = null">Annuler</button>
       </div>
       <DrinkFields v-model="draft" name-placeholder="Nom : Chouffe, Leffe Ruby, Ricard…" />
+      <PhotoField v-model="draft.photo" label="Ajouter une photo (canette, bouteille…)" />
+      <details class="rounded-xl bg-white/[.03] px-4 py-3">
+        <summary class="cursor-pointer text-sm font-semibold text-muted">＋ Infos : producteur, origine, style, description</summary>
+        <InfoFields v-model="draft.info" class="mt-3" />
+      </details>
       <button :disabled="!draftValid" class="btn btn-hi w-full py-3 text-lg font-bold disabled:opacity-40">
-        Mettre à la carte · {{ num(draftUnits) }} verre{{ draftUnits >= 2 ? 's' : '' }}
+        Mettre à la carte<template v-if="draftUnits"> · {{ num(draftUnits) }} verre{{ draftUnits >= 2 ? 's' : '' }}</template>
       </button>
     </form>
 
@@ -224,7 +242,7 @@ async function create() {
       </p>
       <p v-else-if="loaded && !shown.length" class="py-8 text-center text-muted">
         Rien ne correspond.
-        <button v-if="search.trim()" class="font-semibold text-hi hover:underline" @click="draft = { name: search.trim(), cat: cat || 'biere', cl: 33, abv: 5 }">
+        <button v-if="search.trim()" class="font-semibold text-hi hover:underline" @click="draft = { name: search.trim(), cat: cat || 'biere', cl: 33, abv: 5, info: { maker: '', origin: '', style: '', description: '' } }">
           Ajouter « {{ search.trim() }} » ?
         </button>
       </p>
@@ -240,6 +258,7 @@ async function create() {
               <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="editing = null">Annuler</button>
             </div>
             <DrinkFields v-model="editing" name-placeholder="Nom" />
+            <PhotoField v-model="editing.photo" :current="photoUrl(p.photo_key)" />
             <p class="text-sm text-muted">Les verres déjà bus ne changent pas : seule la carte est corrigée.</p>
             <button :disabled="!editValid" class="btn btn-hi w-full py-3 font-bold disabled:opacity-40">Enregistrer · {{ num(unitsOf(editing)) }} verre{{ unitsOf(editing) >= 2 ? 's' : '' }}</button>
           </form>
@@ -253,9 +272,12 @@ async function create() {
           >
             {{ p.fav ? '★' : '☆' }}
           </button>
-          <span class="text-2xl">{{ catOf(p.cat).icon }}</span>
+          <button class="shrink-0" :aria-label="`Fiche de ${p.name}`" @click="openProduct(p.id)">
+            <Poster :drink="p" :width="36" :icon="40" />
+          </button>
           <span class="min-w-0 flex-1 leading-tight">
-            <span class="block truncate text-lg font-bold">{{ p.name }}</span>
+            <button class="block max-w-full truncate text-left text-lg font-bold hover:text-hi hover:underline" @click="openProduct(p.id)">{{ p.name }}</button>
+            <span v-if="p.rating" class="flex items-center gap-1.5 text-xs text-muted"><Stars :value="Math.round(p.rating)" :size="11" /> {{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</span>
             <span class="text-sm text-muted">
               {{ fmtDrink(p) }}
               <template v-if="p.created_by === me.id"> · par toi</template>
@@ -281,7 +303,7 @@ async function create() {
             ✕
           </button>
           <button class="btn btn-hi shrink-0 px-3 py-2 font-bold" :aria-label="`Je bois un ${p.name}`" @click="drinkNow(p, $event)">
-            +{{ num(p.units) }}
+            {{ p.units ? `+${num(p.units)}` : '+1' }}
           </button>
           </div>
         </li>

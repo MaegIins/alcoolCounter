@@ -2,14 +2,19 @@
 
 // Catégories (couleurs des graphes). Pour en ajouter une : ici + CATS côté serveur (server/app.js) + style.css.
 // degrees = raccourcis proposés quand on choisit le degré d'un verre de cette catégorie.
+// alco: false = sans alcool (dégustations : Monster, sodas, café…), noté comme le reste mais hors score.
 export const CATS = [
-  { key: 'biere', label: 'Bière', icon: '🍺', color: 'bg-biere', hex: '#d4ac3a', degrees: [4.5, 5, 6, 6.5, 7, 8, 8.5, 10] },
-  { key: 'vin', label: 'Vin', icon: '🍷', color: 'bg-vin', hex: '#a33447', degrees: [11, 12, 12.5, 13, 14] },
-  { key: 'fort', label: 'Fort', icon: '🥃', color: 'bg-fort', hex: '#6f93ad', degrees: [18, 25, 35, 40, 45, 50] },
-  { key: 'cocktail', label: 'Cocktail', icon: '🍹', color: 'bg-cocktail', hex: '#739b4f', degrees: [6, 8, 10, 12, 15] },
-  { key: 'autre', label: 'Autre', icon: '🍾', color: 'bg-autre', hex: '#9277a8', degrees: [4, 5, 6, 8, 12] },
+  { key: 'biere', label: 'Bière', icon: '🍺', color: 'bg-biere', hex: '#d4ac3a', alco: true, degrees: [0, 4.5, 5, 6, 6.5, 7, 8, 8.5, 10] },
+  { key: 'vin', label: 'Vin', icon: '🍷', color: 'bg-vin', hex: '#a33447', alco: true, degrees: [11, 12, 12.5, 13, 14] },
+  { key: 'fort', label: 'Fort', icon: '🥃', color: 'bg-fort', hex: '#6f93ad', alco: true, degrees: [18, 25, 35, 40, 45, 50] },
+  { key: 'cocktail', label: 'Cocktail', icon: '🍹', color: 'bg-cocktail', hex: '#739b4f', alco: true, degrees: [0, 6, 8, 10, 12, 15] },
+  { key: 'autre', label: 'Autre alcool', icon: '🍾', color: 'bg-autre', hex: '#9277a8', alco: true, degrees: [4, 5, 6, 8, 12] },
+  { key: 'energy', label: 'Énergisant', icon: '⚡', color: 'bg-energy', hex: '#9fb33a', alco: false, degrees: [] },
+  { key: 'soft', label: 'Soft', icon: '🥤', color: 'bg-soft', hex: '#4f8f8a', alco: false, degrees: [] },
+  { key: 'chaud', label: 'Café, thé', icon: '☕', color: 'bg-chaud', hex: '#8a6448', alco: false, degrees: [] },
 ]
-export const catOf = (key) => CATS.find((c) => c.key === key) ?? CATS.at(-1)
+export const ALCO_CATS = CATS.filter((c) => c.alco)
+export const catOf = (key) => CATS.find((c) => c.key === key) ?? CATS[4]
 
 // Formats proposés : on choisit le contenant, puis l'appli demande le degré (abv = valeur par défaut).
 export const FORMATS = [
@@ -21,6 +26,9 @@ export const FORMATS = [
   { name: 'Shot', cat: 'fort', cl: 4, abv: 40 },
   { name: 'Cocktail', cat: 'cocktail', cl: 20, abv: 10 },
   { name: 'Cidre', cat: 'autre', cl: 25, abv: 5 },
+  { name: 'Canette', cat: 'energy', cl: 50, abv: 0 },
+  { name: 'Soda', cat: 'soft', cl: 33, abv: 0 },
+  { name: 'Café', cat: 'chaud', cl: 5, abv: 0 },
 ]
 // Même identité qu'une boisson habituelle côté serveur : nom + catégorie + volume + degré
 export const drinkId = (d) => `${d.name}|${d.cat}|${d.cl}|${d.abv}`
@@ -72,7 +80,20 @@ export const num = (n) => String(round1(n)).replace('.', ',')
 export const fmt = (n) => `${num(n)} verre${round1(n) >= 2 ? 's' : ''}`
 export const fmtShort = (n) => num(n)
 // Libellé court d'une conso : « 50 cl · 6,5° »
-export const fmtDrink = (d) => `${num(d.cl)} cl · ${num(d.abv)}°`
+export const fmtDrink = (d) => `${num(d.cl)} cl · ${d.abv > 0 ? `${num(d.abv)}°` : 'sans alcool'}`
+
+// Note sur 10 (demi-étoiles) → « ★★★½ »
+export const starsText = (r) => (r ? '★'.repeat(Math.floor(r / 2)) + (r % 2 ? '½' : '') : '')
+
+// « à l'instant », « il y a 5 min », « il y a 3 h », puis la date
+export const timeAgo = (ms, now = Date.now()) => {
+  const min = Math.round((now - ms) / 60e3)
+  if (min < 1) return "à l'instant"
+  if (min < 60) return `il y a ${min} min`
+  if (min < 24 * 60) return `il y a ${Math.floor(min / 60)} h`
+  if (min < 7 * 24 * 60) return `il y a ${Math.floor(min / 1440)} j`
+  return new Date(ms).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '')
+}
 // Axe Y : graduations rondes (1, 2, 5, 10, 20, 50…), au plus 4 intervalles
 const stepFor = (m) => {
   for (let p = 1; ; p *= 10) for (const s of [1, 2, 5]) if (m / (s * p) <= 4) return s * p
@@ -88,4 +109,23 @@ export const sanitizeDigits = (value, max) => {
   let v = String(value ?? '').replace(/\D/g, '')
   if (max != null && v !== '' && Number(v) > max) v = String(max)
   return v
+}
+
+// --- URL de chaque écran (voir nav.js) ------------------------------------------------
+const PATHS = { home: '/', feed: '/activite', carte: '/carte', settings: '/reglages' }
+
+/** État → URL */
+export function urlOf({ view, userId, productId, tab }) {
+  if (view === 'user') return `/profil/${userId}${tab && tab !== 'profil' ? `?onglet=${tab}` : ''}`
+  if (view === 'product') return `/boisson/${productId}`
+  return PATHS[view] ?? '/'
+}
+/** URL → état (inconnue = Ma soirée) */
+export function parseUrl(pathname, search = '') {
+  const tab = new URLSearchParams(search).get('onglet')
+  let m
+  if ((m = pathname.match(/^\/profil\/(\d+)\/?$/))) return { view: 'user', userId: Number(m[1]), productId: null, tab }
+  if ((m = pathname.match(/^\/boisson\/(\d+)\/?$/))) return { view: 'product', userId: null, productId: Number(m[1]), tab: null }
+  const view = Object.keys(PATHS).find((k) => PATHS[k] === pathname.replace(/\/$/, '') || (k === 'home' && pathname === '/')) ?? 'home'
+  return { view, userId: null, productId: null, tab: null }
 }

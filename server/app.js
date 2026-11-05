@@ -8,7 +8,13 @@ import { computeBadges, BADGES } from './badges.js'
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
 // 1 verre standard = 10 g d'alcool pur ; grammes = cl × 10 × degré/100 × 0,8 (densité de l'éthanol).
 // Catégories = couleurs des graphes ; pour en ajouter une : ici + côté client (utils.js) + style.css.
-export const CATS = ['biere', 'vin', 'fort', 'cocktail', 'autre']
+// Les premières sont alcoolisées (elles font le score) ; les suivantes sont là pour les dégustations
+// (Monster, sodas, café…) : on les note comme le reste, mais elles ne comptent pas (degré 0).
+export const ALCO = ['biere', 'vin', 'fort', 'cocktail', 'autre']
+export const SOFT = ['energy', 'soft', 'chaud']
+export const CATS = [...ALCO, ...SOFT]
+export const MAX_REVIEW = 1000
+export const MAX_PHOTO = 200_000 // data URL (~150 ko) : le client compresse à ~100 ko, au-delà on refuse
 export const MAX_CL = 200 // par conso (une bouteille de 1,5 L de vin passe en plusieurs fois)
 export const MAX_DRINKS_PER_DAY = 100
 export const SUSPECT_UNITS = 30 // au-delà : badge « suspect » (on ne bloque pas, on affiche)
@@ -20,6 +26,8 @@ const newCode = () => Array.from(randomBytes(6), (b) => CODE_CHARS[b % CODE_CHAR
 const UNITS = (p = '') => `(${p}cl * ${p}abv * 0.008)`
 export const unitsOf = ({ cl, abv }) => cl * abv * 0.008
 const round1 = (n) => Math.round(n * 10) / 10
+// Pour comparer des noms : sans accents ni casse
+const fold = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 
 // --- Fonctions pures (testées unitairement) ----------------------------------
 const hashPin = (pin) => {
@@ -52,8 +60,45 @@ export const checkDrink = (b) => {
   if (!name || name.length > 40 || /\p{Cc}/u.test(name)) return { error: 'Nom de boisson entre 1 et 40 caractères' }
   if (!CATS.includes(cat)) return { error: 'Catégorie inconnue' }
   if (!Number.isFinite(cl) || cl <= 0 || cl > MAX_CL) return { error: `Volume entre 0 et ${MAX_CL} cl` }
-  if (!Number.isFinite(abv) || abv <= 0 || abv > 100) return { error: 'Degré entre 0 et 100 %' }
-  return { drink: { name, cat, cl: round1(cl), abv: round1(abv) } }
+  if (!Number.isFinite(abv) || abv < 0 || abv > 100) return { error: 'Degré entre 0 et 100 %' }
+  return { drink: { name, cat, cl: round1(cl), abv: SOFT.includes(cat) ? 0 : round1(abv) } }
+}
+// Infos d'une boisson de la carte, renseignées par qui l'ajoute (toutes facultatives) : comme la fiche d'un film.
+// Seuls les champs présents dans b sont renvoyés (pour un PATCH partiel). Renvoie { info } ou { error }.
+export const INFO_FIELDS = { maker: ['Producteur', 60], origin: ['Origine', 40], style: ['Style', 40], description: ['Description', 1000] }
+export const checkInfo = (b) => {
+  const info = {}
+  for (const [k, [label, max]] of Object.entries(INFO_FIELDS)) {
+    if (!(k in b)) continue
+    const v = b[k] == null ? '' : String(b[k]).trim()
+    if (v.length > max) return { error: `${label} : ${max} caractères maximum` }
+    if (k === 'description' ? /[\p{Cc}--[\n\r\t]]/v.test(v) : /\p{Cc}/u.test(v)) return { error: `${label} : caractères invisibles interdits` }
+    info[k] = v || null
+  }
+  return { info }
+}
+
+// Note (1 à 10 = demi-étoiles), avis, photo : tous facultatifs. Renvoie { log } ou { error }.
+// Seuls les champs présents dans b sont renvoyés (pour un PATCH partiel).
+export const checkLog = (b) => {
+  const log = {}
+  if ('rating' in b) {
+    const r = b.rating == null || b.rating === 0 ? null : Number(b.rating)
+    if (r !== null && !(Number.isInteger(r) && r >= 1 && r <= 10)) return { error: 'Note entre ½ et 5 étoiles' }
+    log.rating = r
+  }
+  if ('review' in b) {
+    const t = b.review == null ? '' : String(b.review).trim()
+    if (t.length > MAX_REVIEW) return { error: `Avis de ${MAX_REVIEW} caractères maximum` }
+    log.review = t || null
+  }
+  if ('photo' in b) {
+    const p = b.photo == null ? null : String(b.photo)
+    if (p !== null && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p)) return { error: 'Photo invalide' }
+    if (p && p.length > MAX_PHOTO) return { error: 'Photo trop lourde' }
+    log.photo = p
+  }
+  return { log }
 }
 
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg })
@@ -210,6 +255,42 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     db.exec('DROP TABLE entries; COMMIT')
   }
 
+  // Journal façon carnet de dégustation : chaque conso peut avoir une note, un avis, une photo, et pointer
+  // vers le produit de la carte (pour les avis d'un produit). Photos servies par une clé aléatoire.
+  const addCols = (table, cols) => {
+    const have = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
+    for (const [name, def] of cols) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`)
+  }
+  const drinkColsBefore = db.prepare('PRAGMA table_info(drinks)').all().map((c) => c.name)
+  addCols('drinks', [
+    ['product_id', 'INTEGER REFERENCES products(id) ON DELETE SET NULL'],
+    ['rating', 'INTEGER'],
+    ['review', 'TEXT'],
+    ['photo', 'TEXT'],
+    ['photo_key', 'TEXT'],
+  ])
+  addCols('products', [['photo', 'TEXT'], ['photo_key', 'TEXT'], ['maker', 'TEXT'], ['origin', 'TEXT'], ['style', 'TEXT'], ['description', 'TEXT']])
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS drinks_at ON drinks(at);
+    CREATE INDEX IF NOT EXISTS drinks_product ON drinks(product_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS drinks_photo_key ON drinks(photo_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS products_photo_key ON products(photo_key);
+    -- Top 4 de chacun (4 places, un produit de la carte par place)
+    CREATE TABLE IF NOT EXISTS user_tops (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, slot)
+    );
+  `)
+  // Consos d'avant : rattachées au produit de la carte de même nom, volume et degré
+  if (!drinkColsBefore.includes('product_id')) {
+    db.exec(`UPDATE drinks SET product_id = (
+      SELECT p.id FROM products p WHERE p.name = drinks.name COLLATE NOCASE AND p.cl = drinks.cl AND p.abv = drinks.abv
+    )`)
+  }
+  const photoKey = () => randomBytes(12).toString('hex')
+
   // Dernier jour saisissable : demain en UTC, pour laisser de la marge aux fuseaux horaires
   const maxEntryDay = () => new Date(now() + 36 * 3600e3).toISOString().slice(0, 10)
   const newSession = (userId) => {
@@ -251,6 +332,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     SELECT g.id, g.name, g.code, g.owner_id, (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS members
     FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY m.joined_at, g.id
   `).all(userId)
+  const userExists = (id) => !!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)
   const isMember = (groupId, userId) => !!db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId)
   const group = (req, res, next) => {
     const wanted = Number(req.headers['x-group'])
@@ -277,7 +359,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Badges d'une personne ; `newBadges(userId, fn)` donne ceux débloqués par fn()
   const historyOf = (userId) => ({
-    drinks: db.prepare('SELECT day, at, name, cat, cl, abv FROM drinks WHERE user_id = ?').all(userId),
+    drinks: db.prepare('SELECT day, at, name, cat, cl, abv FROM drinks WHERE user_id = ? AND abv > 0').all(userId),
     extras: db.prepare('SELECT day, at, kind FROM extras WHERE user_id = ?').all(userId),
     tz,
   })
@@ -289,7 +371,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   }
 
   const app = express()
-  app.use(express.json({ limit: '400kb' }))
+  app.use(express.json({ limit: '300kb' })) // une photo compressée tient largement dedans
   app.use((req, _res, next) => {
     req.body ??= {} // requête sans corps JSON
     next()
@@ -427,21 +509,145 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     `).all(req.group.id))
   })
 
-  // Ajouter une conso (une par appel : un verre = un tap)
+  // Une conso telle que renvoyée au client (sans la photo elle-même : on donne sa clé)
+  const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.product_id, d.rating, d.review, d.photo_key,
+    p.photo_key AS product_photo_key`
+  const logOut = (r) => ({ ...r, units: round1(unitsOf(r)) })
+  const getLog = (id) => db.prepare(`SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.id = ?`).get(id)
+
+  // Ajouter une conso (une par appel : un verre = un tap), avec en option note, avis et photo.
+  // product_id : la boisson vient de la carte (nom, catégorie, volume, degré repris du produit).
   app.post('/api/drinks', auth, (req, res) => {
     const day = req.body.day
     if (!isDay(day)) return bad(res, 'Date invalide')
     if (day > maxEntryDay()) return bad(res, 'Pas de saisie dans le futur')
-    const { drink, error } = checkDrink(req.body)
+    let productId = req.body.product_id == null ? null : Number(req.body.product_id)
+    const prod = productId ? db.prepare('SELECT name, cat, cl, abv FROM products WHERE id = ?').get(productId) : null
+    if (productId && !prod) return bad(res, 'Produit introuvable', 404)
+    const { drink, error } = checkDrink(prod ?? req.body)
     if (error) return bad(res, error)
+    const { log, error: logError } = checkLog(req.body)
+    if (logError) return bad(res, logError)
+    // Pas de produit donné : on rattache quand même à la carte si la boisson y est
+    productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ?').get(drink.name, drink.cl, drink.abv)?.id ?? null
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND day = ?').get(req.user.id, day)
     if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par soirée`)
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
-      Number(db.prepare('INSERT INTO drinks (user_id, day, at, name, cat, cl, abv) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(req.user.id, day, at, drink.name, drink.cat, drink.cl, drink.abv).lastInsertRowid)
+      Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id, rating, review, photo, photo_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(req.user.id, day, at, drink.name, drink.cat, drink.cl, drink.abv, productId,
+          log.rating ?? null, log.review ?? null, log.photo ?? null, log.photo ? photoKey() : null).lastInsertRowid)
     )
-    res.json({ id, day, at, ...drink, units: round1(unitsOf(drink)), badges })
+    res.json({ ...logOut(getLog(id)), badges })
+  })
+
+  // Compléter une de ses consos après coup : note, avis, photo (null = retirer), soirée
+  app.patch('/api/drinks/:id', auth, (req, res) => {
+    const id = Number(req.params.id)
+    if (!db.prepare('SELECT 1 FROM drinks WHERE id = ? AND user_id = ?').get(id, req.user.id)) return bad(res, 'Conso introuvable', 404)
+    const { log, error } = checkLog(req.body)
+    if (error) return bad(res, error)
+    if ('day' in req.body) {
+      if (!isDay(req.body.day) || req.body.day > maxEntryDay()) return bad(res, 'Date invalide')
+      log.day = req.body.day
+    }
+    if ('photo' in log) log.photo_key = log.photo ? photoKey() : null
+    const keys = Object.keys(log)
+    if (keys.length) db.prepare(`UPDATE drinks SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => log[k]), id)
+    res.json(logOut(getLog(id)))
+  })
+
+  // Photos (consos et produits) : publiques mais introuvables sans leur clé aléatoire, qui change à chaque photo
+  app.get('/api/photos/:key', (req, res) => {
+    const key = String(req.params.key)
+    const row = db.prepare('SELECT photo FROM drinks WHERE photo_key = ?').get(key) ?? db.prepare('SELECT photo FROM products WHERE photo_key = ?').get(key)
+    const m = row?.photo?.match(/^data:(image\/\w+);base64,(.+)$/)
+    if (!m) return res.status(404).end()
+    res.set('Cache-Control', 'public, max-age=31536000, immutable').type(m[1]).send(Buffer.from(m[2], 'base64'))
+  })
+
+  // Fil d'activité : les dernières consos des membres de la bande (soi seul en solo), plus récentes d'abord.
+  // Pagination par curseur : ?before=<at>:<id> (renvoyé dans `next`).
+  app.get('/api/feed', auth, groupOrSolo, (req, res) => {
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20))
+    const [bAt, bId] = String(req.query.before || '').split(':').map(Number)
+    const cursor = Number.isFinite(bAt) && Number.isFinite(bId) && req.query.before
+    const ids = req.memberIds
+    const rows = db.prepare(`
+      SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
+      JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.user_id IN (${ids.map(() => '?').join(',')}) ${cursor ? 'AND (d.at < ? OR (d.at = ? AND d.id < ?))' : ''}
+      ORDER BY d.at DESC, d.id DESC LIMIT ?
+    `).all(...ids, ...(cursor ? [bAt, bAt, bId] : []), limit + 1)
+    const more = rows.length > limit
+    const items = rows.slice(0, limit).map(logOut)
+    res.json({ items, next: more ? `${items.at(-1).at}:${items.at(-1).id}` : null })
+  })
+
+  // Recherche : des personnes (toutes, bande ou pas) et des boissons de la carte, par nom (sans accents ni casse)
+  app.get('/api/search', auth, groupOrSolo, (req, res) => {
+    const q = fold(String(req.query.q || '').trim())
+    if (!q) return res.json({ users: [], products: [] })
+    const rank = (name) => (fold(name).startsWith(q) ? 0 : 1)
+    const users = db.prepare('SELECT id, name, avatar_v FROM users').all()
+      .filter((u) => fold(u.name).includes(q))
+      .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
+      .slice(0, 12)
+      .map((u) => ({ ...u, inBand: req.memberIds.includes(u.id), me: u.id === req.user.id }))
+    const products = db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by`).all(req.user.id)
+      .filter((p) => fold(p.name).includes(q) || (p.maker && fold(p.maker).includes(q)))
+      .sort((a, b) => rank(a.name) - rank(b.name) || b.logs - a.logs || a.name.localeCompare(b.name))
+      .slice(0, 20)
+      .map(productOut)
+    res.json({ users, products })
+  })
+
+  // Toutes les boissons différentes d'une personne (même nom, volume et degré = même boisson), avec ses chiffres
+  app.get('/api/users/:id/drinks', auth, groupOrSolo, (req, res) => {
+    const id = Number(req.params.id)
+    if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
+    const rows = db.prepare(`
+      SELECT d.name, d.cat, d.cl, d.abv, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key,
+        COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating, COUNT(d.rating) AS ratings, COUNT(d.review) AS reviews,
+        COUNT(d.photo_key) AS photos, MIN(d.day) AS first_day, MAX(d.day) AS last_day, MAX(d.at) AS last_at,
+        (SELECT d2.photo_key FROM drinks d2 WHERE d2.user_id = d.user_id AND d2.name = d.name AND d2.cl = d.cl AND d2.abv = d.abv
+          AND d2.photo_key IS NOT NULL ORDER BY d2.at DESC LIMIT 1) AS last_photo_key
+      FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.user_id = ?
+      GROUP BY d.name COLLATE NOCASE, d.cl, d.abv
+      ORDER BY count DESC, last_at DESC
+    `).all(id)
+    res.json(rows.map((r) => ({ ...r, units: round1(unitsOf(r) * r.count) })))
+  })
+
+  // Toutes les consos d'une personne pour une boisson donnée (?name=&cl=&abv=), plus récentes d'abord
+  app.get('/api/users/:id/drinks/logs', auth, groupOrSolo, (req, res) => {
+    const id = Number(req.params.id)
+    if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
+    const { name } = req.query
+    const cl = Number(req.query.cl)
+    const abv = Number(req.query.abv)
+    if (!name || !Number.isFinite(cl) || !Number.isFinite(abv)) return bad(res, 'Boisson invalide')
+    const rows = db.prepare(`
+      SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.user_id = ? AND d.name = ? COLLATE NOCASE AND d.cl = ? AND d.abv = ?
+      ORDER BY d.at DESC, d.id DESC LIMIT 500
+    `).all(id, String(name), cl, abv)
+    res.json(rows.map(logOut))
+  })
+
+  // Journal d'une personne : ses consos par soirée, plus récentes d'abord (?offset=&limit=)
+  app.get('/api/users/:id/diary', auth, groupOrSolo, (req, res) => {
+    const id = Number(req.params.id)
+    if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40))
+    const offset = Math.max(0, Number(req.query.offset) || 0)
+    const rows = db.prepare(`
+      SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.user_id = ? ORDER BY d.day DESC, d.at DESC, d.id DESC LIMIT ? OFFSET ?
+    `).all(id, limit + 1, offset)
+    res.json({ items: rows.slice(0, limit).map(logOut), more: rows.length > limit })
   })
 
   // Eau et clopes : un tap = un, hors score
@@ -480,16 +686,18 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const { from, to } = req.query
     if (!isDay(from) || !isDay(to)) return bad(res, 'Période invalide')
     const rows = db.prepare(
-      'SELECT id, day, at, name, cat, cl, abv FROM drinks WHERE user_id = ? AND day BETWEEN ? AND ? ORDER BY at DESC, id DESC'
+      `SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+       WHERE d.user_id = ? AND d.day BETWEEN ? AND ? ORDER BY d.at DESC, d.id DESC`
     ).all(req.user.id, from, to)
-    res.json(rows.map((r) => ({ ...r, units: round1(unitsOf(r)) })))
+    res.json(rows.map(logOut))
   })
 
   // Mes boissons habituelles (pour les ajouter en un tap) : les plus bues, puis les plus récentes
   app.get('/api/drinks/favorites', auth, (req, res) => {
     res.json(db.prepare(`
-      SELECT name, cat, cl, abv, COUNT(*) AS count FROM drinks WHERE user_id = ?
-      GROUP BY name, cat, cl, abv ORDER BY count DESC, MAX(at) DESC LIMIT 8
+      SELECT d.name, d.cat, d.cl, d.abv, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key, COUNT(*) AS count
+      FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.user_id = ?
+      GROUP BY d.name, d.cat, d.cl, d.abv ORDER BY count DESC, MAX(d.at) DESC LIMIT 12
     `).all(req.user.id))
   })
 
@@ -508,26 +716,27 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     return Object.fromEntries(rows.map((w) => [w.user_id, w.wins]))
   }
 
-  // Fiche d'un joueur : stats depuis le début, boissons préférées, dernières soirées, détail d'une soirée
-  // Sans bande (mode solo), on ne voit que sa propre fiche
+  // Fiche d'un joueur : stats depuis le début, boissons préférées, dernières soirées, détail d'une soirée.
+  // Visible par tout le monde (on trouve les gens avec la recherche) ; victoires comptées dans ma bande courante.
   app.get('/api/users/:id/stats', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
     const user = db.prepare('SELECT id, name, avatar_v, created_at FROM users WHERE id = ?').get(id)
-    if (!user || !req.memberIds.includes(id)) return bad(res, 'Joueur introuvable', 404)
+    if (!user) return bad(res, 'Joueur introuvable', 404)
     const { day } = req.query
     if (day !== undefined && !isDay(day)) return bad(res, 'Date invalide')
 
     const nights = db.prepare(`
-      SELECT day, SUM(${UNITS()}) AS units, COUNT(*) AS count FROM drinks WHERE user_id = ? GROUP BY day ORDER BY day DESC
+      SELECT day, SUM(${UNITS()}) AS units, COUNT(*) AS count FROM drinks WHERE user_id = ? AND abv > 0 GROUP BY day ORDER BY day DESC
     `).all(id)
     const units = nights.reduce((s, n) => s + n.units, 0)
     const best = nights.reduce((b, n) => (!b || n.units > b.units ? n : b), null)
     const byCat = db.prepare(`
-      SELECT ${CATS.map((c) => `COALESCE(SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} END), 0) AS ${c}`).join(', ')}
+      SELECT ${ALCO.map((c) => `COALESCE(SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} END), 0) AS ${c}`).join(', ')}
       FROM drinks WHERE user_id = ?
     `).get(id)
     const top = db.prepare(`
-      SELECT name, cat, cl, abv, COUNT(*) AS count FROM drinks WHERE user_id = ?
+      SELECT name, cat, cl, abv, MAX(product_id) AS product_id, COUNT(*) AS count, ROUND(AVG(rating), 1) AS rating
+      FROM drinks WHERE user_id = ?
       GROUP BY name, cat, cl, abv ORDER BY count DESC, MAX(at) DESC LIMIT 5
     `).all(id)
     const drinks = day
@@ -537,6 +746,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       db.prepare(`SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND kind = ?${d ? ' AND day = ?' : ''}`).get(...[id, kind, d].filter(Boolean)).n
     const wins = req.group ? winsMap(req.query.winsBefore, req.group.id)[id] || 0 : 0
     const got = computeBadges({ ...historyOf(id), wins })
+    const tops = db.prepare(`
+      SELECT t.slot, ${PRODUCT_COLS} FROM user_tops t JOIN products p ON p.id = t.product_id
+      LEFT JOIN users u ON u.id = p.created_by WHERE t.user_id = ? ORDER BY t.slot
+    `).all(req.user.id, id)
+    const year = String(new Date(now()).getUTCFullYear())
+    const rated = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND rating IS NOT NULL').get(id)
+    const { thisYear } = db.prepare("SELECT COUNT(*) AS thisYear FROM drinks WHERE user_id = ? AND substr(day, 1, 4) = ?").get(id, year)
 
     res.json({
       user,
@@ -546,6 +762,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       avg: nights.length ? round1(units / nights.length) : 0,
       record: best ? { day: best.day, units: round1(best.units) } : null,
       wins,
+      inBand: req.memberIds.includes(id),
+      tops: Array.from({ length: 4 }, (_, i) => {
+        const t = tops.find((x) => x.slot === i)
+        return t ? productOut(t) : null
+      }),
+      rated: rated.n,
+      reviews: db.prepare("SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND review IS NOT NULL").get(id).n,
+      thisYear,
       eau: extraCount('eau'),
       clope: extraCount('clope'),
       tonight: day ? { eau: extraCount('eau', day), clope: extraCount('clope', day) } : null,
@@ -558,9 +782,16 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // --- La carte ------------------------------------------------------------------
-  const PRODUCT_COLS = `p.id, p.name, p.cat, p.cl, p.abv, p.created_by, u.name AS created_by_name,
+  // Note moyenne et nombre de consos : sur tout le monde (la carte est commune)
+  const PRODUCT_COLS = `p.id, p.name, p.cat, p.cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
+    p.maker, p.origin, p.style, p.description,
     (SELECT COUNT(*) FROM product_favs WHERE product_id = p.id) AS favs,
-    EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav`
+    EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav,
+    (SELECT COUNT(*) FROM drinks WHERE product_id = p.id) AS logs,
+    (SELECT ROUND(AVG(rating), 1) FROM drinks WHERE product_id = p.id AND rating IS NOT NULL) AS rating,
+    (SELECT COUNT(rating) FROM drinks WHERE product_id = p.id) AS ratings`
+  // Mes potes : moi + les membres de toutes mes bandes (pour les avis affichés sur un produit)
+  const FRIENDS = `SELECT ? UNION SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?`
   const productOut = (r) => ({ ...r, fav: !!r.fav, units: round1(unitsOf(r)) })
   const getProduct = (id, userId) =>
     db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?`).get(userId, id)
@@ -582,6 +813,40 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(rows.map(productOut))
   })
 
+  // Fiche d'un produit : chiffres, répartition des notes (tout le monde), avis et photos de mes potes
+  app.get('/api/products/:id(\\d+)', auth, (req, res) => {
+    const p = productOf(req, res)
+    if (!p) return
+    const hist = Array(10).fill(0)
+    for (const r of db.prepare('SELECT rating, COUNT(*) AS n FROM drinks WHERE product_id = ? AND rating IS NOT NULL GROUP BY rating').all(p.id)) hist[r.rating - 1] = r.n
+    const { drinkers } = db.prepare('SELECT COUNT(DISTINCT user_id) AS drinkers FROM drinks WHERE product_id = ?').get(p.id)
+    const mine = db.prepare('SELECT COUNT(*) AS n, MAX(rating) AS best FROM drinks WHERE product_id = ? AND user_id = ?').get(p.id, req.user.id)
+    const reviews = db.prepare(`
+      SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
+      JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.product_id = ? AND (d.rating IS NOT NULL OR d.review IS NOT NULL OR d.photo_key IS NOT NULL)
+        AND d.user_id IN (${FRIENDS})
+      ORDER BY d.at DESC, d.id DESC LIMIT 200
+    `).all(p.id, req.user.id, req.user.id)
+    // Mes potes qui l'ont bue : combien de fois, leur note moyenne
+    const people = db.prepare(`
+      SELECT u.id, u.name, u.avatar_v, COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating, MAX(d.at) AS last_at
+      FROM drinks d JOIN users u ON u.id = d.user_id
+      WHERE d.product_id = ? AND d.user_id IN (${FRIENDS})
+      GROUP BY u.id ORDER BY count DESC, last_at DESC
+    `).all(p.id, req.user.id, req.user.id)
+    // Dans le même genre : même catégorie, les mieux notées puis les plus bues
+    const similar = db.prepare(`
+      SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by
+      WHERE p.cat = ? AND p.id != ? ORDER BY rating IS NULL, rating DESC, logs DESC, p.name LIMIT 8
+    `).all(req.user.id, p.cat, p.id)
+    const myLast = db.prepare('SELECT rating FROM drinks WHERE product_id = ? AND user_id = ? AND rating IS NOT NULL ORDER BY at DESC LIMIT 1').get(p.id, req.user.id)
+    res.json({
+      ...productOut(p), hist, drinkers, mine: mine.n, myRating: myLast?.rating ?? null,
+      reviews: reviews.map(logOut), people, similar: similar.map(productOut),
+    })
+  })
+
   // Mes favoris, dans l'ordre où je les ai ajoutés
   app.get('/api/products/favorites', auth, (req, res) => {
     const rows = db.prepare(`
@@ -597,13 +862,21 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.post('/api/products', auth, (req, res) => {
     const { drink, error } = checkDrink(req.body)
     if (error) return bad(res, error)
+    const { log, error: photoError } = checkLog({ photo: req.body.photo })
+    if (photoError) return bad(res, photoError)
+    const { info, error: infoError } = checkInfo(req.body)
+    if (infoError) return bad(res, infoError)
     const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ?').get(drink.name, drink.cl, drink.abv)
     if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
     const { lastInsertRowid } = db.prepare(
-      'INSERT INTO products (name, cat, cl, abv, created_by) VALUES (?, ?, ?, ?, ?)'
-    ).run(drink.name, drink.cat, drink.cl, drink.abv, req.user.id)
+      `INSERT INTO products (name, cat, cl, abv, created_by, photo, photo_key, maker, origin, style, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(drink.name, drink.cat, drink.cl, drink.abv, req.user.id, log.photo, log.photo ? photoKey() : null,
+      info.maker ?? null, info.origin ?? null, info.style ?? null, info.description ?? null)
     const id = Number(lastInsertRowid)
     db.prepare('INSERT INTO product_favs (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
+    // Les consos déjà bues de cette boisson (par tout le monde) rejoignent sa fiche
+    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND cl = ? AND abv = ?').run(id, drink.name, drink.cl, drink.abv)
     res.json(productOut(getProduct(id, req.user.id)))
   })
 
@@ -615,10 +888,19 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut le modifier", 403)
     const { drink, error } = checkDrink(req.body)
     if (error) return bad(res, error)
+    // Infos et photo : absentes du corps = inchangées, null = vidées / retirée
+    const { info, error: infoError } = checkInfo(req.body)
+    if (infoError) return bad(res, infoError)
+    const { log, error: photoError } = 'photo' in req.body ? checkLog({ photo: req.body.photo }) : { log: {} }
+    if (photoError) return bad(res, photoError)
     const dup = db.prepare('SELECT id FROM products WHERE name = ? AND cl = ? AND abv = ? AND id != ?')
       .get(drink.name, drink.cl, drink.abv, p.id)
     if (dup) return bad(res, 'Ce produit est déjà sur la carte', 409)
     db.prepare('UPDATE products SET name = ?, cat = ?, cl = ?, abv = ? WHERE id = ?').run(drink.name, drink.cat, drink.cl, drink.abv, p.id)
+    for (const [k, v] of Object.entries(info)) db.prepare(`UPDATE products SET ${k} = ? WHERE id = ?`).run(v, p.id)
+    if ('photo' in log) db.prepare('UPDATE products SET photo = ?, photo_key = ? WHERE id = ?').run(log.photo, log.photo ? photoKey() : null, p.id)
+    // Les consos sans lien qui correspondent au produit corrigé y sont rattachées
+    db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND cl = ? AND abv = ?').run(p.id, drink.name, drink.cl, drink.abv)
     res.json(productOut(getProduct(p.id, req.user.id)))
   })
 
@@ -629,6 +911,33 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut le retirer", 403)
     db.prepare('DELETE FROM products WHERE id = ?').run(p.id)
     res.json({ ok: true })
+  })
+
+  // Infos d'un produit (producteur, origine, style, description) : n'importe qui peut compléter un champ vide ;
+  // changer ou vider un champ déjà rempli = auteur ou admin
+  app.put('/api/products/:id/info', auth, (req, res) => {
+    const p = productOf(req, res)
+    if (!p) return
+    const { info, error } = checkInfo(req.body)
+    if (error) return bad(res, error)
+    const changes = Object.entries(info).filter(([k, v]) => v !== p[k])
+    if (!canManage(p, req) && changes.some(([k]) => p[k] != null)) {
+      return bad(res, "Déjà renseigné : seul celui qui l'a ajouté ou un admin peut le changer", 403)
+    }
+    for (const [k, v] of changes) db.prepare(`UPDATE products SET ${k} = ? WHERE id = ?`).run(v, p.id)
+    res.json(productOut(getProduct(p.id, req.user.id)))
+  })
+
+  // Photo d'un produit : n'importe qui peut en mettre une s'il n'en a pas ; la changer ou la retirer = auteur ou admin
+  app.put('/api/products/:id/photo', auth, (req, res) => {
+    const p = productOf(req, res)
+    if (!p) return
+    if (p.photo_key && !canManage(p, req)) return bad(res, "Il a déjà une photo : seul celui qui l'a ajouté ou un admin peut la changer", 403)
+    const { log, error } = checkLog({ photo: req.body.photo ?? null })
+    if (error) return bad(res, error)
+    if (!log.photo && !canManage(p, req)) return bad(res, "Seul celui qui l'a ajouté ou un admin peut retirer la photo", 403)
+    db.prepare('UPDATE products SET photo = ?, photo_key = ? WHERE id = ?').run(log.photo, log.photo ? photoKey() : null, p.id)
+    res.json(productOut(getProduct(p.id, req.user.id)))
   })
 
   app.put('/api/products/:id/fav', auth, (req, res) => {
@@ -644,6 +953,21 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(p ? productOut(p) : { ok: true })
   })
 
+  // Mon top 4 : 4 places, chacune un produit de la carte ou vide (null)
+  app.put('/api/me/tops', auth, (req, res) => {
+    const slots = req.body.slots
+    if (!Array.isArray(slots) || slots.length !== 4) return bad(res, '4 places attendues')
+    const ids = slots.map((x) => (x == null ? null : Number(x)))
+    if (ids.some((x) => x !== null && !db.prepare('SELECT 1 FROM products WHERE id = ?').get(x))) return bad(res, 'Produit introuvable', 404)
+    if (new Set(ids.filter(Boolean)).size !== ids.filter(Boolean).length) return bad(res, 'Deux fois le même produit')
+    db.exec('BEGIN')
+    db.prepare('DELETE FROM user_tops WHERE user_id = ?').run(req.user.id)
+    const ins = db.prepare('INSERT INTO user_tops (user_id, slot, product_id) VALUES (?, ?, ?)')
+    ids.forEach((pid, slot) => pid && ins.run(req.user.id, slot, pid))
+    db.exec('COMMIT')
+    res.json({ ok: true })
+  })
+
   // Classement sur une période (from = to pour une soirée), en verres standard
   app.get('/api/leaderboard', auth, group, (req, res) => {
     const { from, to, activeSince } = req.query
@@ -652,15 +976,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
     // Totaux par personne et par soirée, puis agrégés sur la période
     const perDay = db.prepare(`
-      SELECT user_id, day, ${CATS.map((c) => `SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} ELSE 0 END) AS ${c},`).join(' ')}
+      SELECT user_id, day, ${ALCO.map((c) => `SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} ELSE 0 END) AS ${c},`).join(' ')}
         SUM(${UNITS()}) AS total, COUNT(*) AS count
-      FROM drinks WHERE day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)
+      FROM drinks WHERE abv > 0 AND day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)
       GROUP BY user_id, day
     `).all(from, to, req.group.id)
     const agg = new Map()
     for (const r of perDay) {
-      const a = agg.get(r.user_id) ?? { ...Object.fromEntries(CATS.map((c) => [c, 0])), total: 0, count: 0, days: 0, suspect_days: 0 }
-      for (const c of CATS) a[c] += r[c]
+      const a = agg.get(r.user_id) ?? { ...Object.fromEntries(ALCO.map((c) => [c, 0])), total: 0, count: 0, days: 0, suspect_days: 0 }
+      for (const c of ALCO) a[c] += r[c]
       a.total += r.total
       a.count += r.count
       a.days++
@@ -682,11 +1006,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       SELECT u.id, u.name, u.avatar_v, (SELECT MAX(day) FROM drinks WHERE user_id = u.id AND day <= ?) AS last_day
       FROM users u JOIN group_members m ON m.user_id = u.id WHERE m.group_id = ?
     `).all(to, req.group.id)
-    const empty = { ...Object.fromEntries(CATS.map((c) => [c, 0])), total: 0, count: 0, days: 0, suspect_days: 0 }
+    const empty = { ...Object.fromEntries(ALCO.map((c) => [c, 0])), total: 0, count: 0, days: 0, suspect_days: 0 }
     const ranking = users
       .map((u) => {
         const a = agg.get(u.id) ?? empty
-        return { ...u, ...a, ...Object.fromEntries(CATS.map((c) => [c, round1(a[c])])), total: round1(a.total), wins: winMap[u.id] || 0,
+        return { ...u, ...a, ...Object.fromEntries(ALCO.map((c) => [c, round1(a[c])])), total: round1(a.total), wins: winMap[u.id] || 0,
           eau: extraMap[u.id]?.eau ?? 0, clope: extraMap[u.id]?.clope ?? 0 }
       })
       .sort((x, y) => y.total - x.total || x.name.localeCompare(y.name))
@@ -701,13 +1025,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(visible.map(({ last_day, ...r }) => r))
   })
 
-  // Totaux journaliers de chacun sur une période, par catégorie (pour les graphes)
+  // Totaux journaliers de chacun sur une période, par catégorie (pour les graphes) :
+  // verres standard par catégorie alcoolisée, et nombre de consos par catégorie (toutes, sans alcool compris : n_<cat>)
   app.get('/api/series', auth, group, (req, res) => {
     const { from, to } = req.query
     if (!isDay(from) || !isDay(to)) return bad(res, 'Période invalide')
     const rows = db.prepare(`
-      SELECT user_id, day, ${CATS.map((c) => `SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} ELSE 0 END) AS ${c},`).join(' ')}
-        SUM(${UNITS()}) AS total
+      SELECT user_id, day, ${ALCO.map((c) => `SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} ELSE 0 END) AS ${c},`).join(' ')}
+        ${CATS.map((c) => `SUM(cat = '${c}') AS n_${c},`).join(' ')}
+        SUM(${UNITS()}) AS total, COUNT(*) AS count
       FROM drinks WHERE day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)
       GROUP BY user_id, day ORDER BY day
     `).all(from, to, req.group.id)

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { api, CATS, PALETTE, num, today, addDays, dayLabel } from '../api'
+import { api, CATS as ALL_CATS, ALCO_CATS, PALETTE, num, today, addDays, dayLabel } from '../api'
 import Avatar from './Avatar.vue'
 import LineChart from './LineChart.vue'
 import StackedBars from './StackedBars.vue'
@@ -36,6 +36,7 @@ const participants = computed(() =>
       const values = days.value.map((d) => byUser.value[u.id][d]?.total ?? null)
       return { ...u, values, sum: values.reduce((s, v) => s + (v || 0), 0) }
     })
+    .filter((p) => p.sum > 0) // que du sans alcool : pas de courbe (0 verre), mais visible dans le détail
     .sort((a, b) => b.sum - a.sum)
 )
 
@@ -134,6 +135,14 @@ const detailUser = computed(() =>
   mode.value === 'custom' && series.value.length === 1 ? series.value[0] : props.me
 )
 const detailRows = computed(() => byUser.value[detailUser.value.id] || {})
+// Détail en nombre de consos (toutes les catégories, sans alcool compris) ou en verres standard (alcool seulement)
+const detailUnit = ref((() => { try { return localStorage.getItem('stats-detail-unit') || 'consos' } catch { return 'consos' } })())
+watch(detailUnit, (u) => { try { localStorage.setItem('stats-detail-unit', u) } catch {} })
+const detailSegments = computed(() =>
+  detailUnit.value === 'consos'
+    ? ALL_CATS.map((c) => ({ ...c, key: `n_${c.key}` }))
+    : ALCO_CATS
+)
 </script>
 
 <template>
@@ -216,14 +225,18 @@ const detailRows = computed(() => byUser.value[detailUser.value.id] || {})
         <Avatar v-if="detailUser.id !== me.id" :user="detailUser" :color="colors[detailUser.id]" :size="24" class="rounded-full" />
         <div>
           <h3 class="font-bold">{{ detailUser.id === me.id ? 'Mon détail' : `Détail de ${detailUser.name}` }}</h3>
-          <p class="text-sm text-muted">Par catégorie</p>
+          <p class="text-sm text-muted">{{ detailUnit === 'consos' ? 'Consos par catégorie, sans alcool compris' : 'Verres standard par catégorie' }}</p>
+        </div>
+        <div class="ml-auto flex rounded-full bg-white/5 p-1">
+          <button class="seg" :aria-pressed="detailUnit === 'consos'" @click="detailUnit = 'consos'">Consos</button>
+          <button class="seg" :aria-pressed="detailUnit === 'verres'" @click="detailUnit = 'verres'">Verres</button>
         </div>
       </div>
       <div class="px-3 pt-3 pb-2">
-        <StackedBars :days="days" :segments="CATS" :rows="detailRows" />
+        <StackedBars :days="days" :segments="detailSegments" :rows="detailRows" :unit="detailUnit" />
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-1 px-5 pb-4 text-sm text-muted">
-        <span v-for="a in CATS" :key="a.key" class="flex items-center gap-1.5">
+        <span v-for="a in detailSegments" :key="a.key" class="flex items-center gap-1.5">
           <span class="h-2 w-2 rounded-full" :style="{ background: a.hex }" />{{ a.label }}
         </span>
       </div>

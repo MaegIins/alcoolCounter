@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isDay, checkName, unitsOf, checkDrink, CATS } from '../app.js'
+import { isDay, checkName, unitsOf, checkDrink, checkLog, CATS } from '../app.js'
 
 test('isDay accepte les vraies dates YYYY-MM-DD', () => {
   assert.ok(isDay('2026-11-03'))
@@ -31,7 +31,20 @@ test('unitsOf : 10 g d’alcool pur = 1 verre standard', () => {
 test('checkDrink : valide et arrondit, refuse le reste', () => {
   assert.deepEqual(checkDrink({ name: ' IPA ', cat: 'biere', cl: '33', abv: 6.54 }), { drink: { name: 'IPA', cat: 'biere', cl: 33, abv: 6.5 } })
   assert.ok(checkDrink({ name: 'Eau', cat: 'eau', cl: 25, abv: 5 }).error)
-  assert.ok(checkDrink({ name: 'Bière', cat: 'biere', cl: 25, abv: 0 }).error)
+  assert.ok(checkDrink({ name: 'Bière', cat: 'biere', cl: 25, abv: -1 }).error)
+  assert.equal(checkDrink({ name: 'Leffe 0.0', cat: 'biere', cl: 25, abv: 0 }).drink.abv, 0) // sans alcool : accepté
+  assert.equal(checkDrink({ name: 'Monster', cat: 'energy', cl: 50, abv: 5 }).drink.abv, 0) // sans alcool : forcé à 0
   assert.ok(checkDrink({ name: 'B\nb', cat: 'biere', cl: 25, abv: 5 }).error)
-  assert.deepEqual(CATS, ['biere', 'vin', 'fort', 'cocktail', 'autre'])
+  assert.deepEqual(CATS, ['biere', 'vin', 'fort', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
+})
+
+test('checkLog : note en demi-étoiles, avis, photo ; seulement les champs donnés', () => {
+  assert.deepEqual(checkLog({}), { log: {} })
+  assert.deepEqual(checkLog({ rating: 7, review: '  top  ' }), { log: { rating: 7, review: 'top' } })
+  assert.deepEqual(checkLog({ rating: 0, review: '' }), { log: { rating: null, review: null } })
+  assert.ok(checkLog({ rating: 11 }).error)
+  assert.ok(checkLog({ rating: 2.5 }).error)
+  assert.ok(checkLog({ review: 'x'.repeat(1001) }).error)
+  assert.ok(checkLog({ photo: 'http://exemple.fr/a.png' }).error)
+  assert.deepEqual(checkLog({ photo: null }), { log: { photo: null } })
 })

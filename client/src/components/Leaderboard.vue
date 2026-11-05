@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { api, CATS, SUSPECT_UNITS, fmt, num, prettyDay, today, addDays, mondayOf, monthBounds } from '../api'
+import { api, ALCO_CATS as CATS, SUSPECT_UNITS, fmt, num, prettyDay, today, addDays, mondayOf, monthBounds } from '../api'
 import Avatar from './Avatar.vue'
 import { confetti, toast, vibrate } from '../juice'
 

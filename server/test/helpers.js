@@ -60,5 +60,5 @@ export async function start(options = {}) {
     await new Promise((r) => server.close(r))
     close()
   }
-  return { call, register, drink, clock, db, stop }
+  return { call, register, drink, clock, db, stop, base }
 }

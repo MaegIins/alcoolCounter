@@ -200,8 +200,13 @@ describe('classement', () => {
     const a = await s.register('Alice')
     await s.drink(a.token, '2026-11-02', {}, 2)
     await s.drink(a.token, '2026-11-02', SHOT)
+    await s.drink(a.token, '2026-11-02', { name: 'Monster', cat: 'energy', cl: 50, abv: 0 })
     const r = await s.call('GET', '/series?from=2026-11-01&to=2026-11-03', { token: a.token })
-    assert.deepEqual(r.body, [{ user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.3, cocktail: 0, autre: 0, total: 5.3 }])
+    // Verres standard par catégorie alcoolisée, et nombre de consos par catégorie (sans alcool compris)
+    assert.deepEqual(r.body, [{
+      user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.3, cocktail: 0, autre: 0,
+      n_biere: 2, n_vin: 0, n_fort: 1, n_cocktail: 0, n_autre: 0, n_energy: 1, n_soft: 0, n_chaud: 0, total: 5.3, count: 4,
+    }])
   })
 })
 
@@ -261,7 +266,7 @@ describe('la carte', () => {
 
   test('produit invalide refusé', async () => {
     const a = await s.register('Alice')
-    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, abv: 0 } })).status, 400)
+    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, abv: -2 } })).status, 400)
     assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...CHOUFFE, name: '' } })).status, 400)
   })
 
@@ -326,7 +331,7 @@ describe('admins', () => {
 })
 
 describe('bandes', () => {
-  test('créer, rejoindre par code, chacun ne voit que les membres de sa bande', async () => {
+  test('créer, rejoindre par code, classement entre membres de la bande seulement', async () => {
     const a = await s.register('Alice', '1234', { group: false })
     const b = await s.register('Bob', '1234', { group: false })
     const c = await s.register('Chloé', '1234', { group: false })
@@ -340,17 +345,20 @@ describe('bandes', () => {
     await s.drink(b.token, '2026-11-02')
     const lb = (await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })).body
     assert.deepEqual(lb.map((r) => r.name), ['Bob', 'Alice'])
-    assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).status, 404)
+    // Le profil de Chloé reste visible (recherche), mais marqué hors bande
+    assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body.inBand, false)
   })
 
-  test('sans bande (solo) : on boit et on voit sa propre fiche, pas celle des autres ni le classement', async () => {
+  test('sans bande (solo) : on boit, on voit sa fiche et celle des autres (hors bande), pas le classement', async () => {
     const a = await s.register('Alice', '1234', { group: false })
     const b = await s.register('Bob', '1234', { group: false })
     assert.equal((await s.drink(a.token, '2026-11-02')).status, 200)
     const me = await s.call('GET', `/users/${a.id}/stats?day=2026-11-02`, { token: a.token })
     assert.equal(me.status, 200)
     assert.deepEqual([me.body.units, me.body.wins, me.body.drinks.length], [2, 0, 1])
-    assert.equal((await s.call('GET', `/users/${b.id}/stats`, { token: a.token })).status, 404)
+    const other = await s.call('GET', `/users/${b.id}/stats`, { token: a.token })
+    assert.deepEqual([other.status, other.body.inBand], [200, false])
+    assert.equal((await s.call('GET', '/users/9999/stats', { token: a.token })).status, 404)
     assert.equal((await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })).body.code, 'NO_GROUP')
   })
 
@@ -576,4 +584,195 @@ describe('profil', () => {
     await s.call('DELETE', '/me/avatar', { token })
     assert.equal((await s.call('GET', `/avatar/${id}`)).status, 404)
   })
+})
+
+describe('journal : note, avis, photo', () => {
+  const MONSTER = { name: 'Monster Ultra', cat: 'energy', cl: 50, abv: 0 }
+
+  test('conso notée avec avis et photo, complétée après coup, photo servie par sa clé', async () => {
+    const a = await s.register('Alice')
+    const r = await s.drink(a.token, '2026-11-02', { rating: 8, review: 'Bien fraîche', photo: PNG })
+    assert.equal(r.status, 200)
+    assert.equal(r.body.rating, 8)
+    assert.equal(r.body.review, 'Bien fraîche')
+    assert.match(r.body.photo_key, /^[0-9a-f]{24}$/)
+    assert.equal(r.body.photo, undefined) // la photo elle-même n'est pas renvoyée
+    const img = await fetch(s.base + `/photos/${r.body.photo_key}`)
+    assert.equal(img.status, 200)
+    assert.equal(img.headers.get('content-type'), 'image/png')
+    assert.equal((await s.call('GET', '/photos/inconnue')).status, 404)
+
+    const b = await s.register('Bob')
+    assert.equal((await s.call('PATCH', `/drinks/${r.body.id}`, { token: b.token, body: { rating: 1 } })).status, 404)
+    const p = await s.call('PATCH', `/drinks/${r.body.id}`, { token: a.token, body: { rating: 3, photo: null, day: '2026-11-01' } })
+    assert.equal(p.status, 200)
+    assert.deepEqual([p.body.rating, p.body.review, p.body.photo_key, p.body.day], [3, 'Bien fraîche', null, '2026-11-01'])
+    assert.equal((await fetch(s.base + `/photos/${r.body.photo_key}`)).status, 404) // ancienne photo plus servie
+    assert.equal((await s.call('PATCH', `/drinks/${r.body.id}`, { token: a.token, body: { rating: 12 } })).status, 400)
+  })
+
+  test('sans alcool (Monster) : noté, dans le fil, mais hors score', async () => {
+    const a = await s.register('Alice')
+    await s.drink(a.token, '2026-11-02', { ...MONSTER, rating: 9 })
+    await s.drink(a.token, '2026-11-02')
+    const lb = (await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })).body
+    assert.deepEqual([lb[0].total, lb[0].count], [2, 1])
+    const feed = (await s.call('GET', '/feed', { token: a.token })).body
+    assert.deepEqual(feed.items.map((d) => d.name), ['Pinte', 'Monster Ultra'])
+    const stats = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body
+    assert.deepEqual([stats.units, stats.count, stats.rated], [2, 1, 1])
+  })
+
+  test('fil de la bande : membres seulement, pagination par curseur', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const c = await s.register('Chloé', '1234', { group: false })
+    for (let i = 0; i < 5; i++) {
+      s.clock.t += 60e3
+      await s.drink(i % 2 ? b.token : a.token, '2026-11-03', { name: `Bière ${i}` })
+    }
+    await s.drink(c.token, '2026-11-03', { name: 'Secrète' })
+    const p1 = (await s.call('GET', '/feed?limit=3', { token: a.token })).body
+    assert.deepEqual(p1.items.map((d) => [d.name, d.user_name]), [['Bière 4', 'Alice'], ['Bière 3', 'Bob'], ['Bière 2', 'Alice']])
+    const p2 = (await s.call('GET', `/feed?limit=3&before=${p1.next}`, { token: a.token })).body
+    assert.deepEqual(p2.items.map((d) => d.name), ['Bière 1', 'Bière 0'])
+    assert.equal(p2.next, null)
+    // Chloé, seule : son propre fil
+    assert.deepEqual((await s.call('GET', '/feed', { token: c.token })).body.items.map((d) => d.name), ['Secrète'])
+  })
+
+  test('journal : par soirée, plus récentes d’abord, visible hors bande', async () => {
+    const a = await s.register('Alice')
+    const c = await s.register('Chloé', '1234', { group: false })
+    await s.drink(a.token, '2026-10-30', { name: 'Vieille' })
+    await s.drink(a.token, '2026-11-02', { name: 'Récente' })
+    const d = (await s.call('GET', `/users/${a.id}/diary?limit=1`, { token: a.token })).body
+    assert.deepEqual([d.items.map((x) => x.name), d.more], [['Récente'], true])
+    const d2 = (await s.call('GET', `/users/${a.id}/diary?limit=1&offset=1`, { token: a.token })).body
+    assert.deepEqual([d2.items.map((x) => x.name), d2.more], [['Vieille'], false])
+    assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: c.token })).body.items.length, 2)
+    assert.equal((await s.call('GET', '/users/9999/diary', { token: c.token })).status, 404)
+  })
+
+  test('fiche produit : consos rattachées, note moyenne, répartition, avis des potes seulement', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const c = await s.register('Chloé', '1234', { group: false })
+    // Bue avant d'être sur la carte : rattachée quand on l'ajoute
+    await s.drink(a.token, '2026-11-01', { ...MONSTER, rating: 6 })
+    const p = (await s.call('POST', '/products', { token: a.token, body: MONSTER })).body
+    await s.drink(b.token, '2026-11-02', { product_id: p.id, rating: 10, review: 'La meilleure' })
+    await s.drink(c.token, '2026-11-02', { product_id: p.id, rating: 2, review: 'Bof' })
+    const f = (await s.call('GET', `/products/${p.id}`, { token: a.token })).body
+    assert.deepEqual([f.logs, f.drinkers, f.rating, f.ratings, f.mine], [3, 3, 6, 3, 1])
+    assert.deepEqual([f.hist[1], f.hist[5], f.hist[9]], [1, 1, 1])
+    assert.deepEqual(f.reviews.map((r) => r.user_name), ['Bob', 'Alice']) // Chloé n'est pas dans ma bande
+    assert.equal((await s.call('GET', '/products/9999', { token: a.token })).status, 404)
+    const list = (await s.call('GET', '/products', { token: a.token })).body
+    assert.equal(list[0].rating, 6)
+  })
+
+  test('top 4 : 4 places, produits de la carte, sans doublon, visible dans la fiche', async () => {
+    const a = await s.register('Alice')
+    const p1 = (await s.call('POST', '/products', { token: a.token, body: MONSTER })).body
+    const p2 = (await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', abv: 8 } })).body
+    assert.equal((await s.call('PUT', '/me/tops', { token: a.token, body: { slots: [p1.id] } })).status, 400)
+    assert.equal((await s.call('PUT', '/me/tops', { token: a.token, body: { slots: [p1.id, p1.id, null, null] } })).status, 400)
+    assert.equal((await s.call('PUT', '/me/tops', { token: a.token, body: { slots: [9999, null, null, null] } })).status, 404)
+    assert.equal((await s.call('PUT', '/me/tops', { token: a.token, body: { slots: [null, p2.id, null, p1.id] } })).status, 200)
+    const tops = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body.tops
+    assert.deepEqual(tops.map((t) => t?.name ?? null), [null, 'Chouffe', null, 'Monster Ultra'])
+    // Produit retiré de la carte : sa place se libère
+    await s.call('DELETE', `/products/${p2.id}`, { token: a.token })
+    assert.deepEqual((await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body.tops.map((t) => t?.name ?? null), [null, null, null, 'Monster Ultra'])
+  })
+})
+
+describe('photos de la carte', () => {
+  test('à la création, puis : tout le monde peut en mettre une s’il n’y en a pas, seul l’auteur la change', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const withPhoto = (await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', photo: PNG } })).body
+    assert.match(withPhoto.photo_key, /^[0-9a-f]{24}$/)
+    assert.equal((await fetch(s.base + `/photos/${withPhoto.photo_key}`)).status, 200)
+    const bare = (await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Leffe' } })).body
+    assert.equal(bare.photo_key, null)
+    // Bob ajoute la photo manquante
+    const r = await s.call('PUT', `/products/${bare.id}/photo`, { token: b.token, body: { photo: PNG } })
+    assert.equal(r.status, 200)
+    assert.ok(r.body.photo_key)
+    // …mais ne peut ni la changer ni la retirer ; Alice (l'autrice) oui
+    assert.equal((await s.call('PUT', `/products/${bare.id}/photo`, { token: b.token, body: { photo: PNG } })).status, 403)
+    assert.equal((await s.call('PUT', `/products/${bare.id}/photo`, { token: b.token, body: { photo: null } })).status, 403)
+    assert.equal((await s.call('PUT', `/products/${bare.id}/photo`, { token: a.token, body: { photo: null } })).body.photo_key, null)
+    assert.equal((await s.call('PUT', `/products/${bare.id}/photo`, { token: a.token, body: { photo: 'pas une image' } })).status, 400)
+  })
+})
+
+describe('boissons d’un profil', () => {
+  test('regroupées (sans la casse), compteurs, note moyenne, avis ; détail d’une boisson ; visible hors bande', async () => {
+    const a = await s.register('Alice')
+    const c = await s.register('Chloé', '1234', { group: false })
+    await s.drink(a.token, '2026-10-30', { name: 'Chouffe', abv: 8, rating: 8, review: 'Top' })
+    await s.drink(a.token, '2026-11-02', { name: 'chouffe', abv: 8, rating: 6 })
+    await s.drink(a.token, '2026-11-02', { name: 'Chouffe', abv: 8 })
+    await s.drink(a.token, '2026-11-02', SHOT)
+    const list = (await s.call('GET', `/users/${a.id}/drinks`, { token: a.token })).body
+    assert.equal(list.length, 2)
+    const ch = list[0]
+    assert.deepEqual([ch.count, ch.rating, ch.ratings, ch.reviews, ch.first_day, ch.last_day, ch.units], [3, 7, 2, 1, '2026-10-30', '2026-11-02', 9.6])
+    const logs = (await s.call('GET', `/users/${a.id}/drinks/logs?name=Chouffe&cl=50&abv=8`, { token: a.token })).body
+    assert.equal(logs.length, 3)
+    assert.equal(logs.at(-1).review, 'Top')
+    assert.equal((await s.call('GET', `/users/${a.id}/drinks`, { token: c.token })).body.length, 2)
+    assert.equal((await s.call('GET', `/users/${a.id}/drinks/logs?name=Chouffe`, { token: a.token })).status, 400)
+  })
+})
+
+describe('page d’une boisson', () => {
+  test('infos renseignées à la création, corrigées par l’auteur ; potes qui l’ont bue ; similaires ; ma note', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const body = { ...PINTE, name: 'Chouffe', abv: 8, maker: "Brasserie d'Achouffe", origin: 'Belgique', style: 'Blonde forte', description: 'Le lutin.\nFruitée.' }
+    const p = (await s.call('POST', '/products', { token: a.token, body })).body
+    assert.deepEqual([p.maker, p.origin, p.style, p.description], [body.maker, 'Belgique', 'Blonde forte', 'Le lutin.\nFruitée.'])
+    assert.equal((await s.call('POST', '/products', { token: a.token, body: { ...body, name: 'X', style: 'y'.repeat(41) } })).status, 400)
+    // Patch partiel : seule l'origine change, la description est vidée
+    const up = await s.call('PATCH', `/products/${p.id}`, { token: a.token, body: { ...PINTE, name: 'Chouffe', abv: 8, origin: 'Wallonie', description: '' } })
+    assert.deepEqual([up.body.maker, up.body.origin, up.body.description], [body.maker, 'Wallonie', null])
+    assert.equal((await s.call('PATCH', `/products/${p.id}`, { token: b.token, body: { ...PINTE, name: 'Chouffe', abv: 8, origin: 'Lune' } })).status, 403)
+    await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Karmeliet', abv: 8.4 } })
+    await s.drink(b.token, '2026-11-02', { product_id: p.id, rating: 9 })
+    await s.drink(b.token, '2026-11-02', { product_id: p.id })
+    await s.drink(a.token, '2026-11-02', { product_id: p.id, rating: 4 })
+    const f = (await s.call('GET', `/products/${p.id}`, { token: a.token })).body
+    assert.deepEqual(f.people.map((x) => [x.name, x.count, x.rating]), [['Bob', 2, 9], ['Alice', 1, 4]])
+    assert.deepEqual(f.similar.map((x) => x.name), ['Karmeliet'])
+    assert.equal(f.myRating, 4)
+  })
+})
+
+test('infos : n’importe qui complète un champ vide, seul l’auteur change un champ rempli', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  const p = (await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', origin: 'Belgique' } })).body
+  const r = await s.call('PUT', `/products/${p.id}/info`, { token: b.token, body: { maker: "Brasserie d'Achouffe", origin: 'Belgique' } })
+  assert.equal(r.status, 200)
+  assert.equal(r.body.maker, "Brasserie d'Achouffe")
+  assert.equal((await s.call('PUT', `/products/${p.id}/info`, { token: b.token, body: { origin: 'France' } })).status, 403)
+  assert.equal((await s.call('PUT', `/products/${p.id}/info`, { token: a.token, body: { origin: 'Wallonie', maker: null } })).body.maker, null)
+})
+
+test('recherche : personnes (même hors bande, sans accents) et boissons (nom ou producteur)', async () => {
+  const a = await s.register('Alice')
+  await s.register('Élodie')
+  await s.register('Chloé', '1234', { group: false })
+  await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', maker: "Brasserie d'Achouffe" } })
+  await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Leffe' } })
+  const r = (await s.call('GET', '/search?q=elo', { token: a.token })).body
+  assert.deepEqual(r.users.map((u) => [u.name, u.inBand]), [['Élodie', true]])
+  const c = (await s.call('GET', '/search?q=chlo', { token: a.token })).body
+  assert.deepEqual(c.users.map((u) => [u.name, u.inBand]), [['Chloé', false]])
+  assert.deepEqual((await s.call('GET', '/search?q=achouffe', { token: a.token })).body.products.map((p) => p.name), ['Chouffe'])
+  assert.deepEqual((await s.call('GET', '/search?q=', { token: a.token })).body, { users: [], products: [] })
 })

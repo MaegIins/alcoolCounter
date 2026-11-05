@@ -1,6 +1,6 @@
 # 🍺 Picole Compet
 
-Qui a le plus bu ce soir ? Celui-là gagne (bravo… ou pas). Adapté de
+Ton journal de verres, noté et daté, l'activité de ta bande, et qui a le plus bu ce soir. Adapté de
 [Scroll Competition](https://github.com/MaegIins/scrollCompetition).
 
 - **Front** : Vue 3 + Vite + Tailwind v4 (`client/`)
@@ -51,49 +51,65 @@ personne : ils comptent dans toutes ses bandes. Le **patron** est le créateur ;
 s'il part, le plus ancien membre prend la suite ; une bande vide disparaît.
 Une base d'avant les bandes est migrée automatiquement dans une bande « La bande » avec tout le monde.
 
-**Sans bande (solo)** : on peut quand même ajouter ses verres, son eau et ses clopes, et voir sa propre fiche
-(badges compris). Le classement (affiché flouté et verrouillé), les stats attendent une bande ; la carte est accessible à tous.
-Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'en créer une, et un rappel
-apparaît au premier verre de la soirée puis tous les 4 verres.
+**Sans bande (solo)** : on peut quand même noter ses verres, son eau et ses clopes, et avoir son profil
+(top 4, journal, badges). Le classement (affiché flouté et verrouillé) et les stats attendent une bande ; la carte est accessible à tous.
+Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'en créer une.
 
-### Soirée
+### L'appli
 
-Chacun s'inscrit avec un pseudo + PIN, puis tape sur ce qu'il boit au fil de la soirée : **un tap = un verre**,
-enregistré tout de suite. On se base sur la confiance.
+Barre du bas : **Ma soirée · Activité · ＋ · La carte · Profil**.
+Chaque écran a son adresse (on peut recharger, partager un lien, utiliser le bouton retour) :
+`/` Ma soirée, `/activite`, `/carte`, `/reglages`, `/profil/12` (`?onglet=boissons|journal|badges`), `/boisson/34`.
+En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 
-- **Chaque verre a son volume et son degré.** Le score est en **verres standard** (10 g d'alcool pur) :
-  `grammes = cl × 10 × degré/100 × 0,8`. Une pinte de blonde (50 cl, 5°) = 2 ; une pinte de triple (8,5°) = 3,4.
-- **Au comptoir** : on choisit un format (demi, bouteille, pinte, verre de vin, shot, cocktail…), puis l'appli
-  demande le degré (raccourcis selon la catégorie, pré-rempli avec ton degré habituel pour ce format) et un nom
-  optionnel (Chouffe, Leffe…). « Autre chose » pour tout régler à la main (catégorie, volume, degré).
-  « L'ajouter aussi à la carte » la partage avec tout le monde.
-- **Raccourcis** (un tap = un verre) : tes favoris de la carte (★), complétés par ce que tu bois le plus.
-- **Annuler** : chaque ajout affiche un toast avec « Annuler » pendant 5 s (fausse manip).
-- **💧 Eau et 🚬 clopes** : comptées à part, hors score, visibles au classement et dans les fiches.
-  Rappel tous les 3 verres d'affilée sans eau (avec un bouton « + 💧 »).
-- **Badges** : 18 succès (Enchaînement, Bières fortes, After, 3 soirs de suite…), calculés depuis
-  l'historique (`server/badges.js`) ; toast + confettis quand on en débloque un, vitrine dans la fiche joueur.
-- **La carte** (une seule, commune à toutes les bandes) : produits partagés (nom, catégorie, volume, degré) que tout le monde peut compléter,
-  et corriger (✎) par leur auteur ou un admin. Recherche,
-  filtres, ★ pour mettre en favori (= raccourci sur l'accueil), « +1 » pour l'ajouter direct à ta soirée.
-  12 produits par page. Doublons refusés (même nom, volume et degré) ; seul celui qui a ajouté un produit
-  (ou un admin) peut le retirer.
-  Formats dans `FORMATS`, raccourcis de degrés dans `CATS[].degrees` (`client/src/utils.js`).
-- **L'addition** : la liste des verres de la soirée, avec l'heure, supprimable en cas d'erreur.
-- **Catégories** (bière, vin, fort, cocktail, autre) : servent aux couleurs des barres et graphes.
-  Pour en ajouter une : `CATS` dans `server/app.js` **et** `client/src/utils.js` (+ couleur dans `style.css`).
-- **Soirée** : elle court jusqu'à 6h du matin (un verre à 2h compte pour la veille).
-- **Classement** par soirée, semaine, mois ou depuis le début, avec podium ; top 10 + ta place si tu es plus bas.
-  Les ex æquo partagent le rang. Les inactifs depuis plus de 7 jours sont masqués.
-- **Victoires** (♛) : nombre de soirées gagnées depuis le début (soirée en cours exclue).
-- **Suspect** : badge pour toute soirée à plus de 30 verres standard (on ne bloque pas, on affiche).
-  Limites : 200 cl par verre, 100 verres par soirée.
-- **Fiche joueur** : touche quelqu'un dans le classement (ou ton avatar) : soirées, verres, moyenne, record,
-  victoires, détail de sa soirée, dernières soirées, ses boissons préférées avec « Moi aussi » pour prendre la même.
-- **Juice** : score qui s'envole avec des bulles, vibration, toasts (verre ajouté, paliers de la soirée),
-  confettis quand tu prends la tête, classement animé. Désactivé si le système demande moins d'animations.
-- **Stats** : courbes de tout le monde sur 7 ou 30 jours, détail par catégorie, vue tableau.
-- **Profil** : photo, pseudo, changement de PIN (déconnecte les autres appareils).
+- **Ma soirée** (accueil) : le verre qui se remplit, 💧 eau et 🚬 clopes, **L'addition** de la soirée
+  (4 lignes par page par défaut, réglable), puis le classement et les stats. Chaque ligne de l'addition a un
+  bouton **★ Noter** (note, avis, photo, date). On ajoute un verre avec le ＋.
+- **＋** : ajouter une conso en détail : on cherche la boisson (carte + habitudes), un favori, un format ou du
+  sur-mesure, puis la **date** (ce soir, hier soir, ou n'importe quel jour passé), une **note** en demi-étoiles,
+  un **avis** et une **photo**, tous facultatifs. « Annuler » dans le toast pendant 5 s.
+- **Activité** : le fil des dernières consos de la bande (affiche de la boisson, note, avis, photo). Toucher une
+  affiche ouvre la fiche du produit, un pseudo ouvre le profil, ✎ complète ou supprime une de tes consos.
+- **Pas que de l'alcool** : catégories Énergisant (Monster, Red Bull…), Soft et Café/thé, plus les 0.0.
+  Notées et dans le journal comme le reste, mais **hors score** (degré 0).
+- **Profil** : stats, **top 4** (4 boissons de la carte choisies, touche une place pour la changer),
+  activité récente, boissons les plus bues avec « Moi aussi », chiffres, dernières soirées ;
+  onglet **Boissons** (toutes les boissons différentes bues, avec recherche, filtres par catégorie ou « avec avis »,
+  et tris : les plus bues, mieux / moins bien notées, récentes, oubliées, le plus d'alcool, A→Z ; en touchant une
+  boisson : combien de fois, première et dernière fois, note moyenne, et toutes les consos avec avis et photos),
+  onglet **Journal** (toutes les consos datées, par mois) et onglet **Badges**. Réglages (bandes, photo,
+  pseudo, PIN) via ⚙.
+- **La carte** (une seule, commune à toutes les bandes) : liste avec recherche, filtres, ★ favori, « +1 » pour
+  boire direct, ✎ / ✕ pour l'auteur ou un admin. À l'ajout : photo et infos facultatives (producteur, origine,
+  style, description), modifiables après. Doublons refusés (même nom, volume et degré). Une conso est rattachée
+  au produit de même nom, volume et degré, même si le produit est ajouté après.
+- **Recherche** (🔍 dans l'en-tête) : des personnes, **même hors de ta bande**, et des boissons de la carte (par nom
+  ou producteur), sans tenir compte des accents ni des majuscules. Les profils (stats, top 4, journal, boissons,
+  badges) sont donc visibles par tout le monde, avec la mention « pas dans ta bande » ; le fil d'activité, le
+  classement et les stats restent entre membres d'une bande.
+- **Page d'une boisson**, façon page de film. On y arrive par la recherche, le nom
+  ou la vignette dans la carte et dans le fil, la vignette d'une ligne de L'addition, « Page de la boisson → » dans
+  la fenêtre d'un verre, le top 4, l'activité récente et le journal d'un profil, l'onglet Boissons, « Dans le même
+  genre ». Un verre qui n'est pas sur la carte a un bouton « ＋ Lui créer une page sur la carte ». La page :
+  bandeau avec la photo floutée, affiche, producteur, style, origine, description ; « Je l'ai bue », ★ favori,
+  ta note et combien de fois tu l'as bue ; consos, buveurs, favoris ; répartition des notes ; tes potes qui l'ont
+  bue (avec leur note) ; les avis (triables : récents, mieux / moins bien notés, avec photo) ; « Dans le même
+  genre ». N'importe qui peut compléter une info ou une photo manquante ; changer ce qui est déjà rempli reste
+  à l'auteur ou à un admin.
+- **Score** en **verres standard** (10 g d'alcool pur) : `grammes = cl × 10 × degré/100 × 0,8`.
+  Une pinte de blonde (50 cl, 5°) = 2 ; une pinte de triple (8,5°) = 3,4. La soirée court jusqu'à 6h du matin.
+- **Classement** par soirée, semaine, mois ou depuis le début, avec podium ; stats sur 7 ou 30 jours.
+  Le détail par catégorie se lit en **consos** (toutes les catégories, sans alcool compris) ou en **verres standard**.
+  **Victoires** (♛) = soirées gagnées ; **suspect** au-delà de 30 verres standard. Limites : 200 cl par verre,
+  100 verres par soirée.
+- **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
+- **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
+  Formats dans `FORMATS`.
+- **Photos** (consos et produits de la carte) : compressées dans le navigateur avant l'envoi (WebP si possible,
+  ≤ 800 px pour une conso, ≤ 600 px pour un produit, ~60-100 ko), refusées au-delà de ~150 ko par le serveur,
+  stockées en base, servies par une clé aléatoire (`/api/photos/:clé`) qui change à chaque nouvelle photo.
+  Une photo remplacée ou une conso supprimée libère sa place. Produit sans photo : n'importe qui peut en
+  ajouter une depuis sa fiche ; la changer ou la retirer reste à son auteur ou à un admin.
 
 Une ancienne base (compteurs par type de boisson) est convertie automatiquement au démarrage.
 

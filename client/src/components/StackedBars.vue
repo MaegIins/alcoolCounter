@@ -1,5 +1,5 @@
 <script setup>
-// Barres empilées par jour (une barre = un jour, un segment = une catégorie, en verres standard).
+// Barres empilées par jour (une barre = un jour, un segment = une catégorie), en verres standard ou en nombre de consos.
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { fmt, fmtShort, dayLabel, niceMax, niceTicks } from '../api'
 
@@ -8,7 +8,9 @@ const props = defineProps({
   segments: { type: Array, required: true }, // [{ key, label, hex }]
   rows: { type: Object, required: true }, // { 'YYYY-MM-DD': { biere, vin, … } } en verres standard
   height: { type: Number, default: 200 },
+  unit: { type: String, default: 'verres' }, // 'verres' (verres standard) ou 'consos' (nombre)
 })
+const totalText = (n) => (props.unit === 'consos' ? `${n} conso${n > 1 ? 's' : ''}` : fmt(n))
 
 const el = ref(null)
 const width = ref(320)
@@ -99,13 +101,13 @@ const hover = ref(null)
     >
       <div class="mb-1 font-bold capitalize">{{ dayLabel(days[hover], true) }}</div>
       <template v-if="bars[hover].total">
-        <div v-for="g in segments" :key="g.key" class="flex items-center gap-2">
+        <div v-for="g in segments.filter((g) => rows[days[hover]]?.[g.key])" :key="g.key" class="flex items-center gap-2">
           <span class="h-2.5 w-2.5 rounded-full" :style="{ background: g.hex }" />
           <span class="flex-1">{{ g.label }}</span>
           <span class="tabular-nums">{{ fmtShort(rows[days[hover]]?.[g.key] || 0) }}</span>
         </div>
         <div class="mt-1 flex border-t border-line pt-1 font-bold">
-          <span class="flex-1">Total</span><span class="tabular-nums">{{ fmt(bars[hover].total) }}</span>
+          <span class="flex-1">Total</span><span class="tabular-nums">{{ totalText(bars[hover].total) }}</span>
         </div>
       </template>
       <div v-else class="text-muted">Rien</div>

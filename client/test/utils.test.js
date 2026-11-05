@@ -2,16 +2,29 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CATS, FORMATS, PALETTE, colorMap, unitsOf, fmtDrink, drinkId, toDay, nightOf, addDays, monthBounds, mondayOf, dayLabel,
-  fmt, niceMax, niceTicks, sanitizeDigits,
+  fmt, niceMax, niceTicks, sanitizeDigits, starsText, timeAgo,
 } from '../src/utils.js'
 
 test('CATS : clés alignées sur le serveur, couleurs uniques ; formats valides', () => {
-  assert.deepEqual(CATS.map((c) => c.key), ['biere', 'vin', 'fort', 'cocktail', 'autre'])
+  assert.deepEqual(CATS.map((c) => c.key), ['biere', 'vin', 'fort', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
   assert.equal(new Set(CATS.map((c) => c.hex)).size, CATS.length)
-  const keys = new Set(CATS.map((c) => c.key))
-  assert.ok(FORMATS.every((p) => keys.has(p.cat) && p.cl > 0 && p.abv > 0))
+  const cat = Object.fromEntries(CATS.map((c) => [c.key, c]))
+  // Formats alcoolisés : un degré ; sans alcool : 0
+  assert.ok(FORMATS.every((p) => cat[p.cat] && p.cl > 0 && (cat[p.cat].alco ? p.abv > 0 : p.abv === 0)))
   assert.equal(new Set(FORMATS.map(drinkId)).size, FORMATS.length)
-  assert.ok(CATS.every((c) => c.degrees.length && c.degrees.every((d) => d > 0 && d <= 100)))
+  assert.ok(CATS.every((c) => (c.alco ? c.degrees.length : !c.degrees.length) && c.degrees.every((d) => d >= 0 && d <= 100)))
+})
+
+test('étoiles et temps relatif', () => {
+  assert.equal(starsText(7), '★★★½')
+  assert.equal(starsText(10), '★★★★★')
+  assert.equal(starsText(null), '')
+  const now = Date.parse('2026-11-05T20:00:00Z')
+  assert.equal(timeAgo(now - 20e3, now), "à l'instant")
+  assert.equal(timeAgo(now - 5 * 60e3, now), 'il y a 5 min')
+  assert.equal(timeAgo(now - 3 * 3600e3, now), 'il y a 3 h')
+  assert.equal(timeAgo(now - 2 * 864e5, now), 'il y a 2 j')
+  assert.equal(fmtDrink({ cl: 50, abv: 0 }), '50 cl · sans alcool')
 })
 
 test('unitsOf : 10 g d’alcool pur = 1 verre standard', () => {
@@ -78,4 +91,28 @@ test('sanitizeDigits : chiffres seulement, plafond', () => {
 test('colorMap : une couleur de la palette par personne', () => {
   const m = colorMap([{ id: 1 }, { id: 13 }, { id: 2 }])
   assert.ok(Object.values(m).every((c) => PALETTE.includes(c)))
+})
+
+test('URL de chaque écran, aller-retour', async () => {
+  const { urlOf, parseUrl } = await import('../src/utils.js')
+  const cases = [
+    [{ view: 'home' }, '/'],
+    [{ view: 'feed' }, '/activite'],
+    [{ view: 'carte' }, '/carte'],
+    [{ view: 'settings' }, '/reglages'],
+    [{ view: 'user', userId: 12 }, '/profil/12'],
+    [{ view: 'user', userId: 12, tab: 'journal' }, '/profil/12?onglet=journal'],
+    [{ view: 'product', productId: 34 }, '/boisson/34'],
+  ]
+  for (const [st, url] of cases) {
+    assert.equal(urlOf(st), url)
+    const [path, q] = url.split('?')
+    const back = parseUrl(path, q ? `?${q}` : '')
+    assert.equal(back.view, st.view)
+    assert.equal(back.userId ?? null, st.userId ?? null)
+    assert.equal(back.productId ?? null, st.productId ?? null)
+  }
+  assert.equal(parseUrl('/n-importe-quoi').view, 'home')
+  assert.equal(parseUrl('/carte/').view, 'carte')
+  assert.equal(parseUrl('/profil/abc').view, 'home')
 })

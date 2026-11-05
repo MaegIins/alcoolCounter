@@ -107,15 +107,15 @@ const burn = (size) => ({ kind: 'burn', size, d: blob(size / 2, size / 2, size *
 // Placement (left en %, top en % de la hauteur de la page)
 const items = []
 const place = (it, x, y, o, rot = between(0, 360)) => items.push({ ...it, x, y, o, rot, id: items.length })
-for (let i = 0; i < 9; i++) place(stain(pick([PISS, PISS, BEER, DARK, WINE]), between(160, 340)), between(-12, 88), between(0, 96), between(0.35, 0.6))
-for (let i = 0; i < 12; i++) place(splat(pick([PISS, PISS, BEER, DARK, WINE, PISS]), between(120, 300)), between(-8, 90), between(2, 98), between(0.28, 0.5))
-for (let i = 0; i < 6; i++) place(ash(between(60, 130)), between(-2, 94), between(5, 97), between(0.5, 0.85))
-for (let i = 0; i < 5; i++) place(burn(between(26, 44)), between(1, 95), between(4, 97), between(0.5, 0.8))
+for (let i = 0; i < 4; i++) place(stain(pick([PISS, PISS, BEER, DARK, WINE]), between(160, 300)), between(-12, 88), between(0, 96), between(0.14, 0.24))
+for (let i = 0; i < 5; i++) place(splat(pick([PISS, PISS, BEER, DARK, WINE, PISS]), between(110, 240)), between(-8, 90), between(2, 98), between(0.1, 0.18))
+for (let i = 0; i < 3; i++) place(ash(between(60, 110)), between(-2, 94), between(5, 97), between(0.25, 0.4))
+for (let i = 0; i < 2; i++) place(burn(between(24, 36)), between(1, 95), between(4, 97), between(0.3, 0.45))
 // Coulures qui pendent du haut de la page (fuite du plafond), par paquets irréguliers
-const dripGroups = [between(-4, 12), between(28, 40), between(55, 66), between(80, 94)].map((x) => ({ ...drips(pick([PISS, PISS, BEER, DARK])), x, o: between(0.3, 0.5) }))
+const dripGroups = [between(-4, 10), between(78, 92)].map((x) => ({ ...drips(pick([PISS, PISS, BEER, DARK])), x, o: between(0.18, 0.28) }))
 // Saletés « sur la vitre », au-dessus du contenu : quelques gouttelettes et grains de cendre, très discrets
-const specks = Array.from({ length: 26 }, () => ({
-  x: between(0, 100), y: between(0, 100), r: between(1, 3.2), c: pick([PISS, ASH, ASH, BEER]), o: between(0.12, 0.3),
+const specks = Array.from({ length: 8 }, () => ({
+  x: between(0, 100), y: between(0, 100), r: between(1, 2.4), c: pick([PISS, ASH, ASH, BEER]), o: between(0.06, 0.14),
 }))
 </script>
 

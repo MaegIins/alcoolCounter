@@ -23,10 +23,17 @@
   --color-cocktail: #739b4f;
   --color-autre: #9277a8;
   --color-alert: #c43c2a;
+  /* Sans alcool (dégustations) : ternes aussi */
+  --color-energy: #9fb33a;
+  --color-soft: #4f8f8a;
+  --color-chaud: #8a6448;
+  /* Utilisés par le fil, le profil, les fiches */
+  --color-raised: #26231a; /* puces, survols */
+  --color-faint: #6b6452; /* texte très discret */
 }
 
 :root {
-  --stain-card: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.011' numOctaves='4' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .55 0 0 0 0 .45 0 0 0 0 .12 0 0 0 -2.6 1.55'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 .05 .09 .05 .13'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.4 .9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='.22'/%3E%3C/svg%3E");
+  --stain-card: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.011' numOctaves='4' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .55 0 0 0 0 .45 0 0 0 0 .12 0 0 0 -2.6 1.55'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 .02 .035 .02 .05'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.4 .9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='.1'/%3E%3C/svg%3E");
 }
 
 body {
@@ -35,7 +42,7 @@ body {
   /* Néon jauni qui bave à peine, coins noircis */
   background:
     radial-gradient(70rem 26rem at 50% -10rem, rgb(212 188 53 / 0.09), transparent 70%),
-    radial-gradient(ellipse at center, transparent 50%, rgb(0 0 0 / 0.6) 100%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
     var(--color-paper);
   background-attachment: fixed;
   color-scheme: dark;
@@ -112,6 +119,24 @@ body {
   &:hover { color: var(--color-ink); }
   &[aria-pressed='true'] { background: var(--color-hi); color: var(--color-paper); }
 }
+
+/* Onglets soulignés (profil) */
+@utility tab {
+  padding: 0.75rem 0.25rem;
+  font-weight: 700;
+  color: var(--color-muted);
+  border-bottom: 3px solid transparent;
+  &:hover { color: var(--color-ink); }
+  &[aria-selected='true'] { color: var(--color-hi); border-color: var(--color-hi); }
+}
+/* Affiche d'une boisson : jaquette un peu abîmée */
+.poster {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5), 0 4px 10px -4px rgb(0 0 0 / 0.8);
+}
+/* Rangées qui défilent à l'horizontale : sans barre */
+.overflow-x-auto { scrollbar-width: none; }
+.overflow-x-auto::-webkit-scrollbar { display: none; }
+input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.7) sepia(1); }
 
 @keyframes pop {
   0% { transform: scale(1); }
