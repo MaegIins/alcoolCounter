@@ -8,6 +8,7 @@ import Stars from './Stars.vue'
 import Poster from './Poster.vue'
 import PhotoField from './PhotoField.vue'
 import InfoFields from './InfoFields.vue'
+import PlacesList from './PlacesList.vue'
 import { burst, centerOf, vibrate, toast, ask, celebrateBadges } from '../juice'
 import { ui, openProduct } from '../nav'
 import Icon from './Icon.vue'
@@ -16,6 +17,9 @@ const props = defineProps({ me: Object })
 const emit = defineEmits(['back', 'saved'])
 
 const products = ref([])
+// Rubrique affichée : les boissons ou les lieux (retenue sur l'appareil)
+const section = ref((() => { try { return localStorage.getItem('carte-section') || 'boissons' } catch { return 'boissons' } })())
+watch(section, (v) => { try { localStorage.setItem('carte-section', v) } catch {} })
 const loaded = ref(false)
 const error = ref('')
 const flash = ref('') // petit message de confirmation
@@ -173,6 +177,13 @@ async function create() {
 
 <template>
   <div class="space-y-8">
+    <!-- Boissons ou lieux enregistrés -->
+    <div class="flex rounded-full bg-white/5 p-1">
+      <button class="seg flex-1" :aria-pressed="section === 'boissons'" @click="section = 'boissons'"><Icon name="carte" /> Boissons</button>
+      <button class="seg flex-1" :aria-pressed="section === 'lieux'" @click="section = 'lieux'"><Icon name="fa-location-dot" /> Lieux</button>
+    </div>
+    <PlacesList v-if="section === 'lieux'" :me="me" />
+    <template v-else>
     <div>
       <div class="flex items-center justify-between">
         <h2 class="font-display text-2xl">La carte</h2>
@@ -317,5 +328,6 @@ async function create() {
 
       <Pager v-model="page" :pages="pages" label="Pages de la carte" @change="toTop" />
     </div>
+    </template>
   </div>
 </template>

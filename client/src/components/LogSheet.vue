@@ -26,6 +26,10 @@ const sel = ref(
 const day = ref(edit?.day ?? props.preset.day ?? today())
 const rating = ref(edit?.rating ?? null)
 const review = ref(edit?.review ?? '')
+const place = ref(edit?.place ?? '') // où on l'a bue (facultatif)
+const placePrivate = ref(false) // lieu privé : visible seulement par moi et ma bande (réglable dans La carte › Lieux)
+const places = ref([]) // mes lieux récents, en suggestion
+api('/drinks/places').then((r) => (places.value = r)).catch(() => {})
 const photo = ref(null) // data URL choisie (nouvelle photo)
 const photoRemoved = ref(false)
 const toCarte = ref(false)
@@ -128,7 +132,7 @@ async function save() {
   if (!valid.value || busy.value) return
   busy.value = true
   error.value = ''
-  const extra = { day: day.value, rating: rating.value, review: review.value }
+  const extra = { day: day.value, rating: rating.value, review: review.value, place: place.value, place_private: placePrivate.value }
   try {
     if (edit) {
       const body = { ...extra }
@@ -363,6 +367,31 @@ async function remove() {
               <Stars v-model="rating" editable :size="32" />
               <span class="text-sm text-muted">{{ rating ? `${num(rating / 2)} / 5` : 'facultatif' }}</span>
             </div>
+          </div>
+
+          <!-- Lieu -->
+          <div>
+            <span class="kicker">Où ?</span>
+            <label class="relative mt-2 block">
+              <Icon name="fa-location-dot" class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+              <input v-model="place" maxlength="60" placeholder="Le bar du coin, chez Max… (facultatif)" class="field w-full py-2.5 pr-3.5 pl-10 text-base" />
+            </label>
+            <div v-if="places.length" class="mt-2 flex flex-wrap gap-1.5">
+              <button
+                v-for="p in places"
+                :key="p.place"
+                type="button"
+                class="rounded-full px-3 py-1 text-sm font-medium"
+                :class="place === p.place ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink'"
+                @click="place === p.place ? (place = '') : ((place = p.place), (placePrivate = !!p.private))"
+              >
+                <Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
+              </button>
+            </div>
+            <label v-if="place.trim()" class="mt-2 flex items-center gap-2 text-sm text-muted">
+              <input v-model="placePrivate" type="checkbox" class="h-4 w-4 accent-[#d4bc35]" />
+              <Icon name="lock" /> Lieu privé : visible seulement par toi et ta bande (chez toi…)
+            </label>
           </div>
 
           <!-- Avis -->

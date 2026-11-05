@@ -219,7 +219,10 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
                     :class="isMe && 'rounded-lg hover:bg-white/5'"
                     @click="isMe && (close(), openLog({ edit: l }))"
                   >
-                    <span class="w-24 shrink-0 text-sm text-muted first-letter:uppercase">{{ dayLabel(l.day, true) }}</span>
+                    <span class="w-24 shrink-0 text-sm text-muted first-letter:uppercase">
+                      {{ dayLabel(l.day, true) }}
+                      <span v-if="l.place" class="block truncate text-xs text-faint normal-case"><Icon name="fa-location-dot" /> {{ l.place }}</span>
+                    </span>
                     <span class="min-w-0 flex-1">
                       <Stars v-if="l.rating" :value="l.rating" :size="13" />
                       <span v-else class="text-xs text-faint">pas de note</span>

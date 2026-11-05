@@ -92,6 +92,11 @@ export const checkLog = (b) => {
     if (t.length > MAX_REVIEW) return { error: `Avis de ${MAX_REVIEW} caractères maximum` }
     log.review = t || null
   }
+  if ('place' in b) {
+    const t = b.place == null ? '' : String(b.place).trim()
+    if (t.length > 60 || /\p{Cc}/u.test(t)) return { error: 'Lieu de 60 caractères maximum' }
+    log.place = t || null
+  }
   if ('photo' in b) {
     const p = b.photo == null ? null : String(b.photo)
     if (p !== null && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p)) return { error: 'Photo invalide' }
@@ -262,13 +267,63 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     for (const [name, def] of cols) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`)
   }
   const drinkColsBefore = db.prepare('PRAGMA table_info(drinks)').all().map((c) => c.name)
+  // Lieux : une table à part, partagée par tout le monde (comme la carte), pour pouvoir un jour les placer
+  // sur une carte géographique : lat/lng facultatifs, vides tant que personne ne les a renseignés.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS places (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE,
+      lat REAL CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
+      lng REAL CHECK (lng IS NULL OR lng BETWEEN -180 AND 180),
+      private INTEGER NOT NULL DEFAULT 0, -- 1 : visible seulement par son créateur et les bandes autorisées
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+    );
+  `)
+  // Migration : lieux d'avant la confidentialité (nom unique partout) → colonne private, unicité par portée
+  if (!db.prepare('PRAGMA table_info(places)').all().some((c) => c.name === 'private')) {
+    db.exec(`PRAGMA foreign_keys = OFF; BEGIN;
+      CREATE TABLE places_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE,
+      lat REAL CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
+      lng REAL CHECK (lng IS NULL OR lng BETWEEN -180 AND 180),
+      private INTEGER NOT NULL DEFAULT 0, -- 1 : visible seulement par son créateur et les bandes autorisées
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+      );
+      INSERT INTO places_new (id, name, lat, lng, created_by, created_at) SELECT id, name, lat, lng, created_by, created_at FROM places;
+      DROP TABLE places; ALTER TABLE places_new RENAME TO places;
+      COMMIT; PRAGMA foreign_keys = ON;`)
+  }
+  db.exec(`
+    -- Un lieu public par nom ; un lieu privé par nom et par créateur (« Chez moi » de chacun)
+    CREATE UNIQUE INDEX IF NOT EXISTS places_scope ON places(name COLLATE NOCASE, (CASE WHEN private THEN created_by ELSE 0 END));
+    -- Bandes qui voient un lieu privé
+    CREATE TABLE IF NOT EXISTS place_groups (
+      place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+      group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      PRIMARY KEY (place_id, group_id)
+    );
+  `)
   addCols('drinks', [
     ['product_id', 'INTEGER REFERENCES products(id) ON DELETE SET NULL'],
     ['rating', 'INTEGER'],
     ['review', 'TEXT'],
     ['photo', 'TEXT'],
     ['photo_key', 'TEXT'],
+    ['place_id', 'INTEGER REFERENCES places(id) ON DELETE SET NULL'], // où on l'a bue, facultatif
   ])
+  // Migration : ancien lieu en texte libre sur chaque conso → table places
+  if (db.prepare('PRAGMA table_info(drinks)').all().some((c) => c.name === 'place')) {
+    db.exec('BEGIN')
+    for (const r of db.prepare('SELECT DISTINCT place FROM drinks WHERE place IS NOT NULL').all()) {
+      db.prepare('INSERT OR IGNORE INTO places (name, created_at) VALUES (?, ?)').run(r.place, now())
+    }
+    db.exec(`UPDATE drinks SET place_id = (SELECT id FROM places WHERE name = drinks.place) WHERE place IS NOT NULL;
+      ALTER TABLE drinks DROP COLUMN place; COMMIT`)
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS drinks_place ON drinks(place_id)')
   addCols('products', [['photo', 'TEXT'], ['photo_key', 'TEXT'], ['maker', 'TEXT'], ['origin', 'TEXT'], ['style', 'TEXT'], ['description', 'TEXT']])
   db.exec(`
     CREATE INDEX IF NOT EXISTS drinks_at ON drinks(at);
@@ -331,6 +386,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   }, 600e3)
   purge.unref()
 
+  // Lieux privés : visibles par leur créateur et les membres des bandes autorisées. `viewer` = qui fait la requête
+  // (fixé par auth ; les requêtes SQLite sont synchrones, donc pas de mélange entre deux requêtes HTTP).
+  let viewer = 0
+  const canSeePlace = db.prepare(`SELECT 1 FROM places pl WHERE pl.id = ? AND (pl.private = 0 OR pl.created_by = ? OR EXISTS (
+    SELECT 1 FROM place_groups pg JOIN group_members gm ON gm.group_id = pg.group_id WHERE pg.place_id = pl.id AND gm.user_id = ?))`)
+  db.function('place_visible', (id) => (id != null && canSeePlace.get(id, viewer, viewer) ? 1 : 0))
+
   const auth = (req, res, next) => {
     const token = bearer(req)
     const user = token
@@ -338,6 +400,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       : null
     if (!user) return bad(res, 'Non connecté', 401)
     req.user = { ...user, is_admin: !!user.is_admin }
+    viewer = user.id
     next()
   }
 
@@ -525,7 +588,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Une conso telle que renvoyée au client (sans la photo elle-même : on donne sa clé)
   const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.product_id, d.rating, d.review, d.photo_key,
+    CASE WHEN place_visible(d.place_id) THEN d.place_id END AS place_id,
+    CASE WHEN place_visible(d.place_id) THEN (SELECT name FROM places WHERE id = d.place_id) END AS place,
     p.photo_key AS product_photo_key`
+  // Lieu d'une conso, retrouvé ou créé. Privé : le mien de ce nom (partagé avec la bande donnée) ;
+  // sinon mon lieu privé de ce nom s'il existe, puis le lieu public.
+  const placeIdFor = (name, userId, { priv = false, groupId = null } = {}) => {
+    if (!name) return null
+    const mine = db.prepare('SELECT id FROM places WHERE name = ? AND private = 1 AND created_by = ?').get(name, userId)
+    let id = mine?.id
+    if (priv && !id) {
+      id = Number(db.prepare('INSERT INTO places (name, private, created_by, created_at) VALUES (?, 1, ?, ?)').run(name, userId, now()).lastInsertRowid)
+    }
+    if (priv && groupId && isMember(groupId, userId)) db.prepare('INSERT OR IGNORE INTO place_groups (place_id, group_id) VALUES (?, ?)').run(id, groupId)
+    if (id) return id
+    db.prepare('INSERT OR IGNORE INTO places (name, private, created_by, created_at) VALUES (?, 0, ?, ?)').run(name, userId, now())
+    return db.prepare('SELECT id FROM places WHERE name = ? AND private = 0').get(name).id
+  }
+  const placeOpts = (req) => ({ priv: req.body.place_private === true, groupId: Number(req.headers['x-group']) || myGroups(req.user.id)[0]?.id || null })
   const logOut = (r) => ({ ...r, units: round1(unitsOf(r)) })
   const getLog = (id) => db.prepare(`SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.id = ?`).get(id)
 
@@ -548,10 +628,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par soirée`)
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
-      Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id, rating, review, photo, photo_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id, rating, review, photo, photo_key, place_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(req.user.id, day, at, drink.name, drink.cat, drink.cl, drink.abv, productId,
-          log.rating ?? null, log.review ?? null, log.photo ?? null, log.photo ? photoKey() : null).lastInsertRowid)
+          log.rating ?? null, log.review ?? null, log.photo ?? null, log.photo ? photoKey() : null, placeIdFor(log.place, req.user.id, placeOpts(req))).lastInsertRowid)
     )
     res.json({ ...logOut(getLog(id)), badges })
   })
@@ -567,6 +647,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       log.day = req.body.day
     }
     if ('photo' in log) log.photo_key = log.photo ? photoKey() : null
+    if ('place' in log) {
+      log.place_id = placeIdFor(log.place, req.user.id, placeOpts(req))
+      delete log.place
+    }
     const keys = Object.keys(log)
     if (keys.length) db.prepare(`UPDATE drinks SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => log[k]), id)
     res.json(logOut(getLog(id)))
@@ -742,6 +826,49 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Mes boissons habituelles (pour les ajouter en un tap) : les plus bues, puis les plus récentes
+  // Mes lieux, les plus récents d'abord (suggestions quand on ajoute un verre)
+  app.get('/api/drinks/places', auth, (req, res) => {
+    res.json(db.prepare(`
+      SELECT pl.id, pl.name AS place, pl.private, COUNT(*) AS count FROM drinks d JOIN places pl ON pl.id = d.place_id
+      WHERE d.user_id = ? AND place_visible(pl.id) GROUP BY pl.id ORDER BY MAX(d.at) DESC LIMIT 12
+    `).all(req.user.id))
+  })
+
+  // Tous les lieux, avec leurs coordonnées (vides pour l'instant) et leur fréquentation :
+  // la source de données d'une future carte géographique. ?mine=1 : seulement ceux où j'ai bu.
+  app.get('/api/places', auth, (req, res) => {
+    const mine = req.query.mine === '1'
+    const rows = db.prepare(`
+      SELECT pl.id, pl.name, pl.lat, pl.lng, pl.private, pl.created_by, COUNT(d.id) AS logs, COUNT(DISTINCT d.user_id) AS drinkers,
+        SUM(d.user_id = ?) AS my_logs, MAX(d.at) AS last_at
+      FROM places pl LEFT JOIN drinks d ON d.place_id = pl.id ${mine ? 'AND d.user_id = ?' : ''}
+      WHERE place_visible(pl.id)
+      GROUP BY pl.id ${mine ? 'HAVING logs > 0' : ''} ORDER BY logs DESC, pl.name
+    `).all(req.user.id, ...(mine ? [req.user.id] : []))
+    const groupsOf = db.prepare('SELECT g.id, g.name FROM place_groups pg JOIN groups g ON g.id = pg.group_id WHERE pg.place_id = ? ORDER BY g.name')
+    res.json(rows.map((r) => ({ ...r, private: !!r.private, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [] })))
+  })
+
+  // Confidentialité d'un lieu : { private, groups: [id de bande…] } — son créateur, ou un admin.
+  // Privé = visible par moi et les bandes cochées (parmi les miennes) ; public = par tout le monde.
+  app.patch('/api/places/:id', auth, (req, res) => {
+    const pl = db.prepare('SELECT * FROM places WHERE id = ?').get(Number(req.params.id))
+    if (!pl || !canSeePlace.get(pl.id, req.user.id, req.user.id)) return bad(res, 'Lieu introuvable', 404)
+    if (pl.created_by !== req.user.id && !req.user.is_admin) return bad(res, "Seul celui qui l'a créé peut changer sa visibilité", 403)
+    const priv = req.body.private === true
+    const groups = Array.isArray(req.body.groups) ? req.body.groups.map(Number) : []
+    if (groups.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
+    const clash = db.prepare(`SELECT 1 FROM places WHERE id != ? AND name = ? AND ${priv ? 'private = 1 AND created_by = ?' : 'private = 0'}`)
+      .get(pl.id, pl.name, ...(priv ? [pl.created_by] : []))
+    if (clash) return bad(res, priv ? 'Tu as déjà un lieu privé de ce nom' : 'Un lieu public porte déjà ce nom', 409)
+    db.exec('BEGIN')
+    db.prepare('UPDATE places SET private = ? WHERE id = ?').run(+priv, pl.id)
+    db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
+    if (priv) for (const g of groups) db.prepare('INSERT INTO place_groups (place_id, group_id) VALUES (?, ?)').run(pl.id, g)
+    db.exec('COMMIT')
+    res.json({ ok: true })
+  })
+
   app.get('/api/drinks/favorites', auth, (req, res) => {
     res.json(db.prepare(`
       SELECT d.name, d.cat, d.cl, d.abv, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key, COUNT(*) AS count

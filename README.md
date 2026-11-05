@@ -108,6 +108,15 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 - **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
 - **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
+- **Lieux** : « Où ? » à l'ajout d'un verre (facultatif, avec mes lieux récents en suggestion). Les lieux sont une
+  table à part (`places`), partagée par tout le monde : même nom sans la casse = même lieu, et chaque conso pointe
+  vers son lieu (`drinks.place_id`). Chaque lieu a des coordonnées `lat`/`lng`, vides pour l'instant : une future
+  carte géographique n'aura qu'à les remplir (géolocalisation, recherche d'adresse) et à lire `GET /api/places`
+  (tous les lieux avec leur fréquentation, `?mine=1` pour les miens).
+  **Lieux privés** (« Chez moi »…) : case « Lieu privé » à l'ajout d'un verre ; un lieu privé (nom et future
+  position) n'est visible que par son créateur et les bandes qu'il autorise (`place_groups`). Pour les autres, il est
+  masqué partout, même sur les consos qui y pointent. Chacun a son propre « Chez moi ». Rubrique **La carte › Lieux** :
+  la liste des lieux visibles, et pour les siens le choix Public / Privé et des bandes autorisées.
 - **Photos** (consos et produits de la carte) : compressées dans le navigateur avant l'envoi (WebP si possible,
   ≤ 800 px pour une conso, ≤ 600 px pour un produit, ~60-100 ko), refusées au-delà de ~150 ko par le serveur,
   stockées en base, servies par une clé aléatoire (`/api/photos/:clé`) qui change à chaque nouvelle photo.

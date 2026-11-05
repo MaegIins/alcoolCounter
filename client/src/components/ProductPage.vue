@@ -329,7 +329,7 @@ const zoom = ref('')
               <div class="flex flex-wrap items-center gap-x-2 text-sm">
                 <button class="font-bold hover:text-hi" @click="openUser(r.user_id)">{{ r.user_id === me.id ? 'Toi' : r.user_name }}</button>
                 <Stars v-if="r.rating" :value="r.rating" :size="12" />
-                <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}</span>
+                <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}<template v-if="r.place"> · <Icon name="fa-location-dot" /> {{ r.place }}</template></span>
                 <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
               </div>
               <p v-if="r.review" class="mt-1.5 whitespace-pre-line text-ink/90">{{ r.review }}</p>

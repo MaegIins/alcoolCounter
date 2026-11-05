@@ -817,3 +817,61 @@ test('follow : suivre hors bande, fil « abonnements », avis des gens suivis, c
   await s.call('DELETE', `/users/${c.id}/follow`, { token: a.token })
   assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body.iFollow, false)
 })
+
+test('lieu d’une conso : à l’ajout, modifiable, suggestions de mes lieux', async () => {
+  const a = await s.register('Alice')
+  const r = await s.drink(a.token, '2026-11-02', { place: '  Le Bar du Coin ' })
+  assert.equal(r.body.place, 'Le Bar du Coin')
+  s.clock.t += 60e3
+  await s.drink(a.token, '2026-11-02', { place: 'Chez Max' })
+  assert.deepEqual((await s.call('GET', '/drinks/places', { token: a.token })).body.map((p) => p.place), ['Chez Max', 'Le Bar du Coin'])
+  assert.equal((await s.call('PATCH', `/drinks/${r.body.id}`, { token: a.token, body: { place: '' } })).body.place, null)
+  assert.equal((await s.drink(a.token, '2026-11-02', { place: 'x'.repeat(61) })).status, 400)
+  // Lieux partagés (même lieu sans la casse = même lieu), prêts pour une carte (lat/lng vides)
+  const b = await s.register('Bob')
+  await s.drink(b.token, '2026-11-02', { place: 'chez max' })
+  const all = (await s.call('GET', '/places', { token: a.token })).body
+  assert.deepEqual(all.map((p) => [p.name, p.logs, p.drinkers, p.lat, p.private]), [['Chez Max', 2, 2, null, false], ['Le Bar du Coin', 0, 0, null, false]])
+  assert.deepEqual((await s.call('GET', '/places?mine=1', { token: a.token })).body.map((p) => p.name), ['Chez Max'])
+})
+
+test('migration : ancien lieu en texte sur les consos → table places', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'alcool-'))
+  const file = path.join(dir, 'a.db')
+  const first = createApp({ dbPath: file })
+  first.db.exec("INSERT INTO users (name, pin_hash) VALUES ('A', 'x:y')")
+  first.db.exec('ALTER TABLE drinks ADD COLUMN place TEXT')
+  first.db.exec("INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, place) VALUES (1, '2026-11-01', 1, 'B', 'biere', 50, 5, 'Le Rade'), (1, '2026-11-01', 2, 'B', 'biere', 50, 5, 'le rade')")
+  first.close()
+  const again = createApp({ dbPath: file })
+  const rows = again.db.prepare('SELECT d.place_id, pl.name FROM drinks d JOIN places pl ON pl.id = d.place_id').all()
+  assert.deepEqual(rows.map((r) => r.name), ['Le Rade', 'Le Rade'])
+  assert.ok(!again.db.prepare('PRAGMA table_info(drinks)').all().some((c) => c.name === 'place'))
+  again.close()
+  rmSync(dir, { recursive: true })
+})
+
+test('lieu privé : visible par moi et les bandes autorisées seulement (nom masqué ailleurs, même sur les consos)', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob') // même bande qu'Alice
+  const c = await s.register('Chloé', '1234', { group: false })
+  const r = await s.drink(a.token, '2026-11-02', { place: 'Chez moi', place_private: true })
+  assert.equal(r.body.place, 'Chez moi')
+  const seen = async (t) => (await s.call('GET', '/places', { token: t })).body.map((p) => p.name)
+  assert.deepEqual(await seen(b.token), ['Chez moi']) // partagé avec la bande courante d'Alice
+  assert.deepEqual(await seen(c.token), [])
+  assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: c.token })).body.items[0].place, null)
+  assert.equal((await s.call('GET', `/users/${a.id}/diary`, { token: b.token })).body.items[0].place, 'Chez moi')
+  // Le « Chez moi » de Chloé est un autre lieu
+  await s.drink(c.token, '2026-11-02', { place: 'Chez moi', place_private: true })
+  assert.deepEqual(await seen(c.token), ['Chez moi'])
+  const mine = (await s.call('GET', '/places', { token: a.token })).body.find((p) => p.mine)
+  assert.equal(mine.groups.length, 1)
+  // Retirer la bande : Bob ne le voit plus ; Bob ne peut pas changer la visibilité
+  assert.equal((await s.call('PATCH', `/places/${mine.id}`, { token: b.token, body: { private: false } })).status, 403)
+  await s.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: true, groups: [] } })
+  assert.deepEqual(await seen(b.token), [])
+  // Rendu public : tout le monde le voit
+  await s.call('PATCH', `/places/${mine.id}`, { token: a.token, body: { private: false } })
+  assert.deepEqual(await seen(c.token), ['Chez moi', 'Chez moi'])
+})

@@ -59,6 +59,7 @@ const zoom = ref(false)
         <Stars v-if="log.rating" :value="log.rating" :size="13" />
         <span v-if="log.units" :style="{ color: catOf(log.cat).hex }">+{{ num(log.units) }}</span>
         <span class="text-faint first-letter:uppercase">{{ prettyDay(log.day) }}</span>
+        <span v-if="log.place" class="text-faint"><Icon name="fa-location-dot" /> {{ log.place }}</span>
       </div>
 
       <p v-if="log.review" class="mt-2 whitespace-pre-line text-[0.95rem] text-ink/90" :class="long && !open && 'line-clamp-4'">{{ log.review }}</p>
