@@ -66,10 +66,11 @@ async function submit() {
           class="field mt-1.5 w-full px-4 py-3 font-mono text-lg tracking-[.4em]"
         />
       </label>
-      <label v-if="mode === 'register'" class="block">
-        <span class="kicker">Code de ta bande <span class="font-normal">(facultatif)</span></span>
-        <input v-model="groupCode" maxlength="6" placeholder="ABC123" autocapitalize="characters" class="field mt-1.5 w-full px-4 py-3 text-lg font-bold tracking-[.3em] uppercase" />
-      </label>
+      <!-- Pas de champ « code de bande » à l'inscription (ça perdait les gens) : on rejoint une bande plus tard,
+           ou directement si on arrive par un lien d'invitation -->
+      <p v-if="mode === 'register' && groupCode" class="rounded-xl bg-raised px-4 py-2.5 text-sm text-muted">
+        Tu as un lien d'invitation : tu rejoindras la bande dès ton compte créé.
+      </p>
       <label v-if="mode === 'register' && inviteRequired" class="block">
         <span class="kicker">Code d'invitation</span>
         <input v-model="invite" class="field mt-1.5 w-full px-4 py-3 text-lg" />

@@ -826,12 +826,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Mes boissons habituelles (pour les ajouter en un tap) : les plus bues, puis les plus récentes
-  // Mes lieux, les plus récents d'abord (suggestions quand on ajoute un verre)
+  // Suggestions de lieux quand on ajoute un verre : tous les lieux que je peux voir, mes lieux les plus récents
+  // d'abord, puis ceux fréquentés par mes bandes et les gens que je suis, puis les plus fréquentés tout court.
+  // `mine` dit si j'y ai déjà bu (le client montre ceux-là quand le champ est vide, et filtre tout le reste en tapant).
   app.get('/api/drinks/places', auth, (req, res) => {
-    res.json(db.prepare(`
-      SELECT pl.id, pl.name AS place, pl.private, COUNT(*) AS count FROM drinks d JOIN places pl ON pl.id = d.place_id
-      WHERE d.user_id = ? AND place_visible(pl.id) GROUP BY pl.id ORDER BY MAX(d.at) DESC LIMIT 12
-    `).all(req.user.id))
+    const rows = db.prepare(`
+      SELECT pl.id, pl.name AS place, pl.private, COUNT(d.id) AS count,
+        MAX(CASE WHEN d.user_id = ? THEN d.at END) AS my_last,
+        SUM(d.user_id IN (
+          SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?
+          UNION SELECT followee_id FROM follows WHERE follower_id = ?
+        )) AS circle
+      FROM places pl LEFT JOIN drinks d ON d.place_id = pl.id
+      WHERE place_visible(pl.id)
+      GROUP BY pl.id
+      ORDER BY my_last IS NULL, my_last DESC, circle DESC, count DESC, pl.name
+      LIMIT 300
+    `).all(req.user.id, req.user.id, req.user.id)
+    res.json(rows.map(({ my_last, circle, ...r }) => ({ ...r, mine: my_last != null })))
   })
 
   // Tous les lieux, avec leurs coordonnées (vides pour l'instant) et leur fréquentation :

@@ -28,7 +28,7 @@ const rating = ref(edit?.rating ?? null)
 const review = ref(edit?.review ?? '')
 const place = ref(edit?.place ?? '') // où on l'a bue (facultatif)
 const placePrivate = ref(false) // lieu privé : visible seulement par moi et ma bande (réglable dans La carte › Lieux)
-const places = ref([]) // mes lieux récents, en suggestion
+const places = ref([]) // lieux que je peux voir, déjà triés (les miens récents d'abord), en suggestion
 api('/drinks/places').then((r) => (places.value = r)).catch(() => {})
 const photo = ref(null) // data URL choisie (nouvelle photo)
 const photoRemoved = ref(false)
@@ -68,6 +68,25 @@ const results = computed(() => {
   return [...fromCarte.map((p) => ({ ...p, product_id: p.id, product_photo_key: p.photo_key })), ...fromHistory].slice(0, 20)
 })
 const exact = computed(() => results.value.some((r) => norm(r.name) === norm(query.value.trim())))
+
+// Lieux proposés sous « Où ? » : champ vide → mes lieux récents (ou, si je n'en ai pas, les plus fréquentés autour
+// de moi) ; en tapant → tous les lieux visibles qui contiennent le texte, pour réutiliser ceux des autres
+// au lieu de créer un doublon. Un lieu déjà choisi reste affiché pour pouvoir le désélectionner.
+const placeChips = computed(() => {
+  const q = norm(place.value.trim())
+  const picked = places.value.find((p) => norm(p.place) === q)
+  if (picked) return [picked]
+  if (!q) {
+    const mine = places.value.filter((p) => p.mine)
+    return (mine.length ? mine : places.value).slice(0, 8)
+  }
+  return places.value.filter((p) => norm(p.place).includes(q)).slice(0, 8)
+})
+function pickPlace(p) {
+  if (place.value === p.place) return (place.value = '')
+  place.value = p.place
+  placePrivate.value = !!p.private
+}
 
 function choose(d) {
   sel.value = { name: d.name, cat: d.cat, cl: d.cl, abv: d.abv, product_id: d.product_id ?? null, product_photo_key: d.product_photo_key ?? null, mode: 'product' }
@@ -376,14 +395,14 @@ async function remove() {
               <Icon name="fa-location-dot" class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
               <input v-model="place" maxlength="60" placeholder="Le bar du coin, chez Max… (facultatif)" class="field w-full py-2.5 pr-3.5 pl-10 text-base" />
             </label>
-            <div v-if="places.length" class="mt-2 flex flex-wrap gap-1.5">
+            <div v-if="placeChips.length" class="mt-2 flex flex-wrap gap-1.5">
               <button
-                v-for="p in places"
-                :key="p.place"
+                v-for="p in placeChips"
+                :key="p.id"
                 type="button"
                 class="rounded-full px-3 py-1 text-sm font-medium"
                 :class="place === p.place ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink'"
-                @click="place === p.place ? (place = '') : ((place = p.place), (placePrivate = !!p.private))"
+                @click="pickPlace(p)"
               >
                 <Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
               </button>

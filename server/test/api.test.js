@@ -833,6 +833,14 @@ test('lieu d’une conso : à l’ajout, modifiable, suggestions de mes lieux', 
   const all = (await s.call('GET', '/places', { token: a.token })).body
   assert.deepEqual(all.map((p) => [p.name, p.logs, p.drinkers, p.lat, p.private]), [['Chez Max', 2, 2, null, false], ['Le Bar du Coin', 0, 0, null, false]])
   assert.deepEqual((await s.call('GET', '/places?mine=1', { token: a.token })).body.map((p) => p.name), ['Chez Max'])
+  // Suggestions : aussi les lieux des autres (après les miens, ceux de ma bande avant les autres),
+  // mais un lieu privé seulement si je fais partie de ses bandes
+  await s.drink(b.token, '2026-11-02', { place: 'Le Zinc' })
+  await s.drink(b.token, '2026-11-02', { place: 'Chez Bob', place_private: true })
+  const sugg = async (t) => (await s.call('GET', '/drinks/places', { token: t })).body.map((p) => [p.place, p.mine])
+  assert.deepEqual(await sugg(a.token), [['Chez Max', true], ['Chez Bob', false], ['Le Zinc', false], ['Le Bar du Coin', false]])
+  const c = await s.register('Chloé', '1234', { group: false })
+  assert.deepEqual(await sugg(c.token), [['Chez Max', false], ['Le Zinc', false], ['Le Bar du Coin', false]])
 })
 
 test('migration : ancien lieu en texte sur les consos → table places', () => {
