@@ -1255,7 +1255,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Note moyenne et nombre de consos : sur tout le monde (la carte est commune)
   // Bière de la carte : volume « habituel » = celui de mon dernier verre de cette bière (sinon celui de la fiche).
   // C'est ce qui est bu en un tap et présélectionné ; default_cl reste le format de la fiche (pour la modifier).
-  const PRODUCT_COLS = `p.id, p.name, p.cat, COALESCE(CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END, p.cl) AS cl, p.cl AS default_cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
+  const PRODUCT_COLS = `p.id, p.name, p.cat, COALESCE(CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END, p.cl) AS cl, p.cl AS default_cl,
+    CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END AS my_cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
     p.maker, p.origin, p.style, p.description,
     (SELECT COUNT(*) FROM product_favs WHERE product_id = p.id) AS favs,
     EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav,

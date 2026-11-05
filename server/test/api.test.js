@@ -274,6 +274,8 @@ describe('la carte', () => {
     const of = async (t) => (await s.call('GET', '/products', { token: t })).body.find((x) => x.id === p.id)
     assert.deepEqual([(await of(a.token)).cl, (await of(a.token)).default_cl], [25, 33])
     assert.deepEqual([(await of(b.token)).cl, (await of(b.token)).default_cl], [33, 33])
+    assert.equal((await of(a.token)).my_cl, 25)
+    assert.equal((await of(b.token)).my_cl, null)
   })
 
   test('produit invalide refusé', async () => {

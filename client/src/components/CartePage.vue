@@ -1,7 +1,7 @@
 <script setup>
 // La carte : produits partagés que tout le monde peut compléter. ★ = favori (en haut du ＋).
 import { ref, computed, watch, onMounted } from 'vue'
-import { api, CATS, MAX_CL, catOf, num, fmtDrink, fmtProduct, unitsOf, today, photoUrl } from '../api'
+import { api, CATS, MAX_CL, FORMATS, catOf, num, fmtDrink, fmtProduct, unitsOf, today, photoUrl } from '../api'
 import DrinkFields from './DrinkFields.vue'
 import Pager from './Pager.vue'
 import Stars from './Stars.vue'
@@ -110,15 +110,28 @@ async function undo(row) {
   toast(`${row.name} annulé`)
 }
 
+// « + » : un verre tout de suite. Une bière : d'abord le format (demi, bouteille, pinte…), dans une petite modale.
+const sizePick = ref(null) // { p, x, y, sizes }
 async function drinkNow(p, e) {
   error.value = ''
   const [x, y] = centerOf(e)
+  if (p.cat !== 'biere') return logNow(p, p.cl, x, y)
+  const sizes = new Map(FORMATS.filter((f) => f.cat === 'biere').map((f) => [f.cl, f.name]))
+  if (!sizes.has(p.cl)) sizes.set(p.cl, null)
+  sizePick.value = {
+    p, x, y,
+    sizes: [...sizes].sort((a, b) => a[0] - b[0]).map(([cl, label]) => ({ cl, label, units: unitsOf({ cl, abv: p.abv }), usual: cl === p.cl, mine: cl === p.my_cl })),
+  }
+}
+async function logNow(p, cl, x, y) {
+  sizePick.value = null
+  const units = Math.round(unitsOf({ cl, abv: p.abv }) * 10) / 10
   try {
-    const row = await api('/drinks', { method: 'POST', body: { day: today(), name: p.name, cat: p.cat, cl: p.cl, abv: p.abv } })
+    const row = await api('/drinks', { method: 'POST', body: { day: today(), name: p.name, cat: p.cat, cl, abv: p.abv } })
     emit('saved')
-    burst(x, y, { text: p.units ? `+${num(p.units)}` : '', icon: p.units ? '' : catOf(p.cat).fa, color: catOf(p.cat).hex })
+    burst(x, y, { text: units ? `+${num(units)}` : '', icon: units ? '' : catOf(p.cat).fa, color: catOf(p.cat).hex })
     vibrate(30)
-    toast(`${p.name}${p.units ? ` +${num(p.units)}` : ''}`, { icon: catOf(p.cat).fa, action: { label: 'Annuler', run: () => undo(row) } })
+    toast(`${p.name}${p.cat === 'biere' ? ` ${num(cl)} cl` : ''}${units ? ` +${num(units)}` : ''}`, { icon: catOf(p.cat).fa, action: { label: 'Annuler', run: () => undo(row) } })
     celebrateBadges(row.badges)
   } catch (e) {
     error.value = e.message
@@ -320,7 +333,8 @@ async function create() {
             <Icon name="close" />
           </button>
           <button class="btn btn-hi shrink-0 px-3 py-2 font-bold" :aria-label="`Je bois un ${p.name}`" @click="drinkNow(p, $event)">
-            {{ p.units ? `+${num(p.units)}` : '+1' }}
+            <template v-if="p.cat === 'biere'"><Icon name="plus" /></template>
+            <template v-else>{{ p.units ? `+${num(p.units)}` : '+1' }}</template>
           </button>
           </div>
         </li>
@@ -329,5 +343,28 @@ async function create() {
       <Pager v-model="page" :pages="pages" label="Pages de la carte" @change="toTop" />
     </div>
     </template>
+
+    <!-- Format d'une bière, avant de l'ajouter -->
+    <Transition name="sheet">
+      <div v-if="sizePick" class="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center" @click.self="sizePick = null">
+        <div class="sheet-panel box w-full max-w-sm p-6" role="dialog" aria-modal="true" :aria-label="`Format de ${sizePick.p.name}`">
+          <h2 class="text-center text-xl font-bold">{{ sizePick.p.name }}</h2>
+          <p class="mt-1 text-center text-sm text-muted">Quel format ?</p>
+          <div class="mt-5 grid gap-2">
+            <button
+              v-for="z in sizePick.sizes"
+              :key="z.cl"
+              class="btn flex items-center justify-between px-4 py-3 font-bold"
+              :class="z.usual ? 'btn-hi' : 'bg-white/5 hover:bg-white/10'"
+              @click="logNow(sizePick.p, z.cl, sizePick.x, sizePick.y)"
+            >
+              <span>{{ z.label ?? 'Format de la fiche' }} · {{ num(z.cl) }} cl<span v-if="z.mine" class="ml-1.5 text-xs font-semibold opacity-80">habituel</span></span>
+              <span class="tabular-nums">+{{ num(Math.round(z.units * 10) / 10) }}</span>
+            </button>
+          </div>
+          <button class="btn mt-3 w-full bg-white/5 py-2.5 font-bold hover:bg-white/10" @click="sizePick = null">Annuler</button>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
