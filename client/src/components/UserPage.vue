@@ -19,6 +19,7 @@ const error = ref('')
 // Onglet courant, gardé dans l'URL (?onglet=…)
 const tab = computed({ get: () => ui.tab || 'profil', set: setTab })
 const isMe = computed(() => props.userId === props.me.id)
+const zoom = ref(false) // photo de profil en grand
 
 let seq = 0
 async function load() {
@@ -156,7 +157,10 @@ const dayNum = (day) => Number(day.slice(8))
     <template v-else>
       <!-- En-tête -->
       <header class="flex flex-col items-center text-center">
-        <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
+        <button v-if="data.user.avatar_v" class="rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
+          <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
+        </button>
+        <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" />
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
         <p class="text-sm text-muted">
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
@@ -401,5 +405,10 @@ const dayNum = (day) => Number(day.slice(8))
       <button class="btn bg-alert px-4 py-2 text-sm font-semibold text-white" @click="setTop(picking, null)">Vider la place n°{{ picking + 1 }}</button>
     </div>
     <FollowList v-if="followList" :user-id="userId" :kind="followList" :me="me" :colors="colors" @close="followList = null" />
+    <Teleport to="body">
+      <div v-if="zoom && data?.user.avatar_v" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = false">
+        <img :src="`/api/avatar/${data.user.id}?v=${data.user.avatar_v}`" :alt="data.user.name" class="aspect-square w-72 max-w-full rounded-full object-cover ring-2 ring-white/10" />
+      </div>
+    </Teleport>
   </div>
 </template>
