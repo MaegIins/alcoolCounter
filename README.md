@@ -84,6 +84,13 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   onglet **Boissons** (toutes les boissons différentes bues, avec recherche, filtres par catégorie ou « avec avis »,
   et tris : les plus bues, mieux / moins bien notées, récentes, oubliées, le plus d'alcool, A→Z ; en touchant une
   boisson : combien de fois, première et dernière fois, note moyenne, et toutes les consos avec avis et photos),
+  onglet **Stats** (`GET /api/users/:id/insights`, bascule verres standard / consos) : records (meilleure journée,
+  plus longue série et série en cours, plus longue pause sans alcool, moyennes, journées gagnées), ce mois-ci contre
+  les mêmes jours du mois dernier, calendrier de l'année, 12 derniers mois, face à la bande (moyenne et rang par
+  catégorie, si la personne est dans ma bande), par catégorie, jour de la semaine, heure, heure moyenne du premier
+  et du dernier verre, compagnons de verre (même jour, même lieu visible), le critique (notes, écart avec les autres
+  sur les mêmes fiches), découvertes (boissons différentes, premières fois par mois), lieux (chez soi / dehors),
+  équivalences (litres, alcool pur, kcal) et eau / clopes,
   onglet **Journal** (toutes les consos datées, par mois) et onglet **Badges**. Réglages (bandes, photo,
   pseudo, PIN) via ⚙.
 - **La carte** (une seule, commune à toutes les bandes) : liste avec recherche, filtres, ★ favori, « +1 » pour

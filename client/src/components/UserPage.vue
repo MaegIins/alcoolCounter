@@ -11,6 +11,7 @@ import Icon from './Icon.vue'
 import ProductPicker from './ProductPicker.vue'
 import FollowList from './FollowList.vue'
 import UserDrinks from './UserDrinks.vue'
+import UserStats from './UserStats.vue'
 
 const props = defineProps({ userId: Number, me: Object, colors: Object })
 
@@ -194,8 +195,8 @@ const dayNum = (day) => Number(day.slice(8))
       </header>
 
       <!-- Onglets -->
-      <nav class="mt-6 flex justify-center gap-6 border-b border-line" role="tablist">
-        <button v-for="t in [{ k: 'profil', l: 'Profil' }, { k: 'boissons', l: 'Boissons' }, { k: 'journal', l: 'Journal' }, { k: 'badges', l: 'Badges' }]" :key="t.k" class="tab" role="tab" :aria-selected="tab === t.k" @click="tab = t.k">
+      <nav class="-mx-4 mt-6 flex justify-center gap-4 overflow-x-auto border-b border-line px-4 sm:gap-6" role="tablist">
+        <button v-for="t in [{ k: 'profil', l: 'Profil' }, { k: 'boissons', l: 'Boissons' }, { k: 'stats', l: 'Stats' }, { k: 'journal', l: 'Journal' }, { k: 'badges', l: 'Badges' }]" :key="t.k" class="tab" role="tab" :aria-selected="tab === t.k" @click="tab = t.k">
           {{ t.l }}
         </button>
       </nav>
@@ -374,6 +375,7 @@ const dayNum = (day) => Number(day.slice(8))
 
       <!-- Toutes ses boissons -->
       <UserDrinks v-else-if="tab === 'boissons'" :user-id="userId" :is-me="isMe" />
+      <UserStats v-else-if="tab === 'stats'" :user-id="userId" :profile="data" :me="me" :colors="colors" />
 
       <!-- Badges -->
       <div v-else class="pt-6">

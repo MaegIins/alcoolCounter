@@ -2,7 +2,7 @@
 // (history.pushState), on peut recharger, partager un lien, et le bouton retour du navigateur marche.
 //   /                 Ma soirée          /activite          Activité de la bande
 //   /carte            La carte           /reglages          Réglages
-//   /profil/12        Profil (?onglet=boissons|journal|badges)
+//   /profil/12        Profil (?onglet=boissons|stats|journal|badges)
 //   /boisson/34       Page d'une boisson
 //   /lieu/5           Page d'un lieu
 import { reactive } from 'vue'

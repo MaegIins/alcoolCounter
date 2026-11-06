@@ -1349,6 +1349,201 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Fiche d'un joueur : stats depuis le début, boissons préférées, dernières soirées, détail d'une soirée.
   // Visible par tout le monde (on trouve les gens avec la recherche) ; victoires comptées dans ma bande courante.
+  // Onglet « Stats » d'un profil (public comme le reste du profil). Tout est calculé ici, sur les consos de la personne :
+  // par mois, catégorie, jour de la semaine, heure ; calendrier de l'année ; séries et pauses ; ce mois contre le
+  // précédent ; volumes et équivalences ; notes (face aux autres) ; découvertes ; lieux ; rythme ; eau et clopes ;
+  // compagnons de verre (même journée, même lieu visible) ; et face à ma bande si la personne en fait partie.
+  app.get('/api/users/:id(\\d+)/insights', auth, groupOrSolo, (req, res) => {
+    const id = Number(req.params.id)
+    if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) return bad(res, 'Joueur introuvable', 404)
+    const rows = db.prepare('SELECT day, at, name, cat, cl, abv, product_id, rating, place_id FROM drinks WHERE user_id = ? ORDER BY at').all(id)
+    const hm = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    const minOf = (at) => { const [h, m] = hm.format(at).split(':').map(Number); return (h % 24) * 60 + m }
+    // Aujourd'hui (la journée court jusqu'à 6h)
+    const todayDay = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now() - 6 * 3600e3)
+    const DAY = 864e5
+    const shift = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10)
+    const r1 = (n) => round1(n)
+    const box = () => ({ units: 0, count: 0 })
+
+    const [ty, tm] = todayDay.split('-').map(Number)
+    const months = Array.from({ length: 12 }, (_, i) => ({ month: new Date(Date.UTC(ty, tm - 12 + i, 1)).toISOString().slice(0, 7), ...box() }))
+    const monthIdx = new Map(months.map((m, i) => [m.month, i]))
+    const cats = Object.fromEntries(CATS.map((c) => [c, box()]))
+    const weekdays = Array.from({ length: 7 }, box) // lundi = 0
+    const hours = Array.from({ length: 24 }, box)
+    const byDay = new Map() // jour → { units, count, alco, first, last } (minutes depuis 6h)
+    const yearAgo = shift(todayDay, -364)
+    const kinds = new Map() // boisson (fiche ou nom) → premier jour
+    let cl = 0, pure = 0
+    for (const r of rows) {
+      const u = unitsOf(r)
+      const add = (o) => { o.units += u; o.count++ }
+      const mi = monthIdx.get(r.day.slice(0, 7))
+      if (mi !== undefined) add(months[mi])
+      if (cats[r.cat]) add(cats[r.cat])
+      add(weekdays[(new Date(`${r.day}T12:00:00Z`).getUTCDay() + 6) % 7])
+      const min = minOf(r.at)
+      add(hours[Math.floor(min / 60)])
+      const d = byDay.get(r.day) ?? { units: 0, count: 0, alco: 0, first: null, last: null }
+      add(d)
+      if (r.abv > 0) {
+        d.alco++
+        const m6 = (min - 360 + 1440) % 1440 // minutes depuis 6h : 1h du matin vient après 23h
+        d.first = d.first == null ? m6 : Math.min(d.first, m6)
+        d.last = d.last == null ? m6 : Math.max(d.last, m6)
+      }
+      byDay.set(r.day, d)
+      cl += r.cl
+      pure += (r.cl * r.abv) / 100
+      const k = r.product_id ? `p${r.product_id}` : `n${r.name.toLowerCase()}`
+      if (!kinds.has(k)) kinds.set(k, r.day)
+    }
+
+    // Calendrier : les 365 derniers jours bus
+    const calendar = [...byDay].filter(([d]) => d >= yearAgo).map(([day, d]) => ({ day, units: r1(d.units), count: d.count }))
+
+    // Séries (jours d'alcool consécutifs) et pauses (jours sans, entre le premier verre et aujourd'hui)
+    const alcoDays = [...byDay].filter(([, d]) => d.alco).map(([day]) => day).sort()
+    let streak = 0, run = 0
+    let pause = { days: 0, from: null, current: false }
+    alcoDays.forEach((d, i) => {
+      run = i && shift(alcoDays[i - 1], 1) === d ? run + 1 : 1
+      streak = Math.max(streak, run)
+      if (i) {
+        const gap = (Date.parse(d) - Date.parse(alcoDays[i - 1])) / DAY - 1
+        if (gap > pause.days) pause = { days: gap, from: shift(alcoDays[i - 1], 1), current: false }
+      }
+    })
+    if (alcoDays.length) {
+      const gap = (Date.parse(todayDay) - Date.parse(alcoDays.at(-1))) / DAY
+      if (gap > pause.days) pause = { days: gap, from: shift(alcoDays.at(-1), 1), current: true }
+    }
+    const curRun = alcoDays.at(-1) === todayDay || alcoDays.at(-1) === shift(todayDay, -1) ? run : 0
+
+    // Ce mois-ci (jusqu'à aujourd'hui) contre le même nombre de jours le mois dernier
+    const dom = Number(todayDay.slice(8))
+    const prevMonth = new Date(Date.UTC(ty, tm - 2, 1)).toISOString().slice(0, 7)
+    const period = (prefix) => {
+      const o = { units: 0, count: 0, days: 0 }
+      for (const [day, d] of byDay) {
+        if (day.startsWith(prefix) && Number(day.slice(8)) <= dom) { o.units += d.units; o.count += d.count; if (d.alco) o.days++ }
+      }
+      return { ...o, units: r1(o.units) }
+    }
+    const trend = { now: period(todayDay.slice(0, 7)), before: period(prevMonth), dom }
+
+    // Notes : moyenne, répartition, et écart avec la note moyenne des autres sur les mêmes fiches
+    const ratings = rows.filter((r) => r.rating != null)
+    const hist = Array(10).fill(0)
+    for (const r of ratings) hist[r.rating - 1]++
+    const vs = db.prepare(`
+      SELECT AVG(me.rating - o.avg) AS diff, COUNT(*) AS n FROM drinks me
+      JOIN (SELECT product_id, AVG(rating) AS avg FROM drinks WHERE user_id != ? AND rating IS NOT NULL AND product_id IS NOT NULL GROUP BY product_id) o
+        ON o.product_id = me.product_id
+      WHERE me.user_id = ? AND me.rating IS NOT NULL
+    `).get(id, id)
+    const critic = {
+      count: ratings.length,
+      avg: ratings.length ? r1(ratings.reduce((s, r) => s + r.rating, 0) / ratings.length) : null,
+      hist,
+      diff: vs.n ? r1(vs.diff) : null, // sur 10 (une demi-étoile = 1)
+      compared: vs.n,
+    }
+
+    const alcoTotal = rows.filter((r) => r.abv > 0).length
+    // Découvertes : boissons différentes, premières fois par mois, « déjà bues » sans conso
+    const newByMonth = months.map((m) => ({ month: m.month, count: 0 }))
+    for (const day of kinds.values()) { const i = monthIdx.get(day.slice(0, 7)); if (i !== undefined) newByMonth[i].count++ }
+    const triedOnly = db.prepare(`SELECT COUNT(*) AS n FROM product_tried t WHERE t.user_id = ?
+      AND NOT EXISTS (SELECT 1 FROM drinks WHERE user_id = t.user_id AND product_id = t.product_id)`).get(id).n
+    // Fidèle ou explorateur : la part de la boisson la plus bue (hors café, énergisants et softs)
+    const favCount = new Map()
+    for (const r of rows) if (r.abv > 0) favCount.set(r.name, (favCount.get(r.name) ?? 0) + 1)
+    const [favName, favN] = [...favCount].sort((a, b) => b[1] - a[1])[0] ?? [null, 0]
+    const explore = { distinct: kinds.size, triedOnly, newByMonth, fav: favName, favShare: alcoTotal ? Math.round((favN / alcoTotal) * 100) : 0 }
+
+    // Lieux : différents (visibles par moi), chez soi / ailleurs / sans lieu (des pourcentages : aucun lieu révélé)
+    const home = db.prepare('SELECT id FROM places WHERE home_of = ?').get(id)?.id
+    const withPlace = rows.filter((r) => r.place_id != null)
+    const isVisible = db.prepare('SELECT place_visible(?) AS v')
+    const visiblePlaces = new Set([...new Set(withPlace.map((r) => r.place_id))].filter((pid) => isVisible.get(pid).v))
+    const places = {
+      distinct: visiblePlaces.size,
+      home: withPlace.filter((r) => r.place_id === home).length,
+      out: withPlace.filter((r) => r.place_id !== home).length,
+      none: rows.length - withPlace.length,
+    }
+
+    // Rythme : heure moyenne du premier et du dernier verre d'alcool d'une journée
+    const alcoRows = [...byDay.values()].filter((d) => d.alco)
+    const avgMin = (k) => (alcoRows.length ? Math.round(alcoRows.reduce((s, d) => s + d[k], 0) / alcoRows.length + 360) % 1440 : null)
+    const rhythm = { first: avgMin('first'), last: avgMin('last'), perDay: alcoRows.length ? r1(alcoRows.reduce((s, d) => s + d.alco, 0) / alcoRows.length) : 0 }
+
+    // Eau et clopes
+    const ex = db.prepare(`SELECT SUM(kind = 'eau') AS eau, SUM(kind = 'clope') AS clope, COUNT(DISTINCT CASE WHEN kind = 'clope' THEN day END) AS clopeDays
+      FROM extras WHERE user_id = ?`).get(id)
+    const alcoCount = rows.filter((r) => r.abv > 0).length
+    const extras = {
+      eau: ex.eau ?? 0, clope: ex.clope ?? 0,
+      eauPerDrink: alcoCount ? Math.round(((ex.eau ?? 0) / alcoCount) * 100) / 100 : 0,
+      clopePerDay: ex.clopeDays ? r1(ex.clope / ex.clopeDays) : 0,
+    }
+
+    // Compagnons de verre : journées où quelqu'un a bu au même lieu (que je peux voir) le même jour
+    const buddies = db.prepare(`
+      SELECT u.id, u.name, u.avatar_v, COUNT(DISTINCT a.day) AS days FROM drinks a
+      JOIN drinks b ON b.day = a.day AND b.place_id = a.place_id AND b.user_id != a.user_id
+      JOIN users u ON u.id = b.user_id
+      WHERE a.user_id = ? AND a.place_id IS NOT NULL AND place_visible(a.place_id)
+      GROUP BY u.id ORDER BY days DESC, u.name LIMIT 3
+    `).all(id)
+
+    // Face à ma bande (si la personne en fait partie) : moyenne par jour bu, et rang par catégorie
+    let band = null
+    if (req.group && req.memberIds.includes(id) && req.memberIds.length > 1) {
+      const ids = req.memberIds
+      const ph = ids.map(() => '?').join(',')
+      const per = db.prepare(`
+        SELECT user_id, SUM(${UNITS()}) AS units, COUNT(DISTINCT day) AS days FROM drinks
+        WHERE abv > 0 AND user_id IN (${ph}) GROUP BY user_id
+      `).all(...ids)
+      const avgs = per.filter((p) => p.days).map((p) => ({ id: p.user_id, avg: p.units / p.days, units: p.units }))
+      const mine = avgs.find((a) => a.id === id)
+      const catRows = db.prepare(`
+        SELECT user_id, cat, SUM(${UNITS()}) AS units, COUNT(*) AS count FROM drinks WHERE user_id IN (${ph}) GROUP BY user_id, cat
+      `).all(...ids)
+      const rankIn = (list, v) => 1 + list.filter((x) => x > v).length
+      band = {
+        name: req.group.name,
+        members: ids.length,
+        avg: mine ? r1(mine.avg) : 0,
+        bandAvg: avgs.length ? r1(avgs.reduce((s, a) => s + a.avg, 0) / avgs.length) : 0,
+        rank: mine ? rankIn(avgs.map((a) => a.units), mine.units) : null,
+        ranked: avgs.length,
+        cats: CATS.map((c) => {
+          const key = ALCO.includes(c) ? 'units' : 'count'
+          const vals = catRows.filter((r) => r.cat === c)
+          const me = vals.find((r) => r.user_id === id)?.[key] ?? 0
+          return { cat: c, rank: me ? rankIn(vals.map((r) => r[key]), me) : null, of: vals.length }
+        }).filter((c) => c.rank),
+      }
+    }
+
+    res.json({
+      total: rows.length,
+      months: months.map((m) => ({ ...m, units: r1(m.units) })),
+      cats: CATS.map((c) => ({ cat: c, units: r1(cats[c].units), count: cats[c].count })).filter((c) => c.count),
+      weekdays: weekdays.map((w) => ({ ...w, units: r1(w.units) })),
+      hours: hours.map((h) => ({ ...h, units: r1(h.units) })),
+      calendar, today: todayDay,
+      streak, curStreak: curRun, pause,
+      trend,
+      volume: { litres: r1(cl / 100), pure: Math.round((pure / 100) * 100) / 100, kcal: Math.round(rows.reduce((s, r) => s + unitsOf(r), 0) * 70) },
+      critic, explore, places, rhythm, extras, buddies, band,
+    })
+  })
+
   app.get('/api/users/:id/stats', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
     const user = db.prepare('SELECT id, name, avatar_v, created_at FROM users WHERE id = ?').get(id)

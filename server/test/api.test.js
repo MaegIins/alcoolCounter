@@ -242,6 +242,63 @@ describe('fiche joueur', () => {
   })
 })
 
+describe('onglet stats d’un profil', () => {
+  test('par mois, catégorie, jour de la semaine, heure, plus longue série', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob', '123456', { group: false }) // hors bande : le profil reste public
+    await s.drink(a.token, '2026-11-01', {}, 2) // dimanche
+    await s.drink(a.token, '2026-11-02', SHOT) // lundi
+    await s.drink(a.token, '2026-11-03', { name: 'Café', cat: 'chaud', cl: 10, abv: 0 }) // sans alcool : pas dans la série
+    await s.drink(a.token, '2026-10-28', VIN) // mercredi
+    await s.drink(a.token, '2026-08-10', VIN)
+    const r = await s.call('GET', `/users/${a.id}/insights`, { token: b.token })
+    assert.equal(r.status, 200)
+    assert.equal(r.body.total, 6)
+    assert.equal(r.body.months.length, 12)
+    assert.deepEqual(r.body.months.at(-1), { month: '2026-11', units: 5.3, count: 4 })
+    assert.deepEqual(r.body.months.at(-2), { month: '2026-10', units: 1.2, count: 1 })
+    assert.deepEqual(r.body.months.at(-4), { month: '2026-08', units: 1.2, count: 1 })
+    assert.deepEqual(r.body.cats.map((c) => [c.cat, c.count]), [['biere', 2], ['vin', 2], ['fort', 1], ['chaud', 1]])
+    assert.equal(r.body.weekdays[6].count, 2) // dimanche
+    assert.equal(r.body.weekdays[0].count, 2) // lundi (dont le 10 août)
+    assert.equal(r.body.hours[12].count, 6) // horloge de test : midi à Paris
+    assert.equal(r.body.streak, 2) // 1er et 2 ; le café du 3 ne compte pas
+    assert.deepEqual(r.body.pause, { days: 78, from: '2026-08-11', current: false }) // du 10 août au 28 octobre
+    assert.equal(r.body.curStreak, 2) // dernier verre hier : la série continue
+    assert.deepEqual(r.body.trend.now, { units: 5.3, count: 4, days: 2 })
+    assert.deepEqual(r.body.trend.before, { units: 0, count: 0, days: 0 })
+    assert.equal(r.body.volume.litres, 1.4)
+    assert.equal(r.body.calendar.length, 5)
+    assert.equal(r.body.explore.distinct, 4)
+    assert.equal(r.body.explore.favShare, 40) // 2 consos sur 5 d'alcool (le café ne compte pas)
+    assert.deepEqual(r.body.rhythm, { first: 720, last: 720, perDay: 1.3 }) // midi
+    assert.equal(r.body.band, null) // Bob ne voit pas Alice dans sa bande
+    assert.equal((await s.call('GET', '/users/999/insights', { token: a.token })).status, 404)
+    assert.equal((await s.call('GET', `/users/${a.id}/insights`)).status, 401)
+  })
+})
+
+describe('stats d’un profil : bande, compagnons, notes', () => {
+  test('compagnon de verre au même lieu le même jour, rang dans la bande, critique', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const c = await s.register('Chloé')
+    await s.drink(a.token, '2026-11-01', { place: 'Le Bar', rating: 4 })
+    await s.drink(b.token, '2026-11-01', { place: 'Le Bar', rating: 8 }, 3)
+    await s.drink(a.token, '2026-11-02', { place: 'Le Bar' })
+    await s.drink(b.token, '2026-11-02', { place: 'Le Bar' })
+    await s.drink(c.token, '2026-11-02', SHOT)
+    const r = (await s.call('GET', `/users/${a.id}/insights`, { token: c.token })).body
+    assert.deepEqual(r.buddies.map((x) => [x.name, x.days]), [['Bob', 2]])
+    assert.equal(r.places.distinct, 1)
+    assert.equal(r.critic.avg, 4)
+    assert.equal(r.critic.hist[3], 1)
+    assert.equal(r.band.members, 3)
+    assert.equal(r.band.rank, 2) // Bob devant (4 pintes contre 2)
+    assert.deepEqual(r.band.cats.map((x) => [x.cat, x.rank, x.of]), [['biere', 2, 2]])
+  })
+})
+
 describe('la carte', () => {
   const CHOUFFE = { name: 'Chouffe', cat: 'biere', cl: 33, abv: 8 }
 
