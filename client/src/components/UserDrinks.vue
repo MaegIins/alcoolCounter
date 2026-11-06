@@ -3,7 +3,7 @@
 // Toucher une boisson : combien de fois, quand, la note moyenne, et toutes les consos avec leurs avis et photos.
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { api, CATS, catOf, num, fmtDrink, dayLabel, photoUrl } from '../api'
-import { ui, openLog, openProduct } from '../nav'
+import { ui, openLog, openProduct, openPlace } from '../nav'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
@@ -221,7 +221,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
                   >
                     <span class="w-24 shrink-0 text-sm text-muted first-letter:uppercase">
                       {{ dayLabel(l.day, true) }}
-                      <span v-if="l.place" class="block truncate text-xs text-faint normal-case"><Icon name="fa-location-dot" /> {{ l.place }}</span>
+                      <button v-if="l.place" class="block max-w-full truncate text-left text-xs text-faint normal-case hover:text-hi" @click.stop="close(); openPlace(l.place_id)"><Icon name="fa-location-dot" /> {{ l.place }}</button>
                     </span>
                     <span class="min-w-0 flex-1">
                       <Stars v-if="l.rating" :value="l.rating" :size="13" />

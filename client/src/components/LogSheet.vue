@@ -26,7 +26,7 @@ const sel = ref(
 const day = ref(edit?.day ?? props.preset.day ?? today())
 const rating = ref(edit?.rating ?? null)
 const review = ref(edit?.review ?? '')
-const place = ref(edit?.place ?? '') // où on l'a bue (facultatif)
+const place = ref(edit?.place ?? props.preset.place ?? '') // où on l'a bue (facultatif ; prérempli depuis la page d'un lieu)
 const placePrivate = ref(false) // lieu privé : visible seulement par moi et ma bande (réglable dans La carte › Lieux)
 const places = ref([]) // lieux que je peux voir, déjà triés (les miens récents d'abord), en suggestion
 api('/drinks/places').then((r) => (places.value = r)).catch(() => {})

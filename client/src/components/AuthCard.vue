@@ -55,14 +55,15 @@ async function submit() {
         <input v-model="name" autocomplete="username" class="field mt-1.5 w-full px-4 py-3 text-lg" />
       </label>
       <label class="block">
-        <span class="kicker">PIN</span>
+        <span class="kicker">PIN <span v-if="mode === 'register'" class="font-normal">(6 à 8 chiffres)</span></span>
         <input
           v-model="pin"
           v-digits
           type="password"
           inputmode="numeric"
           maxlength="8"
-          autocomplete="current-password"
+          :minlength="mode === 'register' ? 6 : undefined"
+          :autocomplete="mode === 'register' ? 'new-password' : 'current-password'"
           class="field mt-1.5 w-full px-4 py-3 font-mono text-lg tracking-[.4em]"
         />
       </label>
@@ -76,7 +77,7 @@ async function submit() {
         <input v-model="invite" class="field mt-1.5 w-full px-4 py-3 text-lg" />
       </label>
       <p v-if="error" class="rounded-xl bg-alert px-4 py-2.5 text-sm font-semibold text-white">{{ error }}</p>
-      <button :disabled="loading" class="btn btn-hi w-full py-3 text-lg font-bold disabled:opacity-50">
+      <button :disabled="loading || (mode === 'register' && pin.length < 6)" class="btn btn-hi w-full py-3 text-lg font-bold disabled:opacity-50">
         {{ mode === 'login' ? 'Se connecter' : 'Créer mon compte' }}
       </button>
     </form>

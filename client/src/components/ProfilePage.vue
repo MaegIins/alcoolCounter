@@ -132,7 +132,7 @@ async function deleteAccount() {
     </form>
 
     <form class="box" @submit.prevent="savePin">
-      <div class="px-5 pt-4 font-bold">Changer de PIN</div>
+      <div class="px-5 pt-4 font-bold">Changer de PIN <span class="text-sm font-normal text-muted">· le nouveau : 6 à 8 chiffres</span></div>
       <div class="space-y-3 p-5">
         <label v-for="f in [{ k: 'current', l: 'PIN actuel', ac: 'current-password' }, { k: 'next', l: 'Nouveau PIN', ac: 'new-password' }, { k: 'confirm', l: 'Confirme', ac: 'new-password' }]" :key="f.k" class="flex items-center gap-3">
           <span class="w-28 text-sm font-semibold text-muted">{{ f.l }}</span>
@@ -144,7 +144,7 @@ async function deleteAccount() {
           />
         </label>
         <button
-          :disabled="!pin.current || !pin.next"
+          :disabled="!pin.current || pin.next.length < 6"
           class="btn btn-hi w-full py-2 font-bold disabled:opacity-30"
         >
           Changer le PIN

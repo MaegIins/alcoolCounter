@@ -103,6 +103,7 @@ test('URL de chaque écran, aller-retour', async () => {
     [{ view: 'user', userId: 12 }, '/profil/12'],
     [{ view: 'user', userId: 12, tab: 'journal' }, '/profil/12?onglet=journal'],
     [{ view: 'product', productId: 34 }, '/boisson/34'],
+    [{ view: 'place', placeId: 5 }, '/lieu/5'],
   ]
   for (const [st, url] of cases) {
     assert.equal(urlOf(st), url)
@@ -111,6 +112,7 @@ test('URL de chaque écran, aller-retour', async () => {
     assert.equal(back.view, st.view)
     assert.equal(back.userId ?? null, st.userId ?? null)
     assert.equal(back.productId ?? null, st.productId ?? null)
+    assert.equal(back.placeId ?? null, st.placeId ?? null)
   }
   assert.equal(parseUrl('/n-importe-quoi').view, 'home')
   assert.equal(parseUrl('/carte/').view, 'carte')

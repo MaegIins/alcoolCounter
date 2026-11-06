@@ -3,7 +3,7 @@
 // Toucher l'affiche ouvre la fiche du produit ; le nom de la personne, son profil ; le crayon pour compléter les siennes.
 import { ref, computed } from 'vue'
 import { catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
-import { openUser, openProduct, openLog } from '../nav'
+import { openUser, openProduct, openLog, openPlace } from '../nav'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
@@ -59,7 +59,7 @@ const zoom = ref(false)
         <Stars v-if="log.rating" :value="log.rating" :size="13" />
         <span v-if="log.units" :style="{ color: catOf(log.cat).hex }">+{{ num(log.units) }}</span>
         <span class="text-faint first-letter:uppercase">{{ prettyDay(log.day) }}</span>
-        <span v-if="log.place" class="text-faint"><Icon name="fa-location-dot" /> {{ log.place }}</span>
+        <button v-if="log.place" class="text-faint hover:text-hi hover:underline" @click="openPlace(log.place_id)"><Icon name="fa-location-dot" /> {{ log.place }}</button>
       </div>
 
       <p v-if="log.review" class="mt-2 whitespace-pre-line text-[0.95rem] text-ink/90" :class="long && !open && 'line-clamp-4'">{{ log.review }}</p>

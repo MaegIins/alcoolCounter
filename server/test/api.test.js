@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createApp } from '../app.js'
+import { createApp, hashPin } from '../app.js'
 import { start, PINTE, SHOT, VIN } from './helpers.js'
 
 let s
@@ -24,36 +24,36 @@ describe('inscription / connexion', () => {
 
   test('pseudo déjà pris (insensible à la casse)', async () => {
     await s.register('Bob')
-    const r = await s.call('POST', '/register', { body: { name: 'bob', pin: '1234' } })
+    const r = await s.call('POST', '/register', { body: { name: 'bob', pin: '123456' } })
     assert.equal(r.status, 409)
   })
 
   test('pseudo avec caractères de contrôle refusé (inscription et changement)', async () => {
-    assert.equal((await s.call('POST', '/register', { body: { name: 'Bo\nb', pin: '1234' } })).status, 400)
+    assert.equal((await s.call('POST', '/register', { body: { name: 'Bo\nb', pin: '123456' } })).status, 400)
     const { token } = await s.register('Bob')
     assert.equal((await s.call('PATCH', '/me', { token, body: { name: 'Bo\u0000b' } })).status, 400)
   })
 
   test('validation pseudo et PIN', async () => {
-    assert.equal((await s.call('POST', '/register', { body: { name: 'B', pin: '1234' } })).status, 400)
+    assert.equal((await s.call('POST', '/register', { body: { name: 'B', pin: '123456' } })).status, 400)
     assert.equal((await s.call('POST', '/register', { body: { name: 'Bob', pin: '12' } })).status, 400)
     assert.equal((await s.call('POST', '/register', { body: { name: 'Bob', pin: 'abcd' } })).status, 400)
   })
 
   test('connexion OK, mauvais PIN, pseudo inconnu', async () => {
-    await s.register('Bob', '1234')
-    assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '1234' } })).status, 200)
-    const wrong = await s.call('POST', '/login', { body: { name: 'Bob', pin: '0000' } })
-    const unknown = await s.call('POST', '/login', { body: { name: 'Nobody', pin: '0000' } })
+    await s.register('Bob', '123456')
+    assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '123456' } })).status, 200)
+    const wrong = await s.call('POST', '/login', { body: { name: 'Bob', pin: '000000' } })
+    const unknown = await s.call('POST', '/login', { body: { name: 'Nobody', pin: '000000' } })
     assert.equal(wrong.status, 401)
     assert.equal(unknown.status, 401)
     assert.equal(wrong.body.error, unknown.body.error) // même message : on ne révèle pas quels pseudos existent
   })
 
   test('blocage après 5 PIN faux, même avec le bon PIN', async () => {
-    await s.register('Bob', '1234')
-    for (let i = 0; i < 5; i++) assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '0000' } })).status, 401)
-    const locked = await s.call('POST', '/login', { body: { name: 'Bob', pin: '1234' } })
+    await s.register('Bob', '123456')
+    for (let i = 0; i < 5; i++) assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '000000' } })).status, 401)
+    const locked = await s.call('POST', '/login', { body: { name: 'Bob', pin: '123456' } })
     assert.equal(locked.status, 429)
     assert.match(locked.body.error, /Trop d'essais/)
   })
@@ -68,8 +68,8 @@ describe('inscription / connexion', () => {
     const s2 = await start({ inviteCode: 'secret' })
     try {
       assert.deepEqual((await s2.call('GET', '/config')).body, { inviteRequired: true })
-      assert.equal((await s2.call('POST', '/register', { body: { name: 'Bob', pin: '1234' } })).status, 403)
-      assert.equal((await s2.call('POST', '/register', { body: { name: 'Bob', pin: '1234', invite: 'secret' } })).status, 200)
+      assert.equal((await s2.call('POST', '/register', { body: { name: 'Bob', pin: '123456' } })).status, 403)
+      assert.equal((await s2.call('POST', '/register', { body: { name: 'Bob', pin: '123456', invite: 'secret' } })).status, 200)
     } finally {
       await s2.stop()
     }
@@ -330,14 +330,24 @@ describe('admins', () => {
     }
   })
 
-  test('changer de pseudo ne permet pas de devenir admin… sauf à prendre un pseudo admin', async () => {
+  test('le droit admin est attaché au compte : ni renommage ni pseudo libéré ne le donnent', async () => {
     const s2 = await start({ admins: ['boss'] })
     try {
       const a = await s2.register('Alice')
-      const r = await s2.call('PATCH', '/me', { token: a.token, body: { name: 'Boss' } })
-      assert.equal(r.body.user.is_admin, true) // le pseudo était libre : c'est la config qui décide
-      await s2.call('PATCH', '/me', { token: a.token, body: { name: 'Alice2' } })
-      assert.equal((await s2.call('GET', '/me', { token: a.token })).body.user.is_admin, false)
+      // Se renommer en pseudo d'admin : refusé (avant comme après que le pseudo soit attribué)
+      assert.equal((await s2.call('PATCH', '/me', { token: a.token, body: { name: 'Boss' } })).status, 409)
+      const boss = await s2.register('Boss') // installation neuve : le premier « boss » devient admin
+      assert.equal((await s2.call('GET', '/me', { token: boss.token })).body.user.is_admin, true)
+      // L'admin change de pseudo : il reste admin, et « boss » reste réservé
+      await s2.call('PATCH', '/me', { token: boss.token, body: { name: 'Patron' } })
+      assert.equal((await s2.call('GET', '/me', { token: boss.token })).body.user.is_admin, true)
+      assert.equal((await s2.call('POST', '/register', { body: { name: 'boss', pin: '123456' } })).status, 409)
+      assert.equal((await s2.call('PATCH', '/me', { token: a.token, body: { name: 'BOSS' } })).status, 409)
+      // Il peut reprendre son pseudo d'origine
+      assert.equal((await s2.call('PATCH', '/me', { token: boss.token, body: { name: 'Boss' } })).status, 200)
+      // Compte supprimé : le pseudo reste réservé, personne ne récupère le droit
+      await s2.call('DELETE', '/me', { token: boss.token, body: { pin: '123456' } })
+      assert.equal((await s2.call('POST', '/register', { body: { name: 'Boss', pin: '123456' } })).status, 409)
     } finally {
       await s2.stop()
     }
@@ -346,9 +356,9 @@ describe('admins', () => {
 
 describe('bandes', () => {
   test('créer, rejoindre par code, classement entre membres de la bande seulement', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
-    const b = await s.register('Bob', '1234', { group: false })
-    const c = await s.register('Chloé', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
+    const b = await s.register('Bob', '123456', { group: false })
+    const c = await s.register('Chloé', '123456', { group: false })
     assert.equal((await s.call('GET', '/users', { token: a.token })).body.code, 'NO_GROUP')
     const g = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Les Pochtrons' } })).body
     assert.match(g.code, /^[A-Z2-9]{6}$/)
@@ -364,8 +374,8 @@ describe('bandes', () => {
   })
 
   test('sans bande (solo) : on boit, on voit sa fiche et celle des autres (hors bande), pas le classement', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
-    const b = await s.register('Bob', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
+    const b = await s.register('Bob', '123456', { group: false })
     assert.equal((await s.drink(a.token, '2026-11-02')).status, 200)
     const me = await s.call('GET', `/users/${a.id}/stats?day=2026-11-02`, { token: a.token })
     assert.equal(me.status, 200)
@@ -377,16 +387,16 @@ describe('bandes', () => {
   })
 
   test('inscription avec un code de bande ; code inconnu refusé', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
     const g = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Bar' } })).body
-    const r = await s.call('POST', '/register', { body: { name: 'Bob', pin: '1234', group: g.code } })
+    const r = await s.call('POST', '/register', { body: { name: 'Bob', pin: '123456', group: g.code } })
     assert.deepEqual((await s.call('GET', '/groups', { token: r.body.token })).body.map((x) => x.name), ['Bar'])
-    assert.equal((await s.call('POST', '/register', { body: { name: 'Zed', pin: '1234', group: 'NOPE00' } })).status, 404)
+    assert.equal((await s.call('POST', '/register', { body: { name: 'Zed', pin: '123456', group: 'NOPE00' } })).status, 404)
   })
 
   test('en-tête X-Group : choisir sa bande, refusé si on n’en est pas', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
-    const b = await s.register('Bob', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
+    const b = await s.register('Bob', '123456', { group: false })
     const g1 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Un' } })).body
     const g2 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Deux' } })).body
     await s.call('POST', '/groups/join', { token: b.token, body: { code: g2.code } })
@@ -397,8 +407,8 @@ describe('bandes', () => {
   })
 
   test('une seule carte pour tout le monde, quelle que soit la bande (et même en solo)', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
-    const solo = await s.register('Solo', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
+    const solo = await s.register('Solo', '123456', { group: false })
     const g1 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Un' } })).body
     const g2 = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Deux' } })).body
     const add = (g) => s.call('POST', '/products', { token: a.token, headers: { 'X-Group': String(g.id) }, body: SHOT })
@@ -412,8 +422,8 @@ describe('bandes', () => {
   })
 
   test('quitter : le patron passe la main, la bande vide disparaît', async () => {
-    const a = await s.register('Alice', '1234', { group: false })
-    const b = await s.register('Bob', '1234', { group: false })
+    const a = await s.register('Alice', '123456', { group: false })
+    const b = await s.register('Bob', '123456', { group: false })
     const g = (await s.call('POST', '/groups', { token: a.token, body: { name: 'Bar' } })).body
     await s.call('POST', '/groups/join', { token: b.token, body: { code: g.code } })
     await s.call('DELETE', `/groups/${g.id}/members/me`, { token: a.token })
@@ -577,13 +587,13 @@ describe('profil', () => {
   })
 
   test('changer de PIN déconnecte les autres appareils', async () => {
-    const { token } = await s.register('Bob', '1234')
-    const other = (await s.call('POST', '/login', { body: { name: 'Bob', pin: '1234' } })).body.token
-    assert.equal((await s.call('PUT', '/me/pin', { token, body: { current: '0000', next: '5555' } })).status, 403)
-    assert.equal((await s.call('PUT', '/me/pin', { token, body: { current: '1234', next: '5555' } })).status, 200)
+    const { token } = await s.register('Bob', '123456')
+    const other = (await s.call('POST', '/login', { body: { name: 'Bob', pin: '123456' } })).body.token
+    assert.equal((await s.call('PUT', '/me/pin', { token, body: { current: '000000', next: '555555' } })).status, 403)
+    assert.equal((await s.call('PUT', '/me/pin', { token, body: { current: '123456', next: '555555' } })).status, 200)
     assert.equal((await s.call('GET', '/me', { token })).status, 200)
     assert.equal((await s.call('GET', '/me', { token: other })).status, 401)
-    assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '5555' } })).status, 200)
+    assert.equal((await s.call('POST', '/login', { body: { name: 'Bob', pin: '555555' } })).status, 200)
   })
 
   test('photo : envoi, lecture publique en cache, suppression', async () => {
@@ -640,7 +650,7 @@ describe('journal : note, avis, photo', () => {
   test('fil de la bande : membres seulement, pagination par curseur', async () => {
     const a = await s.register('Alice')
     const b = await s.register('Bob')
-    const c = await s.register('Chloé', '1234', { group: false })
+    const c = await s.register('Chloé', '123456', { group: false })
     for (let i = 0; i < 5; i++) {
       s.clock.t += 60e3
       await s.drink(i % 2 ? b.token : a.token, '2026-11-03', { name: `Bière ${i}` })
@@ -657,7 +667,7 @@ describe('journal : note, avis, photo', () => {
 
   test('journal : par soirée, plus récentes d’abord, visible hors bande', async () => {
     const a = await s.register('Alice')
-    const c = await s.register('Chloé', '1234', { group: false })
+    const c = await s.register('Chloé', '123456', { group: false })
     await s.drink(a.token, '2026-10-30', { name: 'Vieille' })
     await s.drink(a.token, '2026-11-02', { name: 'Récente' })
     const d = (await s.call('GET', `/users/${a.id}/diary?limit=1`, { token: a.token })).body
@@ -671,7 +681,7 @@ describe('journal : note, avis, photo', () => {
   test('fiche produit : consos rattachées, note moyenne, répartition, avis des potes seulement', async () => {
     const a = await s.register('Alice')
     const b = await s.register('Bob')
-    const c = await s.register('Chloé', '1234', { group: false })
+    const c = await s.register('Chloé', '123456', { group: false })
     // Bue avant d'être sur la carte : rattachée quand on l'ajoute
     await s.drink(a.token, '2026-11-01', { ...MONSTER, rating: 6 })
     const p = (await s.call('POST', '/products', { token: a.token, body: MONSTER })).body
@@ -726,7 +736,7 @@ describe('photos de la carte', () => {
 describe('boissons d’un profil', () => {
   test('regroupées (sans la casse), compteurs, note moyenne, avis ; détail d’une boisson ; visible hors bande', async () => {
     const a = await s.register('Alice')
-    const c = await s.register('Chloé', '1234', { group: false })
+    const c = await s.register('Chloé', '123456', { group: false })
     await s.drink(a.token, '2026-10-30', { name: 'Chouffe', abv: 8, rating: 8, review: 'Top' })
     await s.drink(a.token, '2026-11-02', { name: 'chouffe', abv: 8, rating: 6 })
     await s.drink(a.token, '2026-11-02', { name: 'Chouffe', abv: 8 })
@@ -780,7 +790,7 @@ test('infos : n’importe qui complète un champ vide, seul l’auteur change un
 test('recherche : personnes (même hors bande, sans accents) et boissons (nom ou producteur)', async () => {
   const a = await s.register('Alice')
   await s.register('Élodie')
-  await s.register('Chloé', '1234', { group: false })
+  await s.register('Chloé', '123456', { group: false })
   await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Chouffe', maker: "Brasserie d'Achouffe" } })
   await s.call('POST', '/products', { token: a.token, body: { ...PINTE, name: 'Leffe' } })
   const r = (await s.call('GET', '/search?q=elo', { token: a.token })).body
@@ -788,7 +798,7 @@ test('recherche : personnes (même hors bande, sans accents) et boissons (nom ou
   const c = (await s.call('GET', '/search?q=chlo', { token: a.token })).body
   assert.deepEqual(c.users.map((u) => [u.name, u.inBand]), [['Chloé', false]])
   assert.deepEqual((await s.call('GET', '/search?q=achouffe', { token: a.token })).body.products.map((p) => p.name), ['Chouffe'])
-  assert.deepEqual((await s.call('GET', '/search?q=', { token: a.token })).body, { users: [], products: [] })
+  assert.deepEqual((await s.call('GET', '/search?q=', { token: a.token })).body, { users: [], products: [], places: [] })
 })
 
 test('« déjà bue » : sans date ni note, hors score et hors journal ; compte dans les buveurs et le profil', async () => {
@@ -815,7 +825,7 @@ test('« déjà bue » : sans date ni note, hors score et hors journal ; compte 
 
 test('follow : suivre hors bande, fil « abonnements », avis des gens suivis, compteurs', async () => {
   const a = await s.register('Alice')
-  const c = await s.register('Chloé', '1234', { group: false })
+  const c = await s.register('Chloé', '123456', { group: false })
   const p = (await s.call('POST', '/products', { token: c.token, body: { ...PINTE, name: 'Chouffe' } })).body
   await s.drink(c.token, '2026-11-02', { product_id: p.id, rating: 8, review: 'Top' })
   assert.equal((await s.call('PUT', `/users/${a.id}/follow`, { token: a.token })).status, 400)
@@ -853,7 +863,7 @@ test('lieu d’une conso : à l’ajout, modifiable, suggestions de mes lieux', 
   await s.drink(b.token, '2026-11-02', { place: 'Chez Bob', place_private: true })
   const sugg = async (t) => (await s.call('GET', '/drinks/places', { token: t })).body.map((p) => [p.place, p.mine])
   assert.deepEqual(await sugg(a.token), [['Chez Max', true], ['Chez Bob', false], ['Le Zinc', false], ['Le Bar du Coin', false]])
-  const c = await s.register('Chloé', '1234', { group: false })
+  const c = await s.register('Chloé', '123456', { group: false })
   assert.deepEqual(await sugg(c.token), [['Chez Max', false], ['Le Zinc', false], ['Le Bar du Coin', false]])
 })
 
@@ -876,7 +886,7 @@ test('migration : ancien lieu en texte sur les consos → table places', () => {
 test('lieu privé : visible par moi et les bandes autorisées seulement (nom masqué ailleurs, même sur les consos)', async () => {
   const a = await s.register('Alice')
   const b = await s.register('Bob') // même bande qu'Alice
-  const c = await s.register('Chloé', '1234', { group: false })
+  const c = await s.register('Chloé', '123456', { group: false })
   const r = await s.drink(a.token, '2026-11-02', { place: 'Chez moi', place_private: true })
   assert.equal(r.body.place, 'Chez moi')
   const seen = async (t) => (await s.call('GET', '/places', { token: t })).body.map((p) => p.name)
@@ -951,11 +961,11 @@ describe('gestion des bandes', () => {
   test('bande proposée : personne n’y est mis d’office, on la rejoint sans code ; un admin gère toute bande', async () => {
     const s2 = await start({ admins: ['boss'] })
     try {
-      const boss = await s2.register('Boss', '1234', { group: false })
+      const boss = await s2.register('Boss', '123456', { group: false })
       const main = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Bande' } })).body
       const other = (await s2.call('POST', '/groups', { token: boss.token, body: { name: 'Autre' } })).body
       // Sans bande proposée : rien à rejoindre sans code
-      const a = await s2.register('Alice', '1234', { group: false })
+      const a = await s2.register('Alice', '123456', { group: false })
       assert.equal((await s2.call('GET', '/groups/suggested', { token: a.token })).body, null)
       assert.equal((await s2.call('POST', '/groups/join', { token: a.token, body: { suggested: true } })).status, 404)
       // Bande proposée (une seule à la fois)
@@ -963,13 +973,13 @@ describe('gestion des bandes', () => {
       assert.equal((await s2.call('PATCH', `/groups/${main.id}`, { token: boss.token, body: { is_default: true } })).body.is_default, true)
       assert.deepEqual((await s2.call('GET', '/groups', { token: boss.token })).body.map((g) => [g.name, g.is_default]), [['Bande', true], ['Autre', false]])
       // Un nouveau n'y est pas mis d'office : il la voit proposée et la rejoint en un tap
-      const b = await s2.register('Bob', '1234', { group: false })
+      const b = await s2.register('Bob', '123456', { group: false })
       assert.deepEqual((await s2.call('GET', '/groups', { token: b.token })).body, [])
       assert.deepEqual((await s2.call('GET', '/groups/suggested', { token: b.token })).body, { id: main.id, name: 'Bande', members: 1, joined: false })
       assert.equal((await s2.call('POST', '/groups/join', { token: b.token, body: { suggested: true } })).body.name, 'Bande')
       assert.equal((await s2.call('GET', '/groups/suggested', { token: b.token })).body.joined, true)
       // Arrivé par un lien d'invitation : seulement cette bande-là
-      const c = (await s2.call('POST', '/register', { body: { name: 'Chloé', pin: '1234', group: other.code } })).body
+      const c = (await s2.call('POST', '/register', { body: { name: 'Chloé', pin: '123456', group: other.code } })).body
       assert.deepEqual((await s2.call('GET', '/groups', { token: c.token })).body.map((g) => g.name), ['Autre'])
       // Un admin gère une bande dont il n'est pas patron
       const own = (await s2.call('POST', '/groups', { token: b.token, body: { name: 'Chez Bob' } })).body
@@ -1037,11 +1047,11 @@ describe('supprimer un compte', () => {
       await s2.call('POST', '/groups/join', { token: boss.token, body: { code: shared.code } })
       await s2.drink(a.token, '2026-11-02', { place: 'Chez moi' })
       // Mauvais PIN ; un non-admin ne supprime pas les autres ; un admin pas lui-même par là
-      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '0000' } })).status, 403)
+      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '000000' } })).status, 403)
       assert.equal((await s2.call('DELETE', `/users/${boss.id}`, { token: a.token })).status, 403)
       assert.equal((await s2.call('DELETE', `/users/${boss.id}`, { token: boss.token })).status, 400)
       // Alice se supprime : sa bande solo disparaît, l'autre passe à Boss, son « chez moi » aussi disparaît
-      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '1234' } })).status, 200)
+      assert.equal((await s2.call('DELETE', '/me', { token: a.token, body: { pin: '123456' } })).status, 200)
       assert.equal((await s2.call('GET', '/me', { token: a.token })).status, 401)
       const groups = (await s2.call('GET', '/groups', { token: boss.token })).body
       assert.ok(!groups.some((g) => g.id === solo.id))
@@ -1122,4 +1132,116 @@ test('migration : une fiche par contenance → une fiche par boisson (verres, fa
   assert.ok(/UNIQUE \(name, abv\)/.test(again.db.prepare("SELECT sql FROM sqlite_master WHERE name = 'products'").get().sql))
   again.close()
   rmSync(dir, { recursive: true })
+})
+
+test('page d’un lieu : fiche, ce qu’on y boit, qui y boit, dernières consos ; 404 si privé et non autorisé', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  const c = await s.register('Chloé', '123456', { group: false })
+  await s.drink(a.token, '2026-11-01', { place: 'Le Rade', rating: 8 })
+  await s.drink(b.token, '2026-11-02', { place: 'le rade', rating: 4 })
+  await s.drink(b.token, '2026-11-02', { ...SHOT, place: 'Le Rade' })
+  const id = (await s.call('GET', '/places', { token: a.token })).body.find((p) => p.name === 'Le Rade').id
+  const f = (await s.call('GET', `/places/${id}`, { token: c.token })).body
+  assert.deepEqual([f.name, f.logs, f.drinkers, f.rating, f.first_day, f.creator], ['Le Rade', 3, 2, 6, '2026-11-01', 'Alice'])
+  assert.deepEqual(f.drinks.map((d) => [d.name, d.count]), [['Pinte', 2], ['Shot', 1]])
+  assert.deepEqual(f.people.map((u) => [u.name, u.count]), [['Bob', 2], ['Alice', 1]])
+  assert.equal(f.recent.length, 3)
+  assert.deepEqual((await s.call('GET', '/search?q=rade', { token: c.token })).body.places.map((p) => p.name), ['Le Rade'])
+  // Lieu privé : introuvable pour qui n'est pas autorisé, même par son id
+  await s.drink(a.token, '2026-11-02', { place: 'Planque', place_private: true })
+  const priv = (await s.call('GET', '/places', { token: a.token })).body.find((p) => p.name === 'Planque').id
+  assert.equal((await s.call('GET', `/places/${priv}`, { token: a.token })).status, 200)
+  assert.equal((await s.call('GET', `/places/${priv}`, { token: c.token })).status, 404)
+  assert.deepEqual((await s.call('GET', '/search?q=planque', { token: c.token })).body.places, [])
+})
+
+test('fiche d’un lieu : photo, description, adresse ; les autres complètent ce qui manque ; lieux les plus visités du profil', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  await s.drink(a.token, '2026-11-01', { place: 'Le Rade' })
+  await s.drink(a.token, '2026-11-02', { place: 'Le Rade' })
+  await s.drink(a.token, '2026-11-02', { place: 'Le Zinc' })
+  const id = (await s.call('GET', '/places', { token: a.token })).body.find((p) => p.name === 'Le Rade').id
+  const patch = (t, body) => s.call('PATCH', `/places/${id}`, { token: t, body })
+  assert.equal((await patch(b.token, { address: '12 rue du Bar, Lyon', photo: PNG })).status, 200) // champs vides : OK
+  assert.equal((await patch(b.token, { address: 'Ailleurs' })).status, 403) // déjà rempli
+  assert.equal((await patch(a.token, { description: 'Le rade du coin.\nPinte à 4 €.', address: '14 rue du Bar' })).status, 200)
+  assert.equal((await patch(a.token, { address: 'x'.repeat(151) })).status, 400)
+  const f = (await s.call('GET', `/places/${id}`, { token: b.token })).body
+  assert.deepEqual([f.address, f.description], ['14 rue du Bar', 'Le rade du coin.\nPinte à 4 €.'])
+  assert.equal((await fetch(s.base + `/photos/${f.photo_key}`)).status, 200)
+  const st = (await s.call('GET', `/users/${a.id}/stats`, { token: b.token })).body
+  assert.deepEqual(st.places.map((p) => [p.name, p.nights, p.count]), [['Le Rade', 2, 2], ['Le Zinc', 1, 1]])
+})
+
+describe('sécurité', () => {
+  test('jetons de session stockés hachés ; session inutilisée 90 jours = expirée', async () => {
+    const a = await s.register('Alice')
+    const stored = s.db.prepare('SELECT token FROM sessions').all().map((r) => r.token)
+    assert.ok(!stored.includes(a.token)) // le jeton en clair n'est pas en base
+    s.clock.t += 89 * 864e5
+    assert.equal((await s.call('GET', '/me', { token: a.token })).status, 200) // utilisée : prolongée
+    s.clock.t += 89 * 864e5
+    assert.equal((await s.call('GET', '/me', { token: a.token })).status, 200)
+    s.clock.t += 91 * 864e5
+    assert.equal((await s.call('GET', '/me', { token: a.token })).status, 401)
+  })
+
+  test('PIN essayés sur plein de comptes depuis une même IP : bloqué après 30 échecs', async () => {
+    for (let i = 0; i < 8; i++) await s.register(`U${i}`, '999999', { group: false })
+    let last
+    for (let i = 0; i < 31; i++) last = await s.call('POST', '/login', { body: { name: `U${i % 8}`, pin: '123456' } })
+    assert.equal(last.status, 429)
+    // Même avec le bon PIN, cette IP attend
+    assert.equal((await s.call('POST', '/login', { body: { name: 'U0', pin: '999999' } })).status, 429)
+  })
+
+  test('codes de bande : 20 codes faux par heure et par IP, puis bloqué', async () => {
+    const a = await s.register('Alice', '123456', { group: false })
+    let last
+    for (let i = 0; i < 21; i++) last = await s.call('POST', '/groups/join', { token: a.token, body: { code: `ZZZZ${String(i).padStart(2, '0')}` } })
+    assert.equal(last.status, 429)
+  })
+
+  test('en-têtes de sécurité, pas de x-powered-by', async () => {
+    const r = await s.call('GET', '/config')
+    assert.equal(r.headers.get('x-powered-by'), null)
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(r.headers.get('x-frame-options'), 'DENY')
+    assert.match(r.headers.get('content-security-policy'), /default-src 'self'/)
+  })
+
+  test('migration : anciens jetons en clair convertis en empreintes, toujours valides', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'alcool-'))
+    const file = path.join(dir, 'a.db')
+    const raw = new DatabaseSync(file)
+    raw.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, pin_hash TEXT NOT NULL,
+      avatar TEXT, avatar_v INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE);
+      INSERT INTO users (name, pin_hash) VALUES ('A', 'x:y');
+      INSERT INTO sessions VALUES ('${'ab'.repeat(24)}', 1);`)
+    raw.close()
+    const app = createApp({ dbPath: file })
+    const t = app.db.prepare('SELECT token FROM sessions').get().token
+    assert.equal(t.length, 64)
+    app.close()
+    rmSync(dir, { recursive: true })
+  })
+})
+
+test('inscriptions : 10 par heure et par IP', async () => {
+  for (let i = 0; i < 10; i++) await s.register(`V${i}`, '123456', { group: false })
+  assert.equal((await s.call('POST', '/register', { body: { name: 'V10', pin: '123456' } })).status, 429)
+})
+
+test('PIN : 6 chiffres minimum pour un nouveau PIN, les anciens PIN à 4 chiffres marchent toujours', async () => {
+  assert.equal((await s.call('POST', '/register', { body: { name: 'Court', pin: '1234' } })).status, 400)
+  const a = await s.register('Ancien')
+  s.db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(hashPin('1234'), a.id) // compte d'avant la règle
+  const login = await s.call('POST', '/login', { body: { name: 'Ancien', pin: '1234' } })
+  assert.equal(login.status, 200)
+  const t = login.body.token
+  assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '4321' } })).status, 400)
+  assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '654321' } })).status, 200)
 })

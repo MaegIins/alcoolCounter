@@ -39,7 +39,7 @@ export async function start(options = {}) {
 
   /** Inscrit quelqu'un (dans la bande de test commune, sauf group: false) et renvoie son token + id */
   let groupCode = null
-  const register = async (name, pin = '1234', { group = true } = {}) => {
+  const register = async (name, pin = '123456', { group = true } = {}) => {
     const r = await call('POST', '/register', { body: { name, pin, ...(group && groupCode ? { group: groupCode } : {}) } })
     if (r.status !== 200) throw new Error(`register ${name}: ${JSON.stringify(r.body)}`)
     const token = r.body.token

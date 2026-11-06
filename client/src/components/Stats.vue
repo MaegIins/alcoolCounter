@@ -28,13 +28,21 @@ const byUser = computed(() => {
   return m
 })
 
+// La course : en cumul (chacun part de 0, la courbe monte à chaque soirée, l'ordre en bout de ligne = le classement
+// de la période) ou soirée par soirée (les soirées sans verre cassent la ligne). Choix retenu sur l'appareil.
+const raceMode = ref((() => { try { return localStorage.getItem('race-mode') || 'cumul' } catch { return 'cumul' } })())
+watch(raceMode, (v) => { try { localStorage.setItem('race-mode', v) } catch {} })
+const cumulative = computed(() => raceMode.value === 'cumul')
+
 // Toutes les personnes ayant saisi sur la période, triées par total décroissant
 const participants = computed(() =>
   props.users
     .filter((u) => byUser.value[u.id])
     .map((u) => {
-      const values = days.value.map((d) => byUser.value[u.id][d]?.total ?? null)
-      return { ...u, values, sum: values.reduce((s, v) => s + (v || 0), 0) }
+      const nightly = days.value.map((d) => byUser.value[u.id][d]?.total ?? null)
+      let acc = 0
+      const values = cumulative.value ? nightly.map((v) => Math.round((acc += v || 0) * 10) / 10) : nightly
+      return { ...u, values, sum: nightly.reduce((s, v) => s + (v || 0), 0) }
     })
     .filter((p) => p.sum > 0) // que du sans alcool : pas de courbe (0 verre), mais visible dans le détail
     .sort((a, b) => b.sum - a.sum)
@@ -159,12 +167,21 @@ const detailSegments = computed(() =>
 
     <div class="box">
       <div class="px-5 pt-4">
-        <h3 class="font-bold">La course</h3>
-        <p class="text-sm text-muted">Verres standard par soirée</p>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="font-bold">La course</h3>
+          <div class="flex rounded-full bg-white/5 p-1">
+            <button class="seg" :aria-pressed="raceMode === 'cumul'" @click="raceMode = 'cumul'">Cumul</button>
+            <button class="seg" :aria-pressed="raceMode === 'nuit'" @click="raceMode = 'nuit'">Par soirée</button>
+          </div>
+        </div>
+        <p class="text-sm text-muted">
+          {{ cumulative ? `Verres standard cumulés sur ${span} jours : le premier en haut à droite mène` : 'Verres standard de chaque soirée' }}
+        </p>
       </div>
       <div class="px-3 pt-3 pb-2">
         <p v-if="!participants.length" class="py-8 text-center text-muted">Pas encore de données.</p>
-        <LineChart v-else :days="days" :series="series" :context="context" @pick="pick" />
+        <!-- Les autres en gris fin : seulement en cumul (par soirée, leurs lignes à trous font des bouts de traits épars) -->
+        <LineChart v-else :days="days" :series="series" :context="cumulative ? context : []" :cumulative="cumulative" @pick="pick" />
       </div>
 
       <!-- Légende interactive -->

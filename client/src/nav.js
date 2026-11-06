@@ -4,6 +4,7 @@
 //   /carte            La carte           /reglages          Réglages
 //   /profil/12        Profil (?onglet=boissons|journal|badges)
 //   /boisson/34       Page d'une boisson
+//   /lieu/5           Page d'un lieu
 import { reactive } from 'vue'
 import { urlOf, parseUrl } from './utils.js'
 
@@ -11,15 +12,16 @@ export const ui = reactive({
   view: 'home', // 'home' (ma soirée) | 'feed' (activité) | 'carte' | 'user' | 'product' | 'settings'
   userId: null, // profil affiché (view = 'user')
   productId: null, // page d'une boisson (view = 'product')
+  placeId: null, // page d'un lieu (view = 'place')
   tab: null, // onglet du profil
   back: false, // ouvert depuis un autre écran de l'appli : « ← Retour » possible
   log: null, // fenêtre « + » : null = fermée ; {} ; { product } ; { drink } ; { edit: conso }
   refresh: 0, // incrémenté après chaque changement de données : les écrans rechargent
 })
 
-const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, tab: ui.tab, back: ui.back })
+const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, placeId: ui.placeId, tab: ui.tab, back: ui.back })
 function show(next, { replace = false, back = false } = {}) {
-  Object.assign(ui, { userId: null, productId: null, tab: null }, next, { back })
+  Object.assign(ui, { userId: null, productId: null, placeId: null, tab: null }, next, { back })
   const url = urlOf(ui) + window.location.hash
   if (replace) history.replaceState(state(), '', url)
   else if (url !== window.location.pathname + window.location.search) history.pushState(state(), '', url)
@@ -48,6 +50,11 @@ export const openUser = (id, { fromTab = false } = {}) => {
 export const openProduct = (id) => {
   if (ui.view === 'product' && ui.productId === id) return
   show({ view: 'product', productId: id }, { back: true })
+}
+/** Page d'un lieu */
+export const openPlace = (id) => {
+  if (!id || (ui.view === 'place' && ui.placeId === id)) return
+  show({ view: 'place', placeId: id }, { back: true })
 }
 /** Onglet du profil, dans l'URL sans nouvelle entrée d'historique */
 export function setTab(tab) {

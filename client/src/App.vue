@@ -16,6 +16,7 @@ import UserPage from './components/UserPage.vue'
 import ProfilePage from './components/ProfilePage.vue'
 import LogSheet from './components/LogSheet.vue'
 import ProductPage from './components/ProductPage.vue'
+import PlacePage from './components/PlacePage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
 import WelcomeModal from './components/WelcomeModal.vue'
@@ -162,25 +163,28 @@ async function logout() {
       ><Icon name="search" :size="19" /></button>
     </header>
 
-    <div class="relative mx-auto mb-10 flex max-w-lg flex-wrap items-center justify-between gap-2">
-      <p class="text-muted">Le plus gros buveur de la soirée gagne.</p>
+    <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2">
+      <p class="min-w-0 flex-1 text-muted">Le plus gros buveur de la soirée gagne.</p>
       <!-- Bande courante -->
-      <div v-if="me && group" class="relative">
+      <!-- Nom de bande long : coupé avec « … » sur une ligne (le nom entier est dans la liste et en infobulle) -->
+      <div v-if="me && group" class="relative max-w-[55%] shrink-0">
         <button
-          class="flex items-center gap-1.5 rounded-full bg-white/5 py-1.5 pr-3 pl-3 text-sm font-bold hover:bg-white/10"
+          class="flex max-w-full items-center gap-1.5 rounded-full bg-white/5 py-1.5 pr-3 pl-3 text-sm font-bold whitespace-nowrap hover:bg-white/10"
+          :title="group.name"
           :aria-expanded="groupMenu"
           @click="groupMenu = !groupMenu"
         >
-          {{ group.name }} <span class="text-muted">▾</span>
+          <span class="min-w-0 truncate">{{ group.name }}</span>
+          <Icon name="fa-chevron-down" class="shrink-0 text-xs text-muted" />
         </button>
-        <div v-if="groupMenu" class="box absolute right-0 z-30 mt-2 w-60 py-1">
+        <div v-if="groupMenu" class="box absolute right-0 z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] py-1">
           <button
             v-for="g in groups"
             :key="g.id"
             class="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-white/5"
             @click="pickGroup(g.id)"
           >
-            <span class="truncate font-semibold">{{ g.name }}</span>
+            <span class="min-w-0 truncate font-semibold" :title="g.name">{{ g.name }}</span>
             <Icon v-if="g.id === currentGroup" name="check" class="text-hi" />
           </button>
           <button class="w-full border-t border-white/5 px-4 py-2.5 text-left text-sm font-semibold text-hi hover:bg-white/5" @click="groupMenu = false; go('settings')">
@@ -206,6 +210,7 @@ async function logout() {
         <FeedPage v-else-if="ui.view === 'feed'" :key="'f' + currentGroup" :me="me" :colors="colors" :solo="solo" />
         <!-- La carte est commune à tout le monde, bande ou pas -->
         <CartePage v-else-if="ui.view === 'carte'" key="carte" :me="me" @saved="bump" @back="go('home')" />
+        <PlacePage v-else-if="ui.view === 'place'" :key="'l' + ui.placeId" :place-id="ui.placeId" :me="me" :colors="colors" />
         <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
         <UserPage v-else-if="ui.view === 'user'" :key="'u' + ui.userId + '-' + currentGroup" :user-id="ui.userId" :me="me" :colors="colors" />
         <div v-else :key="'h' + currentGroup" class="space-y-16">

@@ -1,6 +1,6 @@
 import express from 'express'
 import { DatabaseSync } from 'node:sqlite'
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { computeBadges, BADGES } from './badges.js'
@@ -54,7 +54,7 @@ const round1 = (n) => Math.round(n * 10) / 10
 const fold = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 
 // --- Fonctions pures (testées unitairement) ----------------------------------
-const hashPin = (pin) => {
+export const hashPin = (pin) => {
   const salt = randomBytes(16).toString('hex')
   return `${salt}:${scryptSync(pin, salt, 32).toString('hex')}`
 }
@@ -130,6 +130,10 @@ export const checkLog = (b) => {
   return { log }
 }
 
+// Nouveau PIN (inscription, changement) : 6 à 8 chiffres. Les PIN plus courts créés avant restent valides
+// pour se connecter : la règle n'est pas rétroactive, ils seront à 6 chiffres au prochain changement.
+export const PIN_RULE = /^\d{6,8}$/
+const PIN_MSG = 'Le PIN doit faire 6 à 8 chiffres'
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg })
 const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer /, '')
 const lockedMsg = (s) => `Trop d'essais, réessaie dans ${s > 60 ? `${Math.ceil(s / 60)} min` : `${s} s`}`
@@ -145,8 +149,11 @@ const DUMMY_HASH = hashPin('0000')
  * @param {string} [o.distDir]     front buildé à servir (prod)
  * @param {string[]} [o.admins]   pseudos admin (peuvent retirer/modifier n'importe quel produit de la carte)
  * @param {string} [o.tz]          fuseau des soirées (badges « couche-tard »…)
+ * @param {string|number|boolean} [o.trustProxy]  derrière un reverse proxy : réglage Express « trust proxy »
+ *                                 (ex. 1), pour que les limites par IP voient la vraie IP des visiteurs
+ * @param {number} [o.sessionDays] une session inutilisée pendant ce nombre de jours expire (90 par défaut)
  */
-export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now, distDir, admins = [], tz = 'Europe/Paris' } = {}) {
+export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now, distDir, admins = [], tz = 'Europe/Paris', trustProxy = false, sessionDays = 90 } = {}) {
   const db = new DatabaseSync(dbPath)
   const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
   const hadGroups = hasTable('groups')
@@ -162,6 +169,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       avatar_v INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    -- token = empreinte SHA-256 du jeton (le jeton lui-même n'est connu que du navigateur)
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
@@ -220,14 +228,36 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       PRIMARY KEY (user_id, product_id)
     );
   `)
-  // Admins : listés par pseudo dans la config (ADMINS=…), resynchronisés à chaque démarrage
+  // Admins : listés par pseudo dans la config (ADMINS=…), mais le droit est attaché au COMPTE qui a eu ce pseudo
+  // en premier (admin_claims), pas au pseudo : si l'admin change de pseudo ou supprime son compte, personne ne
+  // devient admin en reprenant le pseudo. Un pseudo d'admin déjà attribué est réservé (inscription et renommage).
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
   if (!userCols.includes('is_admin')) db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
+  db.exec(`CREATE TABLE IF NOT EXISTS admin_claims (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- NULL : compte supprimé, le pseudo reste réservé
+    claimed_at INTEGER NOT NULL
+  )`)
   const adminNames = admins.map((a) => a.trim().toLowerCase()).filter(Boolean)
   const isAdminName = (name) => adminNames.includes(name.toLowerCase())
-  db.exec('UPDATE users SET is_admin = 0')
-  const setAdmin = db.prepare('UPDATE users SET is_admin = 1 WHERE name = ?')
-  for (const a of adminNames) setAdmin.run(a)
+  const claimOf = (name) => db.prepare('SELECT user_id FROM admin_claims WHERE name = ?').get(name)
+  // Au démarrage : un pseudo d'admin pas encore attribué l'est au compte qui le porte (s'il existe)
+  for (const a of adminNames) {
+    const u = db.prepare('SELECT id FROM users WHERE name = ?').get(a)
+    if (u && !claimOf(a)) db.prepare('INSERT INTO admin_claims (name, user_id, claimed_at) VALUES (?, ?, ?)').run(a, u.id, now())
+  }
+  const syncAdmins = () => {
+    db.exec('UPDATE users SET is_admin = 0')
+    const set = db.prepare('UPDATE users SET is_admin = 1 WHERE id = (SELECT user_id FROM admin_claims WHERE name = ?)')
+    for (const a of adminNames) set.run(a)
+  }
+  syncAdmins()
+  // Pseudo réservé : c'est un pseudo d'admin déjà attribué à un autre compte (ou à un compte supprimé)
+  const reservedFor = (name, userId = null) => {
+    if (!isAdminName(name)) return false
+    const c = claimOf(name)
+    return !!c && c.user_id !== userId
+  }
 
   // Migration : avant les bandes, tout le monde était dans une seule compet → bande « La bande » pour tous
   if (hadProducts && !hadGroups) {
@@ -354,6 +384,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // aux autres (suit les changements de pseudo). Nom stocké « Chez moi » ; l'unicité est par propriétaire.
   // Sa position n'est jamais montrée aux autres (c'est une adresse perso).
   addCols('places', [['home_of', 'INTEGER REFERENCES users(id) ON DELETE CASCADE']])
+  // Fiche d'un lieu : photo, description, adresse (toutes facultatives)
+  addCols('places', [['photo', 'TEXT'], ['photo_key', 'TEXT'], ['description', 'TEXT'], ['address', 'TEXT']])
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS places_photo_key ON places(photo_key)')
   db.exec(`
     DROP INDEX IF EXISTS places_scope;
     CREATE UNIQUE INDEX IF NOT EXISTS places_scope2 ON places(name COLLATE NOCASE,
@@ -439,9 +472,20 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Dernier jour saisissable : demain en UTC, pour laisser de la marge aux fuseaux horaires
   const maxEntryDay = () => new Date(now() + 36 * 3600e3).toISOString().slice(0, 10)
+  // Sessions : on ne garde en base que l'empreinte du jeton (une fuite de la base ne donne pas de sessions),
+  // et une session inutilisée pendant `sessionDays` jours expire.
+  const tokenHash = (t) => createHash('sha256').update(t).digest('hex')
+  if (!db.prepare('PRAGMA table_info(sessions)').all().some((c) => c.name === 'last_used')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN last_used INTEGER NOT NULL DEFAULT 0')
+    // Anciens jetons stockés en clair (48 caractères) → leur empreinte (64)
+    for (const r of db.prepare('SELECT token FROM sessions WHERE length(token) = 48').all()) {
+      db.prepare('UPDATE sessions SET token = ?, last_used = ? WHERE token = ?').run(tokenHash(r.token), now(), r.token)
+    }
+  }
+  const SESSION_TTL = sessionDays * 864e5
   const newSession = (userId) => {
-    const token = randomBytes(24).toString('hex')
-    db.prepare('INSERT INTO sessions (token, user_id) VALUES (?, ?)').run(token, userId)
+    const token = randomBytes(32).toString('hex')
+    db.prepare('INSERT INTO sessions (token, user_id, last_used) VALUES (?, ?, ?)').run(tokenHash(token), userId, now())
     return token
   }
 
@@ -458,8 +502,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (a.fails >= 5) a.until = Date.now() + Math.min(15 * 60e3, 30e3 * 2 ** (a.fails - 5))
     attempts.set(key, a)
   }
+  // Limites par adresse IP (fenêtre glissante simple) : essais de PIN ratés tous comptes confondus (contre le
+  // « 1234 sur tous les pseudos »), inscriptions, codes de bande faux (contre l'énumération des codes).
+  const hits = new Map() // clé -> { n, reset }
+  const overLimit = (key, max) => (hits.get(key)?.reset > Date.now() ? hits.get(key).n >= max : false)
+  const hit = (key, windowMs) => {
+    const h = hits.get(key)
+    if (h && h.reset > Date.now()) h.n++
+    else hits.set(key, { n: 1, reset: Date.now() + windowMs })
+  }
+  const LIMITS = { loginFail: [30, 15 * 60e3], register: [10, 3600e3], joinFail: [20, 3600e3] }
+  const blocked = (kind, req) => overLimit(`${kind}:${req.ip}`, LIMITS[kind][0])
+  const count = (kind, req) => hit(`${kind}:${req.ip}`, LIMITS[kind][1])
   const purge = setInterval(() => {
     for (const [k, a] of attempts) if (Date.now() - a.last > 3600e3) attempts.delete(k)
+    for (const [k, h] of hits) if (h.reset < Date.now()) hits.delete(k)
+    // Garde-fou mémoire : des milliers de pseudos inventés ne font pas gonfler la table indéfiniment
+    if (attempts.size > 10_000) attempts.clear()
+    if (hits.size > 50_000) hits.clear()
   }, 600e3)
   purge.unref()
 
@@ -482,10 +542,18 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   const auth = (req, res, next) => {
     const token = bearer(req)
-    const user = token
-      ? db.prepare('SELECT u.id, u.name, u.avatar_v, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?').get(token)
+    const hash = token ? tokenHash(token) : null
+    const user = hash
+      ? db.prepare('SELECT u.id, u.name, u.avatar_v, u.is_admin, s.last_used FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?').get(hash)
       : null
+    if (user && now() - user.last_used > SESSION_TTL) {
+      db.prepare('DELETE FROM sessions WHERE token = ?').run(hash)
+      return bad(res, 'Session expirée, reconnecte-toi', 401)
+    }
     if (!user) return bad(res, 'Non connecté', 401)
+    // Dernière utilisation, mise à jour au plus une fois par heure
+    if (now() - user.last_used > 3600e3) db.prepare('UPDATE sessions SET last_used = ? WHERE token = ?').run(now(), hash)
+    delete user.last_used
     req.user = { ...user, is_admin: !!user.is_admin }
     viewer = user.id
     next()
@@ -544,6 +612,30 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   }
 
   const app = express()
+  app.disable('x-powered-by')
+  if (trustProxy) app.set('trust proxy', trustProxy)
+  // En-têtes de sécurité (HTML et API) + remise à zéro du « viewer » des fonctions SQL à chaque requête
+  const CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // styles en ligne : Vue et Leaflet
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org",
+    "connect-src 'self'",
+    "frame-src 'none'", "frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
+  ].join('; ')
+  app.use((_req, res, next) => {
+    viewer = 0
+    res.set({
+      'Content-Security-Policy': CSP,
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'same-origin',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Permissions-Policy': 'geolocation=(self), camera=(self), microphone=(), payment=()',
+    })
+    next()
+  })
   app.use(express.json({ limit: '300kb' })) // une photo compressée tient largement dedans
   app.use((req, _res, next) => {
     req.body ??= {} // requête sans corps JSON
@@ -553,22 +645,34 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.get('/api/config', (_req, res) => res.json({ inviteRequired: !!inviteCode }))
 
   app.post('/api/register', (req, res) => {
+    if (blocked('register', req)) return bad(res, "Trop d'inscriptions depuis cette connexion, réessaie plus tard", 429)
     const name = String(req.body.name || '').trim()
     const pin = String(req.body.pin || '')
     if (inviteCode && req.body.invite !== inviteCode) return bad(res, "Code d'invitation invalide", 403)
     if (checkName(name)) return bad(res, checkName(name))
-    if (!/^\d{4,8}$/.test(pin)) return bad(res, 'Le PIN doit faire 4 à 8 chiffres')
-    if (db.prepare('SELECT 1 FROM users WHERE name = ?').get(name)) return bad(res, 'Pseudo déjà pris', 409)
+    if (!PIN_RULE.test(pin)) return bad(res, PIN_MSG)
+    if (db.prepare('SELECT 1 FROM users WHERE name = ?').get(name) || reservedFor(name)) return bad(res, 'Pseudo déjà pris', 409)
     // Code de bande facultatif : on rejoint directement la bande des potes
     const code = String(req.body.group || '').trim().toUpperCase()
     const g = code ? db.prepare('SELECT id FROM groups WHERE code = ?').get(code) : null
-    if (code && !g) return bad(res, 'Code de bande inconnu', 404)
-    const { lastInsertRowid } = db.prepare('INSERT INTO users (name, pin_hash, is_admin) VALUES (?, ?, ?)').run(name, hashPin(pin), +isAdminName(name))
+    if (code && blocked('joinFail', req)) return bad(res, 'Trop de codes faux, réessaie dans une heure', 429)
+    if (code && !g) {
+      count('joinFail', req)
+      return bad(res, 'Code de bande inconnu', 404)
+    }
+    const { lastInsertRowid } = db.prepare('INSERT INTO users (name, pin_hash, is_admin) VALUES (?, ?, 0)').run(name, hashPin(pin))
     const id = Number(lastInsertRowid)
+    // Premier compte à prendre un pseudo d'admin (installation neuve) : il devient admin, et le pseudo lui est réservé
+    if (isAdminName(name)) {
+      db.prepare('INSERT INTO admin_claims (name, user_id, claimed_at) VALUES (?, ?, ?)').run(name.toLowerCase(), id, now())
+      syncAdmins()
+    }
+    const isAdmin = !!db.prepare('SELECT is_admin FROM users WHERE id = ?').get(id).is_admin
     // Lien d'invitation → cette bande. Sinon personne n'est mis d'office dans une bande : la bande proposée
     // (is_default) est offerte à l'arrivée, chacun choisit d'entrer en compet avec tout le monde ou non.
     if (g) joinGroup(g.id, id)
-    res.json({ token: newSession(id), user: { id, name, avatar_v: 0, is_admin: isAdminName(name) } })
+    count('register', req)
+    res.json({ token: newSession(id), user: { id, name, avatar_v: 0, is_admin: isAdmin } })
   })
 
   app.post('/api/login', (req, res) => {
@@ -576,10 +680,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const key = `login:${name.toLowerCase()}`
     const wait = lockedFor(key)
     if (wait) return bad(res, lockedMsg(wait), 429)
+    if (blocked('loginFail', req)) return bad(res, "Trop d'essais depuis cette connexion, réessaie dans 15 min", 429)
     const user = db.prepare('SELECT * FROM users WHERE name = ?').get(name)
     const ok = checkPin(String(req.body.pin || ''), user?.pin_hash ?? DUMMY_HASH)
     if (!user || !ok) {
       recordFail(key)
+      count('loginFail', req)
       return bad(res, 'Pseudo ou PIN incorrect', 401)
     }
     attempts.delete(key)
@@ -587,7 +693,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   app.post('/api/logout', auth, (req, res) => {
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(bearer(req))
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(tokenHash(bearer(req)))
     res.json({ ok: true })
   })
 
@@ -620,9 +726,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const err = checkName(name)
     if (err) return bad(res, err)
     if (db.prepare('SELECT 1 FROM users WHERE name = ? AND id != ?').get(name, req.user.id)) return bad(res, 'Pseudo déjà pris', 409)
-    // Le statut admin suit le pseudo : changer de pseudo peut le donner ou le retirer
-    db.prepare('UPDATE users SET name = ?, is_admin = ? WHERE id = ?').run(name, +isAdminName(name), req.user.id)
-    res.json({ user: { ...req.user, name, is_admin: isAdminName(name) } })
+    // Un pseudo d'admin ne se prend pas en se renommant (il est attribué à un compte, ou se gagne à l'inscription)
+    if (isAdminName(name) && claimOf(name)?.user_id !== req.user.id) return bad(res, 'Pseudo réservé', 409)
+    // Le statut admin reste attaché au compte : changer de pseudo ne le donne ni ne le retire
+    db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, req.user.id)
+    res.json({ user: { ...req.user, name } })
   })
 
   app.put('/api/me/pin', auth, (req, res) => {
@@ -636,10 +744,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     }
     attempts.delete(key)
     const next = String(req.body.next || '')
-    if (!/^\d{4,8}$/.test(next)) return bad(res, 'Le PIN doit faire 4 à 8 chiffres')
+    if (!PIN_RULE.test(next)) return bad(res, PIN_MSG)
     db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(hashPin(next), req.user.id)
     // Déconnecte les autres appareils, garde la session courante
-    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, bearer(req))
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenHash(bearer(req)))
     res.json({ ok: true })
   })
 
@@ -707,9 +815,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Rejoindre une bande : avec son code, ou { suggested: true } pour la bande proposée
   app.post('/api/groups/join', auth, (req, res) => {
+    if (blocked('joinFail', req)) return bad(res, 'Trop de codes faux, réessaie dans une heure', 429)
     const code = String(req.body.code || '').trim().toUpperCase()
     const g = req.body.suggested === true ? suggested() : db.prepare('SELECT id FROM groups WHERE code = ?').get(code)
-    if (!g) return bad(res, req.body.suggested === true ? 'Pas de bande proposée' : 'Code de bande inconnu', 404)
+    if (!g) {
+      if (req.body.suggested !== true) count('joinFail', req)
+      return bad(res, req.body.suggested === true ? 'Pas de bande proposée' : 'Code de bande inconnu', 404)
+    }
     joinGroup(g.id, req.user.id)
     res.json(groupOut(myGroups(req.user.id).find((x) => x.id === g.id)))
   })
@@ -898,6 +1010,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.get('/api/photos/:key', (req, res) => {
     const key = String(req.params.key)
     const row = db.prepare('SELECT photo FROM drinks WHERE photo_key = ?').get(key) ?? db.prepare('SELECT photo FROM products WHERE photo_key = ?').get(key)
+      ?? db.prepare('SELECT photo FROM places WHERE photo_key = ?').get(key)
     const m = row?.photo?.match(/^data:(image\/\w+);base64,(.+)$/)
     if (!m) return res.status(404).end()
     res.set('Cache-Control', 'public, max-age=31536000, immutable').type(m[1]).send(Buffer.from(m[2], 'base64'))
@@ -926,7 +1039,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Recherche : des personnes (toutes, bande ou pas) et des boissons de la carte, par nom (sans accents ni casse)
   app.get('/api/search', auth, groupOrSolo, (req, res) => {
     const q = fold(String(req.query.q || '').trim())
-    if (!q) return res.json({ users: [], products: [] })
+    if (!q) return res.json({ users: [], products: [], places: [] })
     const rank = (name) => (fold(name).startsWith(q) ? 0 : 1)
     const users = db.prepare('SELECT id, name, avatar_v FROM users').all()
       .filter((u) => fold(u.name).includes(q))
@@ -938,7 +1051,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       .sort((a, b) => rank(a.name) - rank(b.name) || b.logs - a.logs || a.name.localeCompare(b.name))
       .slice(0, 20)
       .map(productOut)
-    res.json({ users, products })
+    const places = placesOf(req).filter((p) => fold(p.name).includes(q))
+      .sort((a, b) => rank(a.name) - rank(b.name) || b.logs - a.logs).slice(0, 10)
+      .map(({ id, name, private: priv, home, logs }) => ({ id, name, private: priv, home, logs }))
+    res.json({ users, products, places })
   })
 
   // Abonnés (qui le suit) et abonnements (qui il suit) d'une personne, avec « je le suis ? »
@@ -1086,23 +1202,55 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Tous les lieux, avec leurs coordonnées (vides pour l'instant) et leur fréquentation :
   // la source de données d'une future carte géographique. ?mine=1 : seulement ceux où j'ai bu.
-  app.get('/api/places', auth, (req, res) => {
-    const mine = req.query.mine === '1'
+  const placesOf = (req, { mine = false, id = null } = {}) => {
     const rows = db.prepare(`
       SELECT pl.id, place_label(pl.id) AS name, pl.home_of,
         -- La position d'un chez-soi n'est montrée qu'à son propriétaire
         CASE WHEN pl.home_of IS NULL OR pl.home_of = ? THEN pl.lat END AS lat,
         CASE WHEN pl.home_of IS NULL OR pl.home_of = ? THEN pl.lng END AS lng,
+        -- L'adresse d'un chez-soi aussi (sa photo et sa description restent visibles par ceux qui voient le lieu)
+        CASE WHEN pl.home_of IS NULL OR pl.home_of = ? THEN pl.address END AS address,
+        pl.photo_key, pl.description,
         pl.private, pl.created_by, COUNT(d.id) AS logs, COUNT(DISTINCT d.user_id) AS drinkers,
         SUM(d.user_id = ?) AS my_logs, MAX(d.at) AS last_at
       FROM places pl LEFT JOIN drinks d ON d.place_id = pl.id ${mine ? 'AND d.user_id = ?' : ''}
-      WHERE place_visible(pl.id)
+      WHERE place_visible(pl.id) ${id ? 'AND pl.id = ?' : ''}
       GROUP BY pl.id ${mine ? 'HAVING logs > 0' : ''} ORDER BY logs DESC, name
-    `).all(req.user.id, req.user.id, req.user.id, ...(mine ? [req.user.id] : []))
+    `).all(req.user.id, req.user.id, req.user.id, req.user.id, ...(mine ? [req.user.id] : []), ...(id ? [id] : []))
     const groupsOf = db.prepare('SELECT g.id, g.name FROM place_groups pg JOIN groups g ON g.id = pg.group_id WHERE pg.place_id = ? ORDER BY g.name')
-    res.json(rows.map(({ home_of, ...r }) => ({
-      ...r, private: !!r.private, home: home_of != null, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [],
-    })))
+    return rows.map(({ home_of, ...r }) => ({
+      ...r, private: !!r.private, home: home_of != null, home_of, my_logs: r.my_logs ?? 0, mine: r.created_by === req.user.id, groups: r.private ? groupsOf.all(r.id) : [],
+    }))
+  }
+  app.get('/api/places', auth, (req, res) => res.json(placesOf(req, { mine: req.query.mine === '1' }).map(({ home_of, ...r }) => r)))
+
+  // Page d'un lieu : sa fiche (comme dans la liste), ce qu'on y boit, qui y boit, les dernières consos.
+  // Invisible (404) pour qui ne peut pas voir le lieu, comme partout ailleurs.
+  app.get('/api/places/:id(\\d+)', auth, (req, res) => {
+    const id = Number(req.params.id)
+    const [pl] = placesOf(req, { id })
+    if (!pl) return bad(res, 'Lieu introuvable', 404)
+    const { home_of, ...place } = pl
+    const owner = home_of ? db.prepare('SELECT id, name, avatar_v FROM users WHERE id = ?').get(home_of) : null
+    const creator = pl.created_by ? db.prepare('SELECT name FROM users WHERE id = ?').get(pl.created_by)?.name ?? null : null
+    const stats = db.prepare(`SELECT ROUND(AVG(rating), 1) AS rating, COUNT(rating) AS ratings, MIN(day) AS first_day,
+      ROUND(SUM(${UNITS()}), 1) AS units FROM drinks WHERE place_id = ?`).get(id)
+    const drinks = db.prepare(`
+      SELECT d.name, d.cat, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key, COUNT(*) AS count,
+        ROUND(AVG(d.rating), 1) AS rating, COUNT(DISTINCT d.user_id) AS drinkers
+      FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.place_id = ? GROUP BY COALESCE(d.product_id, d.name COLLATE NOCASE) ORDER BY count DESC, MAX(d.at) DESC LIMIT 12
+    `).all(id)
+    const people = db.prepare(`
+      SELECT u.id, u.name, u.avatar_v, COUNT(*) AS count, MAX(d.at) AS last_at FROM drinks d JOIN users u ON u.id = d.user_id
+      WHERE d.place_id = ? GROUP BY u.id ORDER BY count DESC, last_at DESC LIMIT 30
+    `).all(id)
+    const logs = db.prepare(`
+      SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
+      JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id
+      WHERE d.place_id = ? ORDER BY d.at DESC, d.id DESC LIMIT 30
+    `).all(id)
+    res.json({ ...place, owner, creator, ...stats, drinks, people, recent: logs.map(logOut) })
   })
 
   // Modifier un lieu (tout est facultatif dans le corps) :
@@ -1138,8 +1286,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       set.lat = clear ? null : Math.round(lat * 1e6) / 1e6
       set.lng = clear ? null : Math.round(lng * 1e6) / 1e6
     }
-    const onlyFillingCoords = pl.home_of == null && Object.keys(set).every((k) => k === 'lat' || k === 'lng') && pl.lat == null && set.lat != null && !('groups' in b)
-    if (!owner && !onlyFillingCoords) return bad(res, "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent juste ajouter une position manquante)", 403)
+    for (const [k, label, max] of [['description', 'Description', 1000], ['address', 'Adresse', 150]]) {
+      if (!(k in b)) continue
+      const v = b[k] == null ? '' : String(b[k]).trim()
+      if (v.length > max || (k === 'address' ? /\p{Cc}/u.test(v) : /[\p{Cc}--[\n\r\t]]/v.test(v))) return bad(res, `${label} : ${max} caractères maximum`)
+      set[k] = v || null
+    }
+    if ('photo' in b) {
+      const { log, error } = checkLog({ photo: b.photo })
+      if (error) return bad(res, error)
+      set.photo = log.photo
+      set.photo_key = log.photo ? photoKey() : null
+    }
+    // Les autres (qui voient le lieu) peuvent seulement compléter ce qui manque : position, adresse, description,
+    // photo — jamais sur un « Chez X »
+    const fills = { lat: pl.lat == null, lng: pl.lng == null, address: pl.address == null, description: pl.description == null, photo: pl.photo == null, photo_key: pl.photo == null }
+    const onlyFilling = pl.home_of == null && !('groups' in b) && Object.keys(set).length > 0
+      && Object.entries(set).every(([k, v]) => fills[k] && v != null)
+    if (!owner && !onlyFilling) return bad(res, "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent compléter ce qui manque)", 403)
     const groups = Array.isArray(b.groups) ? b.groups.map(Number) : null
     if (groups?.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
     if (groups?.some(isOpenGroup)) return bad(res, 'La bande proposée à tous est ouverte : un lieu privé ne peut pas y être partagé')
@@ -1233,6 +1397,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?').get(id).n,
       following: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?').get(id).n,
       iFollow: !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, id),
+      places: db.prepare(`
+        SELECT d.place_id AS id, place_label(d.place_id) AS name, pl.private, pl.home_of IS NOT NULL AS home, pl.photo_key,
+          COUNT(*) AS count, COUNT(DISTINCT d.day) AS nights, MAX(d.at) AS last_at
+        FROM drinks d JOIN places pl ON pl.id = d.place_id
+        WHERE d.user_id = ? AND place_visible(d.place_id)
+        GROUP BY d.place_id ORDER BY nights DESC, count DESC LIMIT 6
+      `).all(id).map((r) => ({ ...r, private: !!r.private, home: !!r.home })),
       tops: Array.from({ length: 4 }, (_, i) => {
         const t = tops.find((x) => x.slot === i)
         return t ? productOut(t) : null

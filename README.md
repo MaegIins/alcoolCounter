@@ -3,7 +3,7 @@
 Ton journal de verres, noté et daté, l'activité de ta bande, et qui a le plus bu ce soir. Adapté de
 [Scroll Competition](https://github.com/MaegIins/scrollCompetition).
 
-- **Front** : Vue 3 + Vite + Tailwind v4 + icônes Font Awesome Free (npm, embarquées dans le build) (`client/`)
+- **Front** : Vue 3 + Vite + Tailwind v4 + icônes Font Awesome Free et cartes Leaflet (npm, embarqués dans le build) (`client/`)
 - **Back** : Express + SQLite natif de Node (`node:sqlite`, Node ≥ 22) (`server/`)
 
 ## Lancer en dev
@@ -39,7 +39,14 @@ Variables d'env :
 - `APP_TZ` : fuseau des soirées, pour les badges liés à l'heure (défaut `Europe/Paris`)
 
 Ces variables peuvent aussi aller dans `server/.env` (non versionné), lu par `npm run dev` et `npm start`.
-⚠️ Inscris le compte admin **avant** de mettre son pseudo dans `ADMINS` : sinon le premier qui prend ce pseudo devient admin.
+- `TRUST_PROXY` : derrière un reverse proxy (Caddy, Nginx…), mets `TRUST_PROXY=1` pour que les limites par IP voient
+  la vraie IP des visiteurs (sans ça, tout le monde a l'IP du proxy et partage les mêmes limites).
+- `SESSION_DAYS` : une session inutilisée pendant ce nombre de jours expire (90 par défaut).
+
+Le droit admin est attaché au **compte** qui a le premier porté un pseudo listé dans `ADMINS`, pas au pseudo : si
+l'admin change de pseudo ou supprime son compte, personne ne devient admin en reprenant ce pseudo, qui reste réservé.
+⚠️ Sur une installation neuve, inscris le compte admin **avant** d'ouvrir l'appli aux autres : le premier à
+s'inscrire avec ce pseudo devient admin.
 
 ## Fonctionnement
 
@@ -59,7 +66,7 @@ Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'
 
 Barre du bas : **Ma soirée · Activité · ＋ · La carte · Profil**.
 Chaque écran a son adresse (on peut recharger, partager un lien, utiliser le bouton retour) :
-`/` Ma soirée, `/activite`, `/carte`, `/reglages`, `/profil/12` (`?onglet=boissons|journal|badges`), `/boisson/34`.
+`/` Ma soirée, `/activite`, `/carte`, `/reglages`, `/profil/12` (`?onglet=boissons|journal|badges`), `/boisson/34`, `/lieu/5`.
 En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 
 - **Ma soirée** (accueil) : le verre qui se remplit, 💧 eau et 🚬 clopes, **L'addition** de la soirée
@@ -108,6 +115,19 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 - **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
 - **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
+- **Carte des lieux** (La carte › Lieux, sous la liste) : Leaflet + tuiles OpenStreetMap assombries. Seuls les lieux
+  que tu as le droit de voir et qui ont une position (le serveur ne renvoie jamais la position d'un « Chez X » d'un
+  autre). Repère doré (public) ou rouge à cadenas (privé), maison pour un chez-soi, taille selon la fréquentation ;
+  bulle avec photo, adresse, chiffres et « Voir le lieu ». Suit la recherche et le filtre de la liste ; « Voir sur la
+  carte » d'un lieu de la liste centre la carte dessus ; « Tout voir », « Autour de moi ».
+- **Page d'un lieu** (`/lieu/5`) : depuis La carte › Lieux, le lieu d'un verre dans le fil, les avis ou le profil,
+  et la recherche. Carte (la même que celle des lieux) centrée sur le lieu, mis en avant, avec les autres lieux visibles autour, visibilité, chiffres (consos, buveurs,
+  les tiennes, note moyenne), ce qu'on y boit, les habitués, les dernières consos, « J'y bois un verre » (le ＋
+  avec le lieu prérempli), modification (même formulaire que la liste) : nom, **photo, description, adresse**
+  (lien OpenStreetMap), position, visibilité. Les autres peuvent compléter ce qui manque (jamais sur un « Chez X »,
+  dont l'adresse et la position restent visibles par son seul propriétaire). Les profils montrent **« Ses lieux »** :
+  les plus fréquentés (en soirées), parmi ceux que tu as le droit de voir. Un lieu privé reste introuvable (404)
+  pour qui n'est pas autorisé.
 - **Lieux** : « Où ? » à l'ajout d'un verre (facultatif, avec mes lieux récents en suggestion). Les lieux sont une
   table à part (`places`), partagée par tout le monde : même nom sans la casse = même lieu, et chaque conso pointe
   vers son lieu (`drinks.place_id`). Chaque lieu a des coordonnées `lat`/`lng`, vides pour l'instant : une future
@@ -125,6 +145,15 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 
 Une ancienne base (compteurs par type de boisson) est convertie automatiquement au démarrage.
 
-Sécurité : PIN haché (scrypt), blocage progressif après 5 PIN faux (30 s → 15 min max).
+Sécurité :
+- PIN de 6 à 8 chiffres pour tout nouveau PIN (les anciens à 4 chiffres restent valides jusqu'au prochain changement), haché (scrypt) ; blocage progressif après 5 PIN faux sur un compte (30 s → 15 min max) ; et par IP :
+  30 PIN faux en 15 min tous comptes confondus, 10 inscriptions par heure, 20 codes de bande faux par heure.
+- Jetons de session : 256 bits, seule leur empreinte SHA-256 est en base ; expiration après `SESSION_DAYS` jours
+  sans utilisation ; changer de PIN déconnecte les autres appareils.
+- En-têtes : Content-Security-Policy (scripts du site seulement), `nosniff`, `X-Frame-Options: DENY`,
+  Referrer-Policy, Permissions-Policy ; pas de `X-Powered-By`.
+- Photos : seulement JPEG/PNG/WebP en base64, taille plafonnée, servies avec leur type et `nosniff`.
+- Lieux privés et chez-soi filtrés côté serveur (jamais envoyés à qui n'y a pas droit).
+- À faire au déploiement : HTTPS (le proxy ajoute HSTS), `TRUST_PROXY=1`, sauvegardes de `server/data/`.
 
 L'abus d'alcool est dangereux pour la santé. Alcool Info Service : 0 980 980 930.

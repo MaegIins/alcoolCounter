@@ -9,6 +9,7 @@ const props = defineProps({
   series: { type: Array, required: true }, // [{ id, name, color, values: [verres|null] }]
   context: { type: Array, default: () => [] }, // même forme, sans couleur
   height: { type: Number, default: 220 },
+  cumulative: Boolean, // valeurs cumulées : libellés de fin avec le total et le rang, infobulle « au total »
 })
 const emit = defineEmits(['pick'])
 
@@ -22,7 +23,7 @@ onMounted(() => {
 onBeforeUnmount(() => ro?.disconnect())
 
 const directLabels = computed(() => props.series.length > 0 && props.series.length <= 4)
-const M = computed(() => ({ t: 12, r: directLabels.value ? 64 : 12, b: 26, l: 40 }))
+const M = computed(() => ({ t: 12, r: directLabels.value ? (props.cumulative ? 96 : 64) : 12, b: 26, l: 40 }))
 const iw = computed(() => Math.max(10, width.value - M.value.l - M.value.r))
 const ih = computed(() => props.height - M.value.t - M.value.b)
 
@@ -51,20 +52,40 @@ const paths = computed(() => props.series.map((s) => ({ ...s, d: pathOf(s.values
 const ctxPaths = computed(() => props.context.map((s) => ({ ...s, d: pathOf(s.values) })))
 
 const xLabelEvery = computed(() => Math.ceil(props.days.length / Math.max(2, Math.floor(iw.value / 44))))
+// Dates de l'axe : régulières, plus la dernière, sans que l'avant-dernière ne la chevauche
+const showXLabel = (i) => {
+  const last = props.days.length - 1
+  if (i === last) return true
+  return i % xLabelEvery.value === 0 && last - i >= Math.max(1, xLabelEvery.value * 0.75)
+}
 const showMarkers = computed(() => props.days.length <= 14)
+// Point isolé (pas de valeur la veille ni le lendemain) : sans marqueur, il ne se dessinerait pas du tout
+const isolated = (values, i) => values[i] != null && values[i - 1] == null && values[i + 1] == null
 
-// Libellés directs en bout de ligne, écartés pour ne pas se chevaucher
+// Libellés directs à droite, au niveau de la dernière valeur, écartés pour ne pas se chevaucher et gardés dans
+// le graphe. En cumul : rang et total ; par soirée : le nom, et la date si la dernière soirée n'est pas la dernière du graphe.
 const endLabels = computed(() => {
   if (!directLabels.value) return []
   const items = props.series
     .map((s) => {
       const i = s.values.findLastIndex((v) => v != null)
-      return i < 0 ? null : { ...s, ty: y(Math.min(s.values[i], yMax.value)) }
+      return i < 0 ? null : { ...s, i, v: s.values[i], ty: y(Math.min(s.values[i], yMax.value)) }
     })
     .filter(Boolean)
     .sort((a, b) => a.ty - b.ty)
-  for (let k = 1; k < items.length; k++) items[k].ty = Math.max(items[k].ty, items[k - 1].ty + 14)
-  return items
+  const GAP = 15
+  for (let k = 1; k < items.length; k++) items[k].ty = Math.max(items[k].ty, items[k - 1].ty + GAP)
+  const bottom = M.value.t + ih.value
+  const over = items.length ? items.at(-1).ty - bottom : 0
+  if (over > 0) for (const it of items) it.ty -= over
+  for (let k = items.length - 2; k >= 0; k--) items[k].ty = Math.min(items[k].ty, items[k + 1].ty - GAP)
+  const ranked = [...items].sort((a, b) => b.v - a.v)
+  return items.map((it) => ({
+    ...it,
+    rank: ranked.indexOf(it) + 1,
+    text: props.cumulative ? `${fmtShort(it.v)} ${it.name}` : it.name,
+    stale: !props.cumulative && it.i < props.days.length - 1,
+  }))
 })
 
 const hover = ref(null)
@@ -106,7 +127,7 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
         </g>
         <template v-for="(d, i) in days" :key="d">
           <text
-            v-if="i % xLabelEvery === 0 || i === days.length - 1"
+            v-if="showXLabel(i)"
             :x="x(i)" :y="height - 6" text-anchor="middle" fill="#978e76"
           >
             {{ days.length <= 7 ? dayLabel(d) : d.slice(8) + '/' + d.slice(5, 7) }}
@@ -131,7 +152,7 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
         <template v-for="s in series" :key="'m' + s.id">
           <template v-for="(v, i) in s.values" :key="i">
             <circle
-              v-if="v != null && (showMarkers || tip?.i === i)"
+              v-if="v != null && (showMarkers || tip?.i === i || (!cumulative && isolated(s.values, i)))"
               :cx="x(i)" :cy="y(Math.min(v, yMax))" :r="tip?.i === i ? 5 : 4"
               :fill="s.color" stroke="#1a1811" stroke-width="2" class="pointer-events-none"
             />
@@ -140,7 +161,10 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
       </g>
 
       <g v-for="l in endLabels" :key="'l' + l.id" class="font-sans" font-size="13" font-weight="700">
-        <text :x="M.l + iw + 8" :y="l.ty + 4" fill="#e4dcc3">{{ l.name }}</text>
+        <circle :cx="M.l + iw + 10" :cy="l.ty" r="4" :fill="l.color" />
+        <text :x="M.l + iw + 18" :y="l.ty + 4" :fill="l.stale ? '#978e76' : '#e4dcc3'">
+          <tspan v-if="cumulative" fill="#978e76">{{ l.rank }}. </tspan>{{ l.text }}
+        </text>
       </g>
     </svg>
 
@@ -149,11 +173,11 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
       class="pointer-events-none absolute top-0 z-10 min-w-36 rounded-xl border border-white/10 bg-panel px-3 py-2 text-sm shadow-xl shadow-black/60"
       :style="tip.flip ? { right: `${width - tip.left + 10}px` } : { left: `${tip.left + 10}px` }"
     >
-      <div class="mb-1 font-bold capitalize">{{ dayLabel(days[tip.i], true) }}</div>
-      <div v-for="r in tip.rows" :key="r.id" class="flex items-center gap-2">
+      <div class="mb-1 font-bold first-letter:uppercase">{{ cumulative ? `Au ${dayLabel(days[tip.i], true)}` : dayLabel(days[tip.i], true) }}</div>
+      <div v-for="(r, k) in tip.rows" :key="r.id" class="flex items-center gap-2">
         <span class="h-2.5 w-2.5 rounded-full" :style="{ background: r.color }" />
-        <span class="flex-1">{{ r.name }}</span>
-        <span v-if="r.v > SUSPECT_UNITS" class="rounded-full bg-neon px-1.5 text-xs font-bold text-paper">suspect</span>
+        <span class="flex-1"><span v-if="cumulative" class="text-muted">{{ k + 1 }}. </span>{{ r.name }}</span>
+        <span v-if="!cumulative && r.v > SUSPECT_UNITS" class="rounded-full bg-neon px-1.5 text-xs font-bold text-paper">suspect</span>
         <b class="tabular-nums">{{ fmt(r.v) }}</b>
       </div>
     </div>

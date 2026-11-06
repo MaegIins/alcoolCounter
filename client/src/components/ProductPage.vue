@@ -3,7 +3,7 @@
 // complétables par tous), ma note, les chiffres, la répartition des notes, qui l'a bue, les avis, des boissons du même genre.
 import { ref, computed, watch } from 'vue'
 import { api, MAX_CL, catOf, num, fmtProduct, photoUrl, resizePhoto, timeAgo, prettyDay } from '../api'
-import { ui, goBack, openLog, openUser, openProduct, bump } from '../nav'
+import { ui, goBack, openLog, openUser, openProduct, bump, openPlace } from '../nav'
 import { toast, ask, burst, centerOf, vibrate } from '../juice'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
@@ -329,7 +329,7 @@ const zoom = ref('')
               <div class="flex flex-wrap items-center gap-x-2 text-sm">
                 <button class="font-bold hover:text-hi" @click="openUser(r.user_id)">{{ r.user_id === me.id ? 'Toi' : r.user_name }}</button>
                 <Stars v-if="r.rating" :value="r.rating" :size="12" />
-                <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}<template v-if="r.place"> · <Icon name="fa-location-dot" /> {{ r.place }}</template></span>
+                <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}<template v-if="r.place"> · <button class="hover:text-hi hover:underline" @click="openPlace(r.place_id)"><Icon name="fa-location-dot" /> {{ r.place }}</button></template></span>
                 <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
               </div>
               <p v-if="r.review" class="mt-1.5 whitespace-pre-line text-ink/90">{{ r.review }}</p>

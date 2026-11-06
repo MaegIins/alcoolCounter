@@ -1,8 +1,8 @@
 <script setup>
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
-import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today } from '../api'
-import { ui, goBack, go, openLog, openProduct, bump, setTab } from '../nav'
+import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl } from '../api'
+import { ui, goBack, go, openLog, openProduct, openPlace, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
@@ -243,6 +243,28 @@ const dayNum = (day) => Number(day.slice(8))
               </div>
             </button>
           </div>
+        </section>
+
+        <!-- Ses lieux les plus visités (seulement ceux que je peux voir) -->
+        <section v-if="data.places?.length">
+          <h2 class="kicker mb-1 border-b border-line pb-2">Ses lieux</h2>
+          <ul class="divide-y divide-line">
+            <li v-for="pl in data.places" :key="pl.id">
+              <button class="flex w-full items-center gap-3 py-2.5 text-left hover:text-hi" @click="openPlace(pl.id)">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-hi">
+                  <img v-if="pl.photo_key" :src="photoUrl(pl.photo_key)" alt="" loading="lazy" class="h-full w-full object-cover" />
+                  <Icon v-else :name="pl.home ? 'fa-house' : pl.private ? 'lock' : 'fa-location-dot'" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-semibold">{{ pl.home && isMe ? 'Chez moi' : pl.name }}</span>
+                  <span class="text-sm text-muted">
+                    {{ pl.nights }} soirée{{ pl.nights > 1 ? 's' : '' }} · {{ pl.count }} conso{{ pl.count > 1 ? 's' : '' }}
+                  </span>
+                </span>
+                <Icon name="more" class="text-faint" />
+              </button>
+            </li>
+          </ul>
         </section>
 
         <section v-if="data.top.length">
