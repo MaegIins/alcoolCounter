@@ -160,13 +160,13 @@ const dayNum = (day) => Number(day.slice(8))
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
         <p class="text-sm text-muted">
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
-          Depuis {{ since }}<template v-if="data.wins"> · <Icon name="crown" class="text-hi" /> {{ data.wins }} soirée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
+          Depuis {{ since }}<template v-if="data.wins"> · <Icon name="crown" class="text-hi" /> {{ data.wins }} journée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
         </p>
         <div class="mt-5 flex divide-x divide-line">
           <div v-for="s in [
             { l: 'Consos', v: data.count },
             { l: 'Cette année', v: data.thisYear },
-            { l: 'Soirées', v: data.nights },
+            { l: 'Jours', v: data.nights },
             { l: 'Notes', v: data.rated },
           ]" :key="s.l" class="px-4">
             <div class="text-xl font-semibold tabular-nums">{{ s.v }}</div>
@@ -258,7 +258,7 @@ const dayNum = (day) => Number(day.slice(8))
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ pl.home && isMe ? 'Chez moi' : pl.name }}</span>
                   <span class="text-sm text-muted">
-                    {{ pl.nights }} soirée{{ pl.nights > 1 ? 's' : '' }} · {{ pl.count }} conso{{ pl.count > 1 ? 's' : '' }}
+                    {{ pl.nights }} jour{{ pl.nights > 1 ? 's' : '' }} · {{ pl.count }} conso{{ pl.count > 1 ? 's' : '' }}
                   </span>
                 </span>
                 <Icon name="more" class="text-faint" />
@@ -293,7 +293,7 @@ const dayNum = (day) => Number(day.slice(8))
           <h2 class="kicker mb-3 border-b border-line pb-2">Chiffres</h2>
           <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <div class="flex justify-between"><dt class="text-muted">Verres standard</dt><dd class="font-semibold tabular-nums">{{ num(data.units) }}</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">Par soirée</dt><dd class="font-semibold tabular-nums">{{ num(data.avg) }}</dd></div>
+            <div class="flex justify-between"><dt class="text-muted">Par jour bu</dt><dd class="font-semibold tabular-nums">{{ num(data.avg) }}</dd></div>
             <div v-if="data.record" class="flex justify-between"><dt class="text-muted">Record</dt><dd class="font-semibold">{{ num(data.record.units) }} <span class="font-normal text-faint">· {{ dayLabel(data.record.day, true) }}</span></dd></div>
             <div class="flex justify-between"><dt class="text-muted">Avis écrits</dt><dd class="font-semibold tabular-nums">{{ data.reviews }}</dd></div>
             <div class="flex justify-between"><dt class="text-muted"><Icon name="water" class="text-fort" /> Eau</dt><dd class="font-semibold tabular-nums">{{ data.eau }}</dd></div>
@@ -312,7 +312,7 @@ const dayNum = (day) => Number(day.slice(8))
         </section>
 
         <section v-if="nights.length">
-          <h2 class="kicker mb-3 border-b border-line pb-2">Dernières soirées</h2>
+          <h2 class="kicker mb-3 border-b border-line pb-2">Derniers jours</h2>
           <div class="flex h-24 items-end gap-1">
             <div v-for="n in nights" :key="n.day" class="flex flex-1 flex-col items-center gap-1" :title="`${dayLabel(n.day, true)} : ${fmt(n.units)}`">
               <div

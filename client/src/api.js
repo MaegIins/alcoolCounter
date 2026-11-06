@@ -63,8 +63,8 @@ setInterval(tick, 60e3)
 document.addEventListener('visibilitychange', tick)
 export const today = () => now.value
 export const prettyDay = (day) => {
-  if (day === today()) return 'Ce soir'
-  if (day === addDays(today(), -1)) return 'Hier soir'
+  if (day === today()) return "Aujourd'hui"
+  if (day === addDays(today(), -1)) return 'Hier'
   const [y, m, d] = day.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
 }

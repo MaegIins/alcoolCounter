@@ -92,9 +92,9 @@ export const waterLine = (n) => `Verre d'eau n°${n}`
 
 // Paliers de la soirée (en verres standard) : info sobre, avec un rappel d'eau aux gros paliers
 export const MILESTONES = [
-  { at: 5, text: '5 verres ce soir' },
-  { at: 10, text: '10 verres ce soir · pense à l’eau' },
-  { at: 20, text: '20 verres ce soir · eau, et personne ne conduit' },
+  { at: 5, text: "5 verres aujourd'hui" },
+  { at: 10, text: '10 verres aujourd’hui · pense à l’eau' },
+  { at: 20, text: '20 verres aujourd’hui · eau, et personne ne conduit' },
   { at: 30, text: '30 verres · suspect' },
 ]
 export const milestoneBetween = (before, after) => MILESTONES.filter((m) => before < m.at && after >= m.at).at(-1)

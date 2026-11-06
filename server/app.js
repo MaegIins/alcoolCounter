@@ -177,7 +177,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     CREATE TABLE IF NOT EXISTS drinks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      day TEXT NOT NULL,   -- soirée (YYYY-MM-DD), décidée par le client : jusqu'à 6h on compte la veille
+      day TEXT NOT NULL,   -- journée (YYYY-MM-DD), décidée par le client : jusqu'à 6h on compte la veille
       at INTEGER NOT NULL, -- ms
       name TEXT NOT NULL,
       cat TEXT NOT NULL,
@@ -975,7 +975,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     // Pas de produit donné : on rattache quand même à la carte si la boisson y est
     productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)?.id ?? null
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND day = ?').get(req.user.id, day)
-    if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par soirée`)
+    if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par jour`)
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
       Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id, rating, review, photo, photo_key, place_id)
@@ -1143,7 +1143,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!isDay(day) || day > maxEntryDay()) return bad(res, 'Date invalide')
     if (!EXTRAS.includes(kind)) return bad(res, 'Type inconnu (eau ou clope)')
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND day = ? AND kind = ?').get(req.user.id, day, kind)
-    if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} par soirée`)
+    if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} par jour`)
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
       Number(db.prepare('INSERT INTO extras (user_id, day, at, kind) VALUES (?, ?, ?, ?)').run(req.user.id, day, at, kind).lastInsertRowid)

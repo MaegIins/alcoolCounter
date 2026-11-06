@@ -337,7 +337,7 @@ async function remove() {
             </section>
 
             <section class="flex items-center gap-2 border-t border-line pt-4">
-              <span class="flex-1 text-sm text-muted">Hors score, ce soir</span>
+              <span class="flex-1 text-sm text-muted">Hors score, aujourd'hui</span>
               <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('eau')"><Icon name="water" class="text-fort" /> Eau</button>
               <button class="btn btn-ghost px-3 py-1.5 text-sm font-medium" @click="addExtra('clope')"><Icon name="smoke" /> Clope</button>
             </section>
@@ -396,7 +396,7 @@ async function remove() {
             <span class="kicker">Bu le</span>
             <div class="mt-2 flex flex-wrap items-center gap-1.5">
               <button
-                v-for="d in [{ v: today(), l: 'Ce soir' }, { v: yesterday, l: 'Hier soir' }]"
+                v-for="d in [{ v: today(), l: 'Aujourd’hui' }, { v: yesterday, l: 'Hier' }]"
                 :key="d.l"
                 type="button"
                 class="rounded-full px-3 py-1 text-sm font-medium"
@@ -407,10 +407,10 @@ async function remove() {
               </button>
               <label class="flex items-center gap-2 rounded-full bg-raised py-1 pr-1 pl-3 text-sm text-muted">
                 <Icon name="calendar" :size="15" />
-                <input v-model="day" type="date" :max="today()" required class="bg-transparent text-ink outline-none" aria-label="Date de la soirée" />
+                <input v-model="day" type="date" :max="today()" required class="bg-transparent text-ink outline-none" aria-label="Date" />
               </label>
             </div>
-            <p class="mt-1.5 text-xs text-faint first-letter:uppercase">{{ prettyDay(day) }} · la soirée court jusqu'à 6h du matin</p>
+            <p class="mt-1.5 text-xs text-faint first-letter:uppercase">{{ prettyDay(day) }} · la journée court jusqu'à 6h du matin (la nuit compte pour la veille)</p>
           </div>
 
           <!-- Note -->

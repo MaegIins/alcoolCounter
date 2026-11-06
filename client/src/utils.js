@@ -123,7 +123,7 @@ export function urlOf({ view, userId, productId, placeId, tab }) {
   if (view === 'place') return `/lieu/${placeId}`
   return PATHS[view] ?? '/'
 }
-/** URL → état (inconnue = Ma soirée) */
+/** URL → état (inconnue = Ma journée) */
 export function parseUrl(pathname, search = '') {
   const tab = new URLSearchParams(search).get('onglet')
   let m

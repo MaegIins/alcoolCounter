@@ -10,7 +10,7 @@ const emit = defineEmits(['open']) // clic sur quelqu'un : ouvrir sa fiche
 
 const period = ref('day')
 const periods = [
-  { k: 'day', l: 'Soirée' },
+  { k: 'day', l: 'Jour' },
   { k: 'week', l: 'Semaine' },
   { k: 'month', l: 'Mois' },
   { k: 'all', l: 'Tout' },
@@ -78,7 +78,7 @@ function celebrate(before, after) {
   if (lead(after) === props.me.id && lead(before) !== props.me.id) {
     confetti()
     vibrate([40, 60, 40])
-    toast(period.value === 'day' ? 'Premier ce soir' : 'Premier', { kind: 'big', ms: 3000 })
+    toast(period.value === 'day' ? "Premier aujourd'hui" : 'Premier', { kind: 'big', ms: 3000 })
   }
 }
 async function load() {
@@ -164,7 +164,7 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
               <span
                 v-if="r.suspect_days"
                 class="shrink-0 rounded-full bg-neon px-2 text-xs font-bold text-paper"
-                :title="`${r.suspect_days} soirée(s) à plus de ${SUSPECT_UNITS} verres`"
+                :title="`${r.suspect_days} jour(s) à plus de ${SUSPECT_UNITS} verres`"
               >
                 suspect{{ period !== 'day' && r.suspect_days > 1 ? ` ×${r.suspect_days}` : '' }}
               </span>

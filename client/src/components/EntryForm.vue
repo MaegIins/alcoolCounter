@@ -108,7 +108,7 @@ async function load() {
   } catch (e) {
     if (seq !== loadSeq) return
     loadFailed.value = true
-    error.value = `Impossible de charger cette soirée (${e.message}). Recharge la page.`
+    error.value = `Impossible de charger cette journée (${e.message}). Recharge la page.`
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -165,14 +165,14 @@ const sinceLast = computed(() => {
 <template>
   <section class="space-y-8">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="font-display text-2xl">Ma soirée</h2>
+      <h2 class="font-display text-2xl">Ma journée</h2>
       <div class="flex items-center rounded-full bg-white/5 p-1 text-sm font-semibold">
-        <button class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10" aria-label="Soirée précédente" @click="day = addDays(day, -1)"><Icon name="prev" /></button>
+        <button class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10" aria-label="Jour précédent" @click="day = addDays(day, -1)"><Icon name="prev" /></button>
         <span class="min-w-24 px-1 text-center first-letter:uppercase">{{ prettyDay(day) }}</span>
         <button
           class="h-8 w-8 rounded-full text-lg text-hi hover:bg-white/10 disabled:opacity-20"
           :disabled="isToday"
-          aria-label="Soirée suivante"
+          aria-label="Jour suivant"
           @click="day = addDays(day, 1)"
         >
           <Icon name="more" />
@@ -278,7 +278,7 @@ const sinceLast = computed(() => {
       <Pager v-model="page" :pages="pages" label="Pages de l'addition" class="mt-4" @change="toAddition" />
     </div>
     <p v-else-if="!loading && !loadFailed" class="text-center text-sm text-muted">
-      Rien {{ isToday ? 'ce soir' : 'cette soirée-là' }}.
+      Rien {{ isToday ? "aujourd'hui" : 'ce jour-là' }}.
       <button class="font-semibold text-hi hover:underline" @click="openLog({ day })"><Icon name="plus" /> Ajouter un verre</button>
     </p>
   </section>

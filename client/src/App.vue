@@ -111,7 +111,7 @@ function myProfile() {
 }
 
 const TABS = [
-  { k: 'home', l: 'Ma soirée', icon: 'home' },
+  { k: 'home', l: 'Ma journée', icon: 'home' },
   { k: 'feed', l: 'Activité', icon: 'feed' },
   { k: 'plus' },
   { k: 'carte', l: 'La carte', icon: 'carte' },
@@ -164,7 +164,7 @@ async function logout() {
     </header>
 
     <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2">
-      <p class="min-w-0 flex-1 text-muted">Le plus gros buveur de la soirée gagne.</p>
+      <p class="min-w-0 flex-1 text-muted">Le plus gros buveur du jour gagne.</p>
       <!-- Bande courante -->
       <!-- Nom de bande long : coupé avec « … » sur une ligne (le nom entier est dans la liste et en infobulle) -->
       <div v-if="me && group" class="relative max-w-[55%] shrink-0">
@@ -223,7 +223,7 @@ async function logout() {
           </template>
           <p class="text-sm text-muted">
             Score en verres standard : 10 g d'alcool pur, calculé sur le volume et le degré de chaque verre
-            (une pinte de triple compte presque double d'une pinte de blonde). La soirée court jusqu'à 6h du matin.
+            (une pinte de triple compte presque double d'une pinte de blonde). La journée court jusqu'à 6h du matin : la nuit compte pour la veille.
             L'eau, les clopes et le sans alcool (Monster, sodas…) sont comptés à part.
           </p>
         </div>

@@ -171,11 +171,11 @@ const detailSegments = computed(() =>
           <h3 class="font-bold">La course</h3>
           <div class="flex rounded-full bg-white/5 p-1">
             <button class="seg" :aria-pressed="raceMode === 'cumul'" @click="raceMode = 'cumul'">Cumul</button>
-            <button class="seg" :aria-pressed="raceMode === 'nuit'" @click="raceMode = 'nuit'">Par soirée</button>
+            <button class="seg" :aria-pressed="raceMode === 'nuit'" @click="raceMode = 'nuit'">Par jour</button>
           </div>
         </div>
         <p class="text-sm text-muted">
-          {{ cumulative ? `Verres standard cumulés sur ${span} jours : le premier en haut à droite mène` : 'Verres standard de chaque soirée' }}
+          {{ cumulative ? `Verres standard cumulés sur ${span} jours : le premier en haut à droite mène` : 'Verres standard de chaque journée' }}
         </p>
       </div>
       <div class="px-3 pt-3 pb-2">
@@ -221,7 +221,7 @@ const detailSegments = computed(() =>
         <table class="w-full text-sm">
           <thead>
             <tr class="text-muted">
-              <th class="px-4 py-2 text-left font-semibold">Soirée</th>
+              <th class="px-4 py-2 text-left font-semibold">Jour</th>
               <th v-for="s in series" :key="s.id" class="px-4 py-2 text-right font-semibold">{{ s.name }}</th>
             </tr>
           </thead>

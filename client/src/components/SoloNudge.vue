@@ -125,7 +125,7 @@ const FAKE = [
       <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-paper/50 p-6 text-center">
         <Icon name="lock" :size="28" class="text-hi" />
         <p class="font-bold">Le classement, c'est entre potes.</p>
-        <p class="text-sm text-muted">Qui boit le plus ce soir, qui gagne la semaine, qui est suspect : il te faut une bande.</p>
+        <p class="text-sm text-muted">Qui boit le plus aujourd'hui, qui gagne la semaine, qui est suspect : il te faut une bande.</p>
         <button class="btn btn-hi px-5 py-2.5 font-bold" @click="emit('focus')">Rejoindre ou créer une bande</button>
       </div>
     </div>

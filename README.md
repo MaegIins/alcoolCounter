@@ -21,7 +21,7 @@ npm test             # serveur + client, sans dépendance (node:test)
 
 - `server/test/api.test.js` : toutes les routes sur une base en mémoire.
 - `server/test/unit.test.js` : dates, pseudos, calcul des verres standard.
-- `client/test/utils.test.js` : dates locales, soirée qui finit à 6h, graduations des graphes.
+- `client/test/utils.test.js` : dates locales, journée qui finit à 6h, graduations des graphes.
 
 ## Prod (un seul process)
 
@@ -36,7 +36,7 @@ Variables d'env :
 - `DATA_DIR` : dossier de la base SQLite (défaut `server/data/`)
 - `ADMINS` : pseudos admin séparés par des virgules (ex. `ADMINS=tristan,léa`). Un admin peut modifier ou retirer
   n'importe quel produit de la carte. Relu à chaque démarrage.
-- `APP_TZ` : fuseau des soirées, pour les badges liés à l'heure (défaut `Europe/Paris`)
+- `APP_TZ` : fuseau des journées, pour les badges liés à l'heure (défaut `Europe/Paris`)
 
 Ces variables peuvent aussi aller dans `server/.env` (non versionné), lu par `npm run dev` et `npm start`.
 - `TRUST_PROXY` : derrière un reverse proxy (Caddy, Nginx…), mets `TRUST_PROXY=1` pour que les limites par IP voient
@@ -64,12 +64,12 @@ Un encart en haut de l'accueil permet de rejoindre une bande avec son code ou d'
 
 ### L'appli
 
-Barre du bas : **Ma soirée · Activité · ＋ · La carte · Profil**.
+Barre du bas : **Ma journée · Activité · ＋ · La carte · Profil**.
 Chaque écran a son adresse (on peut recharger, partager un lien, utiliser le bouton retour) :
-`/` Ma soirée, `/activite`, `/carte`, `/reglages`, `/profil/12` (`?onglet=boissons|journal|badges`), `/boisson/34`, `/lieu/5`.
+`/` Ma journée, `/activite`, `/carte`, `/reglages`, `/profil/12` (`?onglet=boissons|journal|badges`), `/boisson/34`, `/lieu/5`.
 En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 
-- **Ma soirée** (accueil) : le verre qui se remplit, 💧 eau et 🚬 clopes, **L'addition** de la soirée
+- **Ma journée** (accueil) : le verre qui se remplit, 💧 eau et 🚬 clopes, **L'addition** de la journée
   (4 lignes par page par défaut, réglable), puis le classement et les stats. Chaque ligne de l'addition a un
   bouton **★ Noter** (note, avis, photo, date). On ajoute un verre avec le ＋.
 - **＋** : ajouter une conso en détail : on cherche la boisson (carte + habitudes), un favori, un format ou du
@@ -80,7 +80,7 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 - **Pas que de l'alcool** : catégories Énergisant (Monster, Red Bull…), Soft et Café/thé, plus les 0.0.
   Notées et dans le journal comme le reste, mais **hors score** (degré 0).
 - **Profil** : stats, **top 4** (4 boissons de la carte choisies, touche une place pour la changer),
-  activité récente, boissons les plus bues avec « Moi aussi », chiffres, dernières soirées ;
+  activité récente, boissons les plus bues avec « Moi aussi », chiffres, derniers jours ;
   onglet **Boissons** (toutes les boissons différentes bues, avec recherche, filtres par catégorie ou « avec avis »,
   et tris : les plus bues, mieux / moins bien notées, récentes, oubliées, le plus d'alcool, A→Z ; en touchant une
   boisson : combien de fois, première et dernière fois, note moyenne, et toutes les consos avec avis et photos),
@@ -107,11 +107,11 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   genre ». N'importe qui peut compléter une info ou une photo manquante ; changer ce qui est déjà rempli reste
   à l'auteur ou à un admin.
 - **Score** en **verres standard** (10 g d'alcool pur) : `grammes = cl × 10 × degré/100 × 0,8`.
-  Une pinte de blonde (50 cl, 5°) = 2 ; une pinte de triple (8,5°) = 3,4. La soirée court jusqu'à 6h du matin.
-- **Classement** par soirée, semaine, mois ou depuis le début, avec podium ; stats sur 7 ou 30 jours.
+  Une pinte de blonde (50 cl, 5°) = 2 ; une pinte de triple (8,5°) = 3,4. La journée court jusqu'à 6h du matin (la nuit compte pour la veille).
+- **Classement** par jour, semaine, mois ou depuis le début, avec podium ; stats sur 7 ou 30 jours.
   Le détail par catégorie se lit en **consos** (toutes les catégories, sans alcool compris) ou en **verres standard**.
-  **Victoires** (♛) = soirées gagnées ; **suspect** au-delà de 30 verres standard. Limites : 200 cl par verre,
-  100 verres par soirée.
+  **Victoires** (♛) = journées gagnées ; **suspect** au-delà de 30 verres standard. Limites : 200 cl par verre,
+  100 verres par jour.
 - **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
 - **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
@@ -126,7 +126,7 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   avec le lieu prérempli), modification (même formulaire que la liste) : nom, **photo, description, adresse**
   (lien OpenStreetMap), position, visibilité. Les autres peuvent compléter ce qui manque (jamais sur un « Chez X »,
   dont l'adresse et la position restent visibles par son seul propriétaire). Les profils montrent **« Ses lieux »** :
-  les plus fréquentés (en soirées), parmi ceux que tu as le droit de voir. Un lieu privé reste introuvable (404)
+  les plus fréquentés (en jours), parmi ceux que tu as le droit de voir. Un lieu privé reste introuvable (404)
   pour qui n'est pas autorisé.
 - **Lieux** : « Où ? » à l'ajout d'un verre (facultatif, avec mes lieux récents en suggestion). Les lieux sont une
   table à part (`places`), partagée par tout le monde : même nom sans la casse = même lieu, et chaque conso pointe

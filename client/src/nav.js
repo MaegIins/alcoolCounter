@@ -61,7 +61,7 @@ export function setTab(tab) {
   ui.tab = tab
   history.replaceState(state(), '', urlOf(ui))
 }
-/** « ← Retour » : l'écran d'avant dans l'appli, sinon Ma soirée */
+/** « ← Retour » : l'écran d'avant dans l'appli, sinon Ma journée */
 export function goBack() {
   if (ui.back) history.back()
   else go('home')
