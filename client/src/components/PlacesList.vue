@@ -43,7 +43,7 @@ watch([search, onlyMine], () => (page.value = 1))
 watch(pages, (n) => page.value > n && (page.value = n))
 const listTop = ref(null)
 const toTop = () => listTop.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-const mapRef = ref(null) // « Voir sur la carte » : centre la carte sur le lieu et ouvre sa bulle
+const mapRef = ref(null) // « Voir sur le plan » : centre la carte sur le lieu et ouvre sa bulle
 const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
 </script>
 
@@ -84,7 +84,7 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
               <template v-if="p.last_at"> · dernière fois {{ lastLabel(p.last_at) }}</template>
             </span>
             <button v-if="p.lat != null" class="text-xs font-semibold text-hi hover:underline" @click="mapRef?.focus(p.id)">
-              <Icon name="fa-map-location-dot" /> Voir sur la carte
+              <Icon name="fa-map-location-dot" /> Voir sur le plan
             </button>
             <span v-else class="text-xs text-faint">Pas encore de position</span>
           </span>
@@ -104,7 +104,7 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
 
     <Pager v-model="page" :pages="pages" label="Pages des lieux" @change="toTop" />
 
-    <!-- La carte : mêmes lieux que la liste (recherche et filtre compris) -->
+    <!-- Le plan : mêmes lieux que la liste (recherche et filtre compris) -->
     <PlacesMap v-if="loaded" ref="mapRef" class="pt-4" :places="shown" />
   </div>
 </template>

@@ -166,7 +166,7 @@ const draftValid = computed(() => {
   const d = draft.value
   return d && d.name.trim() && d.cl > 0 && d.cl <= MAX_CL && d.abv >= 0 && d.abv <= 100
 })
-const draftUnits = computed(() => (draft.value?.cl > 0 && draft.value?.abv > 0 ? unitsOf(draft.value) : 0))
+const draftUnits = computed(() => (draft.value?.cat !== 'biere' && draft.value?.cl > 0 && draft.value?.abv > 0 ? unitsOf(draft.value) : 0))
 async function create() {
   if (!draftValid.value) return
   error.value = ''
@@ -225,7 +225,7 @@ async function create() {
         <span class="text-xl font-bold">Nouveau produit</span>
         <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="draft = null">Annuler</button>
       </div>
-      <DrinkFields v-model="draft" name-placeholder="Nom : Chouffe, Leffe Ruby, Ricard…" />
+      <DrinkFields v-model="draft" carte name-placeholder="Nom : Chouffe, Leffe Ruby, Ricard…" />
       <PhotoField v-model="draft.photo" label="Ajouter une photo (canette, bouteille…)" />
       <details class="rounded-xl bg-white/[.03] px-4 py-3">
         <summary class="cursor-pointer text-sm font-semibold text-muted"><Icon name="plus" /> Infos : producteur, origine, style, description</summary>
@@ -285,7 +285,7 @@ async function create() {
               <span class="text-lg font-bold">Modifier « {{ p.name }} »</span>
               <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="editing = null">Annuler</button>
             </div>
-            <DrinkFields v-model="editing" name-placeholder="Nom" />
+            <DrinkFields v-model="editing" carte name-placeholder="Nom" />
             <PhotoField v-model="editing.photo" :current="photoUrl(p.photo_key)" />
             <p class="text-sm text-muted">Les verres déjà bus ne changent pas : seule la carte est corrigée.</p>
             <button :disabled="!editValid" class="btn btn-hi w-full py-3 font-bold disabled:opacity-40">Enregistrer · {{ num(unitsOf(editing)) }} verre{{ unitsOf(editing) >= 2 ? 's' : '' }}</button>

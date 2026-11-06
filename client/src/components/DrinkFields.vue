@@ -9,6 +9,8 @@ const drink = defineModel({ type: Object, required: true })
 defineProps({
   full: { type: Boolean, default: true }, // false : seulement degré + nom (format déjà choisi)
   namePlaceholder: { type: String, default: 'Nom' },
+  // Fiche de la carte : une bière n'a pas de volume fixe (le format se choisit à chaque verre)
+  carte: { type: Boolean, default: false },
 })
 const VOLUMES = [4, 12, 25, 33, 50]
 watch(() => drink.value.cat, (c) => {
@@ -35,7 +37,7 @@ const chip = 'rounded-full px-3 py-1 text-sm font-medium transition-colors'
       </button>
     </div>
 
-    <div v-if="full">
+    <div v-if="full && !(carte && drink.cat === 'biere')">
       <span class="kicker">Volume</span>
       <div class="mt-2 flex flex-wrap items-center gap-1.5">
         <label class="flex items-center gap-1.5 text-muted">

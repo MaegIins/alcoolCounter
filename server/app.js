@@ -1501,9 +1501,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       WHERE p.cat = ? AND p.id != ? ORDER BY rating IS NULL, rating DESC, logs DESC, p.name LIMIT 8
     `).all(req.user.id, p.cat, p.id)
     const myLast = db.prepare('SELECT rating FROM drinks WHERE product_id = ? AND user_id = ? AND rating IS NOT NULL ORDER BY at DESC LIMIT 1').get(p.id, req.user.id)
+    // Où on la boit le plus (seulement les lieux que je peux voir)
+    const places = db.prepare(`
+      SELECT d.place_id AS id, place_label(d.place_id) AS name, pl.private, pl.home_of IS NOT NULL AS home, pl.photo_key,
+        COUNT(*) AS count, COUNT(DISTINCT d.user_id) AS drinkers, ROUND(AVG(d.rating), 1) AS rating
+      FROM drinks d JOIN places pl ON pl.id = d.place_id
+      WHERE d.product_id = ? AND place_visible(d.place_id)
+      GROUP BY d.place_id ORDER BY count DESC, MAX(d.at) DESC LIMIT 6
+    `).all(p.id).map((r) => ({ ...r, private: !!r.private, home: !!r.home }))
     res.json({
       ...productOut(p), hist, drinkers, mine: mine.n, marked, tried: marked || mine.n > 0, myRating: myLast?.rating ?? null,
-      reviews: reviews.map(logOut), people, similar: similar.map(productOut),
+      reviews: reviews.map(logOut), people, places, similar: similar.map(productOut),
     })
   })
 

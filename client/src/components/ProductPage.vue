@@ -258,7 +258,7 @@ const zoom = ref('')
           <span class="text-lg font-bold">{{ canManage ? 'Modifier la fiche' : 'Compléter la fiche' }}</span>
           <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="editing = null">Annuler</button>
         </div>
-        <DrinkFields v-if="canManage" v-model="editing.drink" />
+        <DrinkFields v-if="canManage" v-model="editing.drink" carte />
         <InfoFields v-model="editing.info" :locked="locked" />
         <p v-if="locked.length" class="text-xs text-faint">Les champs grisés sont déjà remplis : seul {{ p.created_by_name ?? "l'auteur" }} ou un admin peut les changer.</p>
         <PhotoField v-if="canManage || !p.photo_key" v-model="editing.photo" :current="photo" />
@@ -307,6 +307,29 @@ const zoom = ref('')
             <span class="text-[10px] text-muted">{{ u.count ? `×${u.count}` : 'déjà bue' }}</span>
           </button>
         </div>
+      </section>
+
+      <!-- Où on la boit le plus (seulement les lieux que je peux voir) -->
+      <section v-if="p.places?.length" class="mt-8">
+        <h2 class="mb-1 border-b border-white/5 pb-2 text-lg font-bold">Où on la boit</h2>
+        <ul class="divide-y divide-white/5">
+          <li v-for="pl in p.places" :key="pl.id">
+            <button class="flex w-full items-center gap-3 py-2.5 text-left hover:text-hi" @click="openPlace(pl.id)">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-hi">
+                <img v-if="pl.photo_key" :src="photoUrl(pl.photo_key)" alt="" loading="lazy" class="h-full w-full object-cover" />
+                <Icon v-else :name="pl.home ? 'fa-house' : pl.private ? 'lock' : 'fa-location-dot'" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-semibold">{{ pl.name }}</span>
+                <span class="flex items-center gap-2 text-sm text-muted">
+                  {{ pl.drinkers }} buveur{{ pl.drinkers > 1 ? 's' : '' }}
+                  <Stars v-if="pl.rating" :value="Math.round(pl.rating)" :size="11" />
+                </span>
+              </span>
+              <span class="shrink-0 font-display text-xl leading-none text-hi">×{{ pl.count }}</span>
+            </button>
+          </li>
+        </ul>
       </section>
 
       <!-- Avis -->

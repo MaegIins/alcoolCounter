@@ -128,6 +128,23 @@ async function focus(id) {
 }
 defineExpose({ focus })
 
+// Plein écran : la carte recouvre l'appli (Échap ou ✕ pour sortir). Pas l'API Fullscreen : absente sur iPhone.
+const full = ref(false)
+async function toggleFull(on = !full.value) {
+  full.value = on
+  document.body.style.overflow = on ? 'hidden' : ''
+  await nextTick()
+  map?.invalidateSize()
+  if (compact.value) centerOnFocus()
+  else fitAll()
+}
+const onKey = (e) => e.key === 'Escape' && full.value && toggleFull(false)
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  if (full.value) document.body.style.overflow = ''
+})
+
 // Ma position (pour voir les lieux autour de moi)
 const locating = ref(false)
 function locateMe() {
@@ -152,15 +169,27 @@ function locateMe() {
 <template>
   <section class="space-y-3">
     <div v-if="!compact" class="flex flex-wrap items-center justify-between gap-2">
-      <h3 class="text-lg font-bold"><Icon name="fa-map-location-dot" class="text-hi" /> La carte des lieux</h3>
+      <h3 class="text-lg font-bold"><Icon name="fa-map-location-dot" class="text-hi" /> Le plan</h3>
       <div class="flex gap-2 text-sm">
-        <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="!located.length" @click="fitAll"><Icon name="fa-expand" /> Tout voir</button>
+        <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="!located.length" @click="fitAll"><Icon name="fa-earth-europe" /> Tout voir</button>
         <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="locating" @click="locateMe"><Icon name="fa-location-crosshairs" /> Autour de moi</button>
       </div>
     </div>
     <!-- isolate : les calques Leaflet (z-index 400+) restent sous la barre du bas et les fenêtres de l'appli -->
-    <div class="box relative isolate">
-      <div ref="el" class="ardoise-map w-full" :class="compact ? 'h-60' : 'h-80 sm:h-96'" role="application" :aria-label="compact ? 'Carte du lieu' : 'Carte des lieux'" tabindex="0" />
+    <!-- Plein écran : le bloc part dans <body> (un parent animé piégerait le position: fixed) ; Leaflet suit son élément -->
+    <Teleport to="body" :disabled="!full">
+    <div class="isolate" :class="full ? 'fixed inset-0 z-[95] bg-paper' : 'box relative'">
+      <!-- La taille va sur ce conteneur : Vue ne doit jamais réécrire la classe de l'élément de Leaflet (il y ajoute les siennes) -->
+      <div :class="full ? 'h-full' : compact ? 'h-60' : 'h-80 sm:h-96'">
+        <div ref="el" class="ardoise-map h-full w-full" role="application" :aria-label="compact ? 'Plan du lieu' : 'Plan des lieux'" tabindex="0" />
+      </div>
+      <button
+        class="absolute top-2.5 right-2.5 z-[500] flex h-9 w-9 items-center justify-center rounded-full bg-panel text-hi shadow-lg shadow-black/60 hover:bg-raised"
+        :aria-label="full ? 'Quitter le plein écran' : 'Plein écran'"
+        @click="toggleFull()"
+      >
+        <Icon :name="full ? 'fa-xmark' : 'fa-expand'" />
+      </button>
       <!-- Page d'un lieu : revenir sur lui après avoir déplacé la carte -->
       <button v-if="compact" class="absolute right-2.5 bottom-7 z-[500] flex h-9 w-9 items-center justify-center rounded-full bg-panel text-hi shadow-lg shadow-black/60 hover:bg-raised" aria-label="Recentrer sur le lieu" @click="centerOnFocus">
         <Icon name="fa-location-crosshairs" />
@@ -172,6 +201,7 @@ function locateMe() {
         </p>
       </div>
     </div>
+    </Teleport>
     <p v-if="!compact" class="text-xs text-faint">
       {{ located.length }} lieu{{ located.length > 1 ? 'x' : '' }} sur {{ places.length }} ont une position.
       Seuls ceux que tu as le droit de voir apparaissent ; la position d'un « Chez … » n'est montrée qu'à son propriétaire.

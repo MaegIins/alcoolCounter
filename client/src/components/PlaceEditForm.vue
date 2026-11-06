@@ -102,7 +102,7 @@ async function save() {
       <PhotoField v-model="e.photo" class="mt-1" :current="photoUrl(place.photo_key)" label="Ajouter une photo du lieu" />
     </div>
     <div v-if="canCoords">
-      <span class="kicker">Position (pour la carte)</span>
+      <span class="kicker">Position (pour le plan)</span>
       <div class="mt-1 grid grid-cols-2 gap-2">
         <input v-model="e.lat" type="number" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Latitude" class="field px-3 py-2 text-base" />
         <input v-model="e.lng" type="number" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Longitude" class="field px-3 py-2 text-base" />

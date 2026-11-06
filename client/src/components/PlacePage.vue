@@ -85,6 +85,21 @@ const drinkHere = () => openLog({ place: p.value.name })
         </div>
       </header>
 
+      <!-- Le plus bu ici -->
+      <button
+        v-if="p.drinks.length"
+        class="mt-4 flex w-full items-center gap-3 rounded-xl bg-hi/10 p-3 text-left"
+        :class="p.drinks[0].product_id && 'hover:bg-hi/15'"
+        @click="p.drinks[0].product_id && openProduct(p.drinks[0].product_id)"
+      >
+        <Poster :drink="p.drinks[0]" :width="40" :icon="40" />
+        <span class="min-w-0 flex-1">
+          <span class="kicker block text-hi">Le plus bu ici</span>
+          <span class="block truncate font-bold">{{ p.drinks[0].name }}</span>
+        </span>
+        <span class="shrink-0 font-display text-xl leading-none text-hi">×{{ p.drinks[0].count }}</span>
+      </button>
+
       <!-- Description -->
       <div v-if="p.description" class="mt-4">
         <p class="whitespace-pre-line text-ink/90" :class="p.description.length > 300 && !descOpen && 'line-clamp-5'">{{ p.description }}</p>

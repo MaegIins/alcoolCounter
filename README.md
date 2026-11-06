@@ -115,7 +115,7 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
 - **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
 - **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
-- **Carte des lieux** (La carte › Lieux, sous la liste) : Leaflet + tuiles OpenStreetMap assombries. Seuls les lieux
+- **Le plan des lieux** (La carte › Lieux, sous la liste ; bouton plein écran) : Leaflet + tuiles OpenStreetMap assombries. Seuls les lieux
   que tu as le droit de voir et qui ont une position (le serveur ne renvoie jamais la position d'un « Chez X » d'un
   autre). Repère doré (public) ou rouge à cadenas (privé), maison pour un chez-soi, taille selon la fréquentation ;
   bulle avec photo, adresse, chiffres et « Voir le lieu ». Suit la recherche et le filtre de la liste ; « Voir sur la
