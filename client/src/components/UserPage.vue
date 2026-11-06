@@ -202,7 +202,7 @@ const dayNum = (day) => Number(day.slice(8))
       </nav>
 
       <!-- Profil -->
-      <div v-if="tab === 'profil'" class="space-y-9 pt-6">
+      <div v-if="tab === 'profil'" class="space-y-9 pt-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-12 lg:gap-y-9 lg:space-y-0">
         <section>
           <h2 class="kicker mb-3 border-b border-line pb-2">Top 4</h2>
           <div class="grid grid-cols-4 items-start gap-2.5">
@@ -380,7 +380,7 @@ const dayNum = (day) => Number(day.slice(8))
       <!-- Badges -->
       <div v-else class="pt-6">
         <p class="mb-4 text-sm text-muted">{{ data.badges.filter((b) => b.got).length }} sur {{ data.badges.length }}</p>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-3 gap-2 lg:grid-cols-5">
           <div
             v-for="b in data.badges"
             :key="b.key"

@@ -66,8 +66,8 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
     </button>
 
     <p v-if="loaded && !shown.length" class="py-10 text-center text-muted">Aucun lieu pour l'instant.</p>
-    <ul v-else class="box divide-y divide-white/5">
-      <li v-for="p in paged" :key="p.id" class="px-4 py-3">
+    <ul v-else class="box divide-y divide-white/5 lg:grid lg:grid-cols-2 lg:divide-y-0">
+      <li v-for="p in paged" :key="p.id" class="px-4 py-3 lg:border-b lg:border-white/5 lg:odd:border-r">
         <div class="flex items-center gap-3">
           <button class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-hi hover:bg-white/10" :aria-label="`Page de ${p.name}`" @click="openPlace(p.id)">
             <img v-if="p.photo_key" :src="photoUrl(p.photo_key)" alt="" loading="lazy" class="h-full w-full object-cover" />

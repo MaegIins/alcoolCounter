@@ -117,6 +117,8 @@ const TABS = [
   { k: 'carte', l: 'La carte', icon: 'carte' },
   { k: 'me', l: 'Profil', icon: 'user' },
 ]
+// Sur PC : plus large ; l'accueil passe sur deux colonnes (trois sur très grand écran)
+const width = computed(() => (me.value ? 'lg:max-w-7xl' : 'lg:max-w-lg')) // même largeur partout une fois connecté
 const active = (k) => (k === 'me' ? (ui.view === 'user' && ui.userId === me.value?.id) || ui.view === 'settings' : ui.view === k)
 function tap(k) {
   groupMenu.value = false
@@ -145,29 +147,54 @@ async function logout() {
 </script>
 
 <template>
-  <div class="relative min-h-screen px-4" :class="me ? 'pb-32' : 'pb-16'">
+  <div class="relative min-h-screen px-4 lg:px-8" :class="me ? 'pb-32 lg:pb-16' : 'pb-16'">
     <Grime />
-    <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2">
-      <button class="text-left" @click="go('home')">
-        <h1 class="font-drip text-[2.9rem] leading-[.85] text-hi sm:text-6xl">
+    <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2" :class="width">
+      <button class="shrink-0 text-left" @click="go('home')">
+        <h1 class="font-drip text-[2.9rem] leading-[.85] whitespace-nowrap text-hi sm:text-6xl lg:text-5xl xl:text-6xl">
           L’<span class="flicker text-ink/80">Ardoise</span>
         </h1>
       </button>
-      <!-- Le profil est dans la barre du bas ; ici, juste la recherche -->
+      <!-- PC : les onglets sont ici (la barre du bas est réservée au mobile) -->
+      <nav v-if="me" class="ml-auto hidden shrink-0 items-center gap-1 lg:flex" aria-label="Navigation">
+        <template v-for="t in TABS" :key="t.k">
+          <button
+            v-if="t.k === 'plus'"
+            class="btn btn-hi mx-2 flex shrink-0 items-center gap-2 rounded-full px-5 py-2.5 font-bold whitespace-nowrap"
+            aria-label="Ajouter une conso (date, note, avis, photo)"
+            @click="tap('plus')"
+          >
+            <Icon name="plus" :size="18" /> Ajouter
+          </button>
+          <button
+            v-else
+            class="btn flex shrink-0 items-center gap-2 px-3.5 py-2.5 font-bold whitespace-nowrap transition-colors"
+            :title="t.l"
+            :class="active(t.k) ? 'btn-hi' : 'text-muted hover:text-ink'"
+            :aria-current="active(t.k) ? 'page' : undefined"
+            @click="tap(t.k)"
+          >
+            <Avatar v-if="t.k === 'me'" :user="me" :color="colors[me.id]" :size="22" class="rounded-full" />
+            <Icon v-else :name="t.icon" :size="18" />
+            <span class="hidden xl:inline">{{ t.l }}</span>
+          </button>
+        </template>
+      </nav>
+      <!-- Mobile : le profil est dans la barre du bas ; ici, juste la recherche -->
       <button
         v-if="me"
-        class="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 text-xl hover:bg-white/10"
+        class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/5 text-xl hover:bg-white/10"
         title="Chercher une personne ou une boisson"
         aria-label="Rechercher"
         @click="searching = true"
       ><Icon name="search" :size="19" /></button>
     </header>
 
-    <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2">
+    <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2" :class="width">
       <p class="min-w-0 flex-1 text-muted">Le plus gros buveur du jour gagne.</p>
       <!-- Bande courante -->
       <!-- Nom de bande long : coupé avec « … » sur une ligne (le nom entier est dans la liste et en infobulle) -->
-      <div v-if="me && group" class="relative max-w-[55%] shrink-0">
+      <div v-if="me && group" class="relative max-w-[55%] shrink-0 lg:max-w-xs">
         <button
           class="flex max-w-full items-center gap-1.5 rounded-full bg-white/5 py-1.5 pr-3 pl-3 text-sm font-bold whitespace-nowrap hover:bg-white/10"
           :title="group.name"
@@ -194,7 +221,7 @@ async function logout() {
       </div>
     </div>
 
-    <main v-if="ready" class="relative mx-auto max-w-lg">
+    <main v-if="ready" class="relative mx-auto max-w-lg" :class="width">
       <AuthCard v-if="!me" :invite="inviteCode" @logged="onLogged" />
       <Transition v-else name="page" mode="out-in">
         <div v-if="ui.view === 'settings'" key="s" class="space-y-8">
@@ -214,14 +241,19 @@ async function logout() {
         <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
         <UserPage v-else-if="ui.view === 'user'" :key="'u' + ui.userId + '-' + currentGroup" :user-id="ui.userId" :me="me" :colors="colors" />
         <div v-else :key="'h' + currentGroup" class="space-y-16">
-          <SoloNudge v-if="solo" ref="nudge" @changed="loadGroups" />
-          <EntryForm v-model:day="day" :solo="solo" @saved="bump" @carte="go('carte')" @bandes="focusNudge" />
-          <SoloNudge v-if="solo" variant="teaser" @focus="focusNudge" />
-          <template v-else>
-            <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="ui.refresh" @open="openUser" />
-            <Stats :users="users" :colors="colors" :me="me" :refresh-key="ui.refresh" />
-          </template>
-          <p class="text-sm text-muted">
+          <!-- PC : 2 colonnes (saisie | classement + stats), 3 sur très grand écran -->
+          <div class="space-y-16 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-x-12 lg:gap-y-16 lg:space-y-0 2xl:grid-cols-[minmax(0,4fr)_minmax(0,4fr)_minmax(0,5fr)]">
+            <div class="space-y-16 lg:row-span-2 2xl:row-span-1">
+              <SoloNudge v-if="solo" ref="nudge" @changed="loadGroups" />
+              <EntryForm v-model:day="day" :solo="solo" @saved="bump" @carte="go('carte')" @bandes="focusNudge" />
+            </div>
+            <SoloNudge v-if="solo" variant="teaser" @focus="focusNudge" />
+            <template v-else>
+              <Leaderboard :day="day" :me="me" :colors="colors" :refresh-key="ui.refresh" @open="openUser" />
+              <Stats class="lg:col-start-2 2xl:col-start-3 2xl:row-start-1" :users="users" :colors="colors" :me="me" :refresh-key="ui.refresh" />
+            </template>
+          </div>
+          <p class="text-sm text-muted lg:max-w-3xl">
             Score en verres standard : 10 g d'alcool pur, calculé sur le volume et le degré de chaque verre
             (une pinte de triple compte presque double d'une pinte de blonde). La journée court jusqu'à 6h du matin : la nuit compte pour la veille.
             L'eau, les clopes et le sans alcool (Monster, sodas…) sont comptés à part.
@@ -230,7 +262,7 @@ async function logout() {
       </Transition>
     </main>
 
-    <footer class="relative mx-auto mt-16 max-w-lg border-t border-white/5 pt-4 text-sm text-muted">
+    <footer class="relative mx-auto mt-16 max-w-lg border-t border-white/5 pt-4 text-sm text-muted" :class="width">
       L'abus d'alcool est dangereux pour la santé, fumer tue. Ne prends pas le volant.
       Besoin d'en parler : Alcool Info Service
       <a href="tel:0980980930" class="text-ink underline underline-offset-4">0 980 980 930</a>,
@@ -240,7 +272,7 @@ async function logout() {
     <!-- Onglets en bas d'écran, avec le « + » au milieu -->
     <nav
       v-if="me"
-      class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/85 backdrop-blur-md"
+      class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/85 backdrop-blur-md lg:hidden"
       style="padding-bottom: env(safe-area-inset-bottom)"
     >
       <div class="mx-auto flex max-w-lg items-center gap-1.5 px-2 py-2">

@@ -61,7 +61,7 @@ async function more() {
         <p class="text-muted">Rien pour l'instant.</p>
         <button class="mt-3 font-semibold text-hi hover:underline" @click="openLog()">Ajoute ton premier verre</button>
       </div>
-      <TransitionGroup tag="div" name="item" class="divide-y divide-white/5">
+      <TransitionGroup tag="div" name="item" class="divide-y divide-white/5 lg:grid lg:grid-cols-2 lg:gap-x-10 lg:divide-y-0 lg:[&>*]:border-b lg:[&>*]:border-white/5">
         <LogCard v-for="l in items" :key="l.id" :log="l" :me="me" :colors="colors" />
       </TransitionGroup>
       <button v-if="next" class="btn btn-ghost mt-4 w-full py-2.5 text-sm font-medium" :disabled="loadingMore" @click="more">

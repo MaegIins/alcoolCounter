@@ -277,8 +277,8 @@ async function create() {
       <p v-if="loaded && shown.length" class="text-sm text-muted">
         {{ shown.length }} boisson{{ shown.length > 1 ? 's' : '' }}<template v-if="pages > 1"> · page {{ page }} sur {{ pages }}</template>
       </p>
-      <ul v-if="shown.length" class="box divide-y divide-white/5">
-        <li v-for="p in paged" :key="p.id">
+      <ul v-if="shown.length" class="box divide-y divide-white/5 lg:grid lg:grid-cols-2 lg:divide-y-0">
+        <li v-for="p in paged" :key="p.id" class="lg:border-b lg:border-white/5 lg:odd:border-r">
           <!-- Mode édition -->
           <form v-if="editing?.id === p.id" class="space-y-5 bg-white/[.03] p-5" @submit.prevent="saveEdit">
             <div class="flex items-center justify-between">
