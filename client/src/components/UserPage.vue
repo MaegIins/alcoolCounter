@@ -2,7 +2,7 @@
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
 import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl } from '../api'
-import { ui, goBack, go, openLog, openProduct, openPlace, bump, setTab } from '../nav'
+import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
@@ -108,9 +108,9 @@ const months = computed(() => {
 })
 const recent = computed(() => diary.value.slice(0, 4))
 // Une conso : sa boisson a une page → on y va ; sinon (pas sur la carte) la conso elle-même, si c'est la mienne
-const openEntry = (d) => (d.product_id ? openProduct(d.product_id) : isMe.value && openLog({ edit: d }))
-// Dans le journal, la ligne ouvre la conso (pour la noter) ; la vignette, la page de la boisson
-const openDiary = (d) => (isMe.value ? openLog({ edit: d }) : d.product_id && openProduct(d.product_id))
+const openEntry = (d) => openPost(d.id)
+// Dans le journal, la ligne ouvre la page de la conso ; la vignette, la page de la boisson
+const openDiary = (d) => openPost(d.id)
 
 // --- Top 4 --------------------------------------------------------------------------------
 const picking = ref(null) // place en cours de choix

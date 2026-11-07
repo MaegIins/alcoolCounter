@@ -3,11 +3,13 @@
 // Toucher l'affiche ouvre la fiche du produit ; le nom de la personne, son profil ; le crayon pour compléter les siennes.
 import { ref, computed } from 'vue'
 import { catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
-import { openUser, openProduct, openLog, openPlace } from '../nav'
+import { openUser, openProduct, openLog, openPlace, openPost } from '../nav'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import Comments from './Comments.vue'
+import LikeButton from './LikeButton.vue'
 
 const props = defineProps({
   log: { type: Object, required: true },
@@ -20,6 +22,9 @@ const mine = computed(() => props.log.user_id === props.me?.id)
 const long = computed(() => (props.log.review?.length ?? 0) > 280)
 const open = ref(false)
 const zoom = ref(false)
+// Commentaires : le compteur vient du fil, la liste se charge à l'ouverture
+const talk = ref(false)
+const count = ref(props.log.comments ?? 0)
 </script>
 
 <template>
@@ -41,7 +46,7 @@ const zoom = ref(false)
           <Avatar :user="{ id: log.user_id, name: log.user_name, avatar_v: log.avatar_v }" :color="colors[log.user_id]" :size="20" />
           <span class="truncate font-semibold">{{ mine ? 'Toi' : log.user_name }}</span>
         </button>
-        <span class="shrink-0 text-faint">{{ timeAgo(log.at) }}</span>
+        <button class="shrink-0 text-faint hover:text-ink hover:underline" :title="'Ouvrir la conso'" @click="openPost(log.id)">{{ timeAgo(log.at) }}</button>
       </div>
 
       <div class="flex items-start gap-2">
@@ -62,12 +67,27 @@ const zoom = ref(false)
         <button v-if="log.place" class="text-faint hover:text-hi hover:underline" @click="openPlace(log.place_id)"><Icon name="fa-location-dot" /> {{ log.place }}</button>
       </div>
 
-      <p v-if="log.review" class="mt-2 whitespace-pre-line text-[0.95rem] text-ink/90" :class="long && !open && 'line-clamp-4'">{{ log.review }}</p>
+      <p v-if="log.review" class="mt-2 cursor-pointer whitespace-pre-line text-[0.95rem] text-ink/90" :class="long && !open && 'line-clamp-4'" @click="openPost(log.id)">{{ log.review }}</p>
       <button v-if="long" class="mt-1 text-sm font-medium text-muted hover:text-ink" @click="open = !open">{{ open ? 'Moins' : 'Lire la suite' }}</button>
 
       <button v-if="log.photo_key" class="mt-2.5 block" aria-label="Agrandir la photo" @click="zoom = true">
         <img :src="photoUrl(log.photo_key)" alt="" loading="lazy" class="max-h-64 rounded-md object-cover" />
       </button>
+
+      <div class="mt-2 flex items-center gap-5">
+        <LikeButton :log="log" />
+        <button
+          class="flex items-center gap-1.5 text-sm font-medium hover:text-ink"
+          :class="talk ? 'text-ink' : 'text-faint'"
+          :aria-expanded="talk"
+          @click="talk = !talk"
+        >
+          <Icon name="fa-comments" :regular="!count" />
+          {{ count ? `${count} commentaire${count > 1 ? 's' : ''}` : 'Commenter' }}
+        </button>
+        <button class="ml-auto text-sm font-medium text-faint hover:text-ink" @click="openPost(log.id)">Voir <Icon name="next" :size="11" /></button>
+      </div>
+      <Comments v-if="talk" :log="log" :me="me" :colors="colors" @count="count = $event" />
     </div>
 
     <Teleport to="body">

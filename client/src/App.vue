@@ -3,7 +3,8 @@ import { ref, computed, watch, onMounted } from 'vue'
 import {
   api, setToken, hasToken, today, colorMap, setUnauthorizedHandler, currentGroup, setGroup, setNoGroupHandler,
 } from './api'
-import { ui, go, openUser, openLog, bump } from './nav'
+import { ui, go, openUser, openLog, openNotifs, bump } from './nav'
+import { notifs, startNotifs, stopNotifs, refreshNotifs } from './notifs'
 import { toasts, dismiss, ask, toast } from './juice'
 import AuthCard from './components/AuthCard.vue'
 import Avatar from './components/Avatar.vue'
@@ -17,6 +18,8 @@ import ProfilePage from './components/ProfilePage.vue'
 import LogSheet from './components/LogSheet.vue'
 import ProductPage from './components/ProductPage.vue'
 import PlacePage from './components/PlacePage.vue'
+import PostPage from './components/PostPage.vue'
+import NotifsPage from './components/NotifsPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
 import WelcomeModal from './components/WelcomeModal.vue'
@@ -65,6 +68,10 @@ async function loadGroups() {
   groups.value = await api('/groups').catch(() => groups.value)
   if (!groups.value.some((g) => g.id === currentGroup.value)) setGroup(groups.value[0]?.id ?? null)
 }
+
+// Notifs : compteur suivi tant qu'on est connecté, revu à chaque changement d'écran
+watch(() => me.value?.id, (id) => (id ? startNotifs() : stopNotifs()))
+watch(() => [ui.view, ui.refresh], () => me.value && ui.view !== 'notifs' && refreshNotifs())
 
 // Modale d'arrivée : juste après l'inscription, une fois
 const welcome = ref(false)
@@ -180,14 +187,28 @@ async function logout() {
           </button>
         </template>
       </nav>
-      <!-- Mobile : le profil est dans la barre du bas ; ici, juste la recherche -->
-      <button
-        v-if="me"
-        class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/5 text-xl hover:bg-white/10"
-        title="Chercher une personne ou une boisson"
-        aria-label="Rechercher"
-        @click="searching = true"
-      ><Icon name="search" :size="19" /></button>
+      <!-- Mobile : le profil est dans la barre du bas ; ici, les notifs et la recherche -->
+      <div v-if="me" class="flex shrink-0 items-center gap-2">
+        <button
+          class="relative flex h-11 w-11 items-center justify-center rounded-full text-xl hover:bg-white/10 sm:h-12 sm:w-12"
+          :class="ui.view === 'notifs' ? 'bg-hi/20 text-hi' : 'bg-white/5'"
+          :title="notifs.unread ? `${notifs.unread} nouvelle${notifs.unread > 1 ? 's' : ''} notif${notifs.unread > 1 ? 's' : ''}` : 'Notifs'"
+          :aria-label="notifs.unread ? `Notifs, ${notifs.unread} non lues` : 'Notifs'"
+          @click="openNotifs"
+        >
+          <Icon name="fa-bell" :size="19" />
+          <span
+            v-if="notifs.unread"
+            class="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-neon px-1 text-[11px] font-bold text-[#f0e6cc] tabular-nums"
+          >{{ notifs.unread > 99 ? '99+' : notifs.unread }}</span>
+        </button>
+        <button
+          class="flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-xl hover:bg-white/10 sm:h-12 sm:w-12"
+          title="Chercher une personne ou une boisson"
+          aria-label="Rechercher"
+          @click="searching = true"
+        ><Icon name="search" :size="19" /></button>
+      </div>
     </header>
 
     <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2" :class="width">
@@ -237,6 +258,8 @@ async function logout() {
         <FeedPage v-else-if="ui.view === 'feed'" :key="'f' + currentGroup" :me="me" :colors="colors" :solo="solo" />
         <!-- La carte est commune à tout le monde, bande ou pas -->
         <CartePage v-else-if="ui.view === 'carte'" key="carte" :me="me" @saved="bump" @back="go('home')" />
+        <NotifsPage v-else-if="ui.view === 'notifs'" key="notifs" :colors="colors" />
+        <PostPage v-else-if="ui.view === 'post'" :key="'c' + ui.postId" :post-id="ui.postId" :me="me" :colors="colors" />
         <PlacePage v-else-if="ui.view === 'place'" :key="'l' + ui.placeId" :place-id="ui.placeId" :me="me" :colors="colors" />
         <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
         <UserPage v-else-if="ui.view === 'user'" :key="'u' + ui.userId + '-' + currentGroup" :user-id="ui.userId" :me="me" :colors="colors" />

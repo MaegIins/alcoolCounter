@@ -114,23 +114,25 @@ export const sanitizeDigits = (value, max) => {
 }
 
 // --- URL de chaque écran (voir nav.js) ------------------------------------------------
-const PATHS = { home: '/', feed: '/activite', carte: '/carte', settings: '/reglages' }
+const PATHS = { home: '/', feed: '/activite', carte: '/carte', settings: '/reglages', notifs: '/notifs' }
 
 /** État → URL */
-export function urlOf({ view, userId, productId, placeId, tab }) {
+export function urlOf({ view, userId, productId, placeId, postId, tab }) {
   if (view === 'user') return `/profil/${userId}${tab && tab !== 'profil' ? `?onglet=${tab}` : ''}`
   if (view === 'product') return `/boisson/${productId}`
   if (view === 'place') return `/lieu/${placeId}`
+  if (view === 'post') return `/conso/${postId}`
   return PATHS[view] ?? '/'
 }
 /** URL → état (inconnue = Ma journée) */
 export function parseUrl(pathname, search = '') {
   const tab = new URLSearchParams(search).get('onglet')
   let m
-  const none = { userId: null, productId: null, placeId: null, tab: null }
+  const none = { userId: null, productId: null, placeId: null, postId: null, tab: null }
   if ((m = pathname.match(/^\/profil\/(\d+)\/?$/))) return { ...none, view: 'user', userId: Number(m[1]), tab }
   if ((m = pathname.match(/^\/boisson\/(\d+)\/?$/))) return { ...none, view: 'product', productId: Number(m[1]) }
   if ((m = pathname.match(/^\/lieu\/(\d+)\/?$/))) return { ...none, view: 'place', placeId: Number(m[1]) }
+  if ((m = pathname.match(/^\/conso\/(\d+)\/?$/))) return { ...none, view: 'post', postId: Number(m[1]) }
   const view = Object.keys(PATHS).find((k) => PATHS[k] === pathname.replace(/\/$/, '') || (k === 'home' && pathname === '/')) ?? 'home'
   return { ...none, view }
 }

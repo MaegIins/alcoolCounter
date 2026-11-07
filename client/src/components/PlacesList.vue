@@ -34,8 +34,11 @@ const shown = computed(() => {
 // --- Modifier un lieu (formulaire partagé avec la page du lieu) ----------------------------------
 const canEdit = (p) => p.mine || props.me.is_admin
 const editing = ref(null) // id du lieu en cours de modification
-// Liste paginée à 4 (la carte, elle, montre tous les lieux filtrés)
-const PER_PAGE = 4
+// --- Nouveau lieu (même formulaire, sans id) ; le nom reprend la recherche en cours ---
+const draft = ref(null)
+const newPlace = () => (draft.value = { name: search.value.trim(), private: false, groups: [], mine: true })
+// Liste paginée à 10 (la carte, elle, montre tous les lieux filtrés)
+const PER_PAGE = 10
 const page = ref(1)
 const pages = computed(() => Math.max(1, Math.ceil(shown.value.length / PER_PAGE)))
 const paged = computed(() => shown.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE))
@@ -53,8 +56,28 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
       <h2 class="font-display text-2xl">Les lieux</h2>
       <p class="mt-1 text-sm text-muted">
         Où on a bu. Un lieu privé (<Icon name="lock" />) n'est visible que par son créateur et les bandes qu'il a choisies.
-        On ajoute un lieu en notant un verre (« Où ? »).
+        On ajoute un lieu ici, ou en notant un verre (« Où ? »).
       </p>
+    </div>
+
+    <!-- Ajouter -->
+    <button
+      v-if="!draft"
+      class="btn tile lift flex w-full items-center gap-4 border-dashed !border-hi/50 px-5 py-4 text-left"
+      @click="newPlace()"
+    >
+      <Icon name="plus" :size="26" class="text-hi" />
+      <span>
+        <span class="block text-lg font-bold text-hi">Ajouter un lieu</span>
+        <span class="text-sm text-muted">Bar, resto, appart d'un pote, camping…</span>
+      </span>
+    </button>
+    <div v-else class="box space-y-3 p-5">
+      <div class="flex items-center justify-between">
+        <span class="text-xl font-bold">Nouveau lieu</span>
+        <button type="button" class="text-sm font-semibold text-muted hover:text-ink" @click="draft = null">Annuler</button>
+      </div>
+      <PlaceEditForm :place="draft" :me="me" :groups="groups" @done="draft = null" />
     </div>
 
     <label ref="listTop" class="relative block scroll-mt-4">
@@ -65,7 +88,10 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
       Où j'ai bu
     </button>
 
-    <p v-if="loaded && !shown.length" class="py-10 text-center text-muted">Aucun lieu pour l'instant.</p>
+    <p v-if="loaded && !shown.length" class="py-10 text-center text-muted">
+      {{ places.length ? 'Rien ne correspond.' : "Aucun lieu pour l'instant." }}
+      <button v-if="search.trim() && !draft" class="font-semibold text-hi hover:underline" @click="newPlace()">Ajouter « {{ search.trim() }} » ?</button>
+    </p>
     <ul v-else class="box divide-y divide-white/5 lg:grid lg:grid-cols-2 lg:divide-y-0">
       <li v-for="p in paged" :key="p.id" class="px-4 py-3 lg:border-b lg:border-white/5 lg:odd:border-r">
         <div class="flex items-center gap-3">

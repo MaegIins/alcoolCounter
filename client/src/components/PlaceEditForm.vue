@@ -1,5 +1,5 @@
 <script setup>
-// Modifier un lieu (partagé par La carte › Lieux et la page d'un lieu).
+// Modifier un lieu (partagé par La carte › Lieux et la page d'un lieu), ou en créer un (place sans id).
 // Le créateur (ou un admin) : nom (pas pour un « Chez moi »), position, visibilité.
 // Les autres : seulement compléter ce qui manque (position, adresse, description, photo).
 import { ref, computed } from 'vue'
@@ -10,13 +10,14 @@ import Icon from './Icon.vue'
 import PhotoField from './PhotoField.vue'
 
 const props = defineProps({
-  place: { type: Object, required: true }, // { id, name, home, private, groups, lat, lng, mine }
+  place: { type: Object, required: true }, // { id, name, home, private, groups, lat, lng, mine } ; sans id = nouveau lieu
   me: Object,
   groups: { type: Array, default: () => [] }, // mes bandes
 })
 const emit = defineEmits(['done'])
 
-const owner = props.place.mine || props.me.is_admin
+const isNew = props.place.id == null
+const owner = isNew || props.place.mine || props.me.is_admin
 const e = ref({
   name: props.place.name,
   private: props.place.private,
@@ -73,10 +74,11 @@ async function save() {
       }
   if (!owner && !Object.keys(body).length) return emit('done')
   try {
-    await api(`/places/${props.place.id}`, { method: 'PATCH', body })
-    toast('Lieu enregistré')
+    const created = isNew ? await api('/places', { method: 'POST', body }) : null
+    if (!isNew) await api(`/places/${props.place.id}`, { method: 'PATCH', body })
+    toast(isNew ? `${created.name} ajouté aux lieux` : 'Lieu enregistré')
     bump()
-    emit('done')
+    emit('done', created)
   } catch (err) {
     toast(err.message)
   }
@@ -131,7 +133,7 @@ async function save() {
       <p v-if="groups.some((g) => g.is_default)" class="mt-1 text-xs text-faint">La bande ouverte à tous ne peut pas voir un lieu privé.</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-hi flex-1 py-2.5 font-bold">Enregistrer</button>
+      <button class="btn btn-hi flex-1 py-2.5 font-bold">{{ isNew ? 'Ajouter le lieu' : 'Enregistrer' }}</button>
       <button type="button" class="btn btn-ghost px-4 py-2.5 font-semibold" @click="emit('done')">Annuler</button>
     </div>
   </form>

@@ -14,6 +14,7 @@ export const ALCO = ['biere', 'vin', 'fort', 'cocktail', 'autre']
 export const SOFT = ['energy', 'soft', 'chaud']
 export const CATS = [...ALCO, ...SOFT]
 export const MAX_REVIEW = 1000
+export const MAX_COMMENT = 500
 export const MAX_PHOTO = 200_000 // data URL (~150 ko) : le client compresse à ~100 ko, au-delà on refuse
 export const MAX_CL = 200 // par conso (une bouteille de 1,5 L de vin passe en plusieurs fois)
 export const MAX_DRINKS_PER_DAY = 100
@@ -427,6 +428,42 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       PRIMARY KEY (user_id, slot)
     );
+    -- Commentaires sous les consos des gens (partent avec la conso ou le compte)
+    CREATE TABLE IF NOT EXISTS drink_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drink_id INTEGER NOT NULL REFERENCES drinks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS drink_comments_drink ON drink_comments(drink_id, at);
+    -- Likes sur les consos (un par personne)
+    CREATE TABLE IF NOT EXISTS drink_likes (
+      drink_id INTEGER NOT NULL REFERENCES drinks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      at INTEGER NOT NULL,
+      PRIMARY KEY (drink_id, user_id)
+    );
+    -- Likes sur les commentaires
+    CREATE TABLE IF NOT EXISTS comment_likes (
+      comment_id INTEGER NOT NULL REFERENCES drink_comments(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      at INTEGER NOT NULL,
+      PRIMARY KEY (comment_id, user_id)
+    );
+    -- Notifs : quelqu'un a liké / commenté ma conso, répondu sous une conso que j'ai commentée, m'a suivi.
+    -- Elles disparaissent avec ce qui les a causées (like retiré, commentaire supprimé, conso supprimée…).
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      drink_id INTEGER REFERENCES drinks(id) ON DELETE CASCADE,
+      comment_id INTEGER REFERENCES drink_comments(id) ON DELETE CASCADE,
+      at INTEGER NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, at);
   `)
   // Consos d'avant : rattachées au produit de la carte de même nom, volume et degré
   if (!drinkColsBefore.includes('product_id')) {
@@ -530,6 +567,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     SELECT 1 FROM place_groups pg JOIN group_members gm ON gm.group_id = pg.group_id WHERE pg.place_id = pl.id AND gm.user_id = ?))`)
   const lastCl = db.prepare('SELECT cl FROM drinks WHERE product_id = ? AND user_id = ? ORDER BY at DESC, id DESC LIMIT 1')
   db.function('my_cl', (pid) => lastCl.get(pid, viewer)?.cl ?? null)
+  db.function('viewer_id', () => viewer)
   db.function('place_visible', (id) => (id != null && canSeePlace.get(id, viewer, viewer) ? 1 : 0))
   // Nom affiché d'un lieu : « Chez moi » pour mon chez-moi, « Chez <pseudo> » pour celui des autres
   const placeRow = db.prepare('SELECT pl.name, pl.home_of, u.name AS owner FROM places pl LEFT JOIN users u ON u.id = pl.home_of WHERE pl.id = ?')
@@ -923,7 +961,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.product_id, d.rating, d.review, d.photo_key,
     CASE WHEN place_visible(d.place_id) THEN d.place_id END AS place_id,
     CASE WHEN place_visible(d.place_id) THEN place_label(d.place_id) END AS place,
-    p.photo_key AS product_photo_key`
+    p.photo_key AS product_photo_key,
+    (SELECT COUNT(*) FROM drink_comments c WHERE c.drink_id = d.id) AS comments,
+    (SELECT COUNT(*) FROM drink_likes k WHERE k.drink_id = d.id) AS likes,
+    EXISTS (SELECT 1 FROM drink_likes k WHERE k.drink_id = d.id AND k.user_id = viewer_id()) AS liked`
   // Lieu d'une conso, retrouvé ou créé. Privé : le mien de ce nom (partagé avec la bande donnée) ;
   // sinon mon lieu privé de ce nom s'il existe, puis le lieu public.
   const placeIdFor = (name, userId, { priv = false, groupId: gid = null } = {}) => {
@@ -955,7 +996,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     return db.prepare('SELECT id FROM places WHERE name = ? AND private = 0').get(name).id
   }
   const placeOpts = (req) => ({ priv: req.body.place_private === true, groupId: Number(req.headers['x-group']) || myGroups(req.user.id)[0]?.id || null })
-  const logOut = (r) => ({ ...r, units: round1(unitsOf(r)) })
+  const logOut = (r) => ({ ...r, units: round1(unitsOf(r)), ...('liked' in r ? { liked: !!r.liked } : {}) })
   const getLog = (id) => db.prepare(`SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.id = ?`).get(id)
 
   // Ajouter une conso (une par appel : un verre = un tap), avec en option note, avis et photo.
@@ -1075,11 +1116,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
     if (id === req.user.id) return bad(res, 'Tu ne peux pas te suivre toi-même')
-    db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
+    const { changes } = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
+    if (changes) notify(id, req.user.id, 'follow')
     res.json({ iFollow: true })
   })
   app.delete('/api/users/:id/follow', auth, (req, res) => {
     db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, Number(req.params.id))
+    db.prepare("DELETE FROM notifications WHERE kind = 'follow' AND user_id = ? AND actor_id = ?").run(Number(req.params.id), req.user.id)
     res.json({ iFollow: false })
   })
 
@@ -1159,6 +1202,130 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const { from, to } = req.query
     if (!isDay(from) || !isDay(to)) return bad(res, 'Période invalide')
     res.json(db.prepare('SELECT id, day, at, kind FROM extras WHERE user_id = ? AND day BETWEEN ? AND ? ORDER BY at DESC, id DESC').all(req.user.id, from, to))
+  })
+
+  // --- Notifs ---------------------------------------------------------------------------------
+  const ownerOf = (drinkId) => db.prepare('SELECT user_id FROM drinks WHERE id = ?').get(drinkId)?.user_id
+  // Jamais pour soi-même ; un like ou un follow refait ne crée pas de doublon (l'ancienne remonte)
+  const notify = (userId, actorId, kind, { drinkId = null, commentId = null } = {}) => {
+    if (!userId || userId === actorId) return
+    if (kind === 'like' || kind === 'follow' || kind === 'comment_like') {
+      db.prepare('DELETE FROM notifications WHERE user_id = ? AND actor_id = ? AND kind = ? AND drink_id IS ? AND comment_id IS ?')
+        .run(userId, actorId, kind, drinkId, commentId)
+    }
+    db.prepare('INSERT INTO notifications (user_id, actor_id, kind, drink_id, comment_id, at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(userId, actorId, kind, drinkId, commentId, now())
+  }
+  const unread = (userId) => db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0').get(userId).n
+  // Mes notifs, plus récentes d'abord (?before=<id> pour la suite)
+  app.get('/api/notifications', auth, (req, res) => {
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 30))
+    const before = Number(req.query.before) || null
+    const rows = db.prepare(`
+      SELECT n.id, n.kind, n.at, n.read, n.drink_id, n.actor_id, u.name AS actor_name, u.avatar_v AS actor_avatar_v,
+        d.name AS drink_name, d.cat AS drink_cat, SUBSTR(c.body, 1, 140) AS comment
+      FROM notifications n JOIN users u ON u.id = n.actor_id
+      LEFT JOIN drinks d ON d.id = n.drink_id LEFT JOIN drink_comments c ON c.id = n.comment_id
+      WHERE n.user_id = ? ${before ? 'AND n.id < ?' : ''} ORDER BY n.id DESC LIMIT ?
+    `).all(req.user.id, ...(before ? [before] : []), limit + 1)
+    const items = rows.slice(0, limit).map((r) => ({ ...r, read: !!r.read }))
+    res.json({ items, next: rows.length > limit ? items.at(-1).id : null, unread: unread(req.user.id) })
+  })
+  app.get('/api/notifications/unread', auth, (req, res) => res.json({ unread: unread(req.user.id) }))
+  app.post('/api/notifications/read', auth, (req, res) => {
+    db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0').run(req.user.id)
+    res.json({ unread: 0 })
+  })
+
+  // Page d'une conso : la conso, son auteur, et qui l'a likée (les plus récents d'abord)
+  app.get('/api/drinks/:id(\\d+)', auth, (req, res) => {
+    const id = Number(req.params.id)
+    const log = db.prepare(`
+      SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v, p.maker AS maker FROM drinks d
+      JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id WHERE d.id = ?
+    `).get(id)
+    if (!log) return bad(res, 'Conso introuvable', 404)
+    const likers = db.prepare(`
+      SELECT u.id, u.name, u.avatar_v FROM drink_likes k JOIN users u ON u.id = k.user_id WHERE k.drink_id = ? ORDER BY k.at DESC LIMIT 100
+    `).all(id)
+    res.json({ ...logOut(log), likers })
+  })
+  // Liker / ne plus liker une conso
+  const likeState = (id, userId) => ({
+    likes: db.prepare('SELECT COUNT(*) AS n FROM drink_likes WHERE drink_id = ?').get(id).n,
+    liked: !!db.prepare('SELECT 1 FROM drink_likes WHERE drink_id = ? AND user_id = ?').get(id, userId),
+  })
+  app.put('/api/drinks/:id/like', auth, (req, res) => {
+    const id = Number(req.params.id)
+    if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
+    const { changes } = db.prepare('INSERT OR IGNORE INTO drink_likes (drink_id, user_id, at) VALUES (?, ?, ?)').run(id, req.user.id, now())
+    if (changes) notify(ownerOf(id), req.user.id, 'like', { drinkId: id })
+    res.json(likeState(id, req.user.id))
+  })
+  app.delete('/api/drinks/:id/like', auth, (req, res) => {
+    const id = Number(req.params.id)
+    db.prepare('DELETE FROM drink_likes WHERE drink_id = ? AND user_id = ?').run(id, req.user.id)
+    db.prepare("DELETE FROM notifications WHERE kind = 'like' AND drink_id = ? AND actor_id = ?").run(id, req.user.id)
+    res.json(likeState(id, req.user.id))
+  })
+
+  // Commentaires d'une conso, du plus ancien au plus récent. Tout le monde peut lire et commenter (les profils sont publics).
+  const commentsOf = (drinkId) => db.prepare(`
+    SELECT c.id, c.drink_id, c.user_id, c.at, c.body, u.name AS user_name, u.avatar_v,
+      (SELECT COUNT(*) FROM comment_likes k WHERE k.comment_id = c.id) AS likes,
+      EXISTS (SELECT 1 FROM comment_likes k WHERE k.comment_id = c.id AND k.user_id = viewer_id()) AS liked
+    FROM drink_comments c JOIN users u ON u.id = c.user_id WHERE c.drink_id = ? ORDER BY c.at, c.id
+  `).all(drinkId).map((c) => ({ ...c, liked: !!c.liked }))
+  app.get('/api/drinks/:id/comments', auth, (req, res) => {
+    const id = Number(req.params.id)
+    if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
+    res.json(commentsOf(id))
+  })
+  app.post('/api/drinks/:id/comments', auth, (req, res) => {
+    const id = Number(req.params.id)
+    if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
+    const body = String(req.body.body ?? '').trim()
+    if (!body) return bad(res, 'Commentaire vide')
+    if (body.length > MAX_COMMENT) return bad(res, `Commentaire de ${MAX_COMMENT} caractères maximum`)
+    if (/[\u0000-\u0009\u000b-\u001f\u007f]/.test(body)) return bad(res, 'Caractères invalides')
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM drink_comments WHERE user_id = ? AND at > ?').get(req.user.id, now() - 60_000)
+    if (n >= 10) return bad(res, 'Doucement, trop de commentaires d’un coup', 429)
+    const cid = Number(db.prepare('INSERT INTO drink_comments (drink_id, user_id, at, body) VALUES (?, ?, ?, ?)').run(id, req.user.id, now(), body).lastInsertRowid)
+    const owner = ownerOf(id)
+    notify(owner, req.user.id, 'comment', { drinkId: id, commentId: cid })
+    // Ceux qui ont déjà commenté cette conso (sauf l'auteur, déjà prévenu) : une réponse
+    for (const { user_id } of db.prepare('SELECT DISTINCT user_id FROM drink_comments WHERE drink_id = ? AND user_id NOT IN (?, ?)').all(id, owner, req.user.id)) {
+      notify(user_id, req.user.id, 'reply', { drinkId: id, commentId: cid })
+    }
+    res.json(commentsOf(id))
+  })
+  // Liker / ne plus liker un commentaire
+  const commentLikeState = (id, userId) => ({
+    likes: db.prepare('SELECT COUNT(*) AS n FROM comment_likes WHERE comment_id = ?').get(id).n,
+    liked: !!db.prepare('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?').get(id, userId),
+  })
+  app.put('/api/comments/:id/like', auth, (req, res) => {
+    const id = Number(req.params.id)
+    const c = db.prepare('SELECT user_id, drink_id FROM drink_comments WHERE id = ?').get(id)
+    if (!c) return bad(res, 'Commentaire introuvable', 404)
+    const { changes } = db.prepare('INSERT OR IGNORE INTO comment_likes (comment_id, user_id, at) VALUES (?, ?, ?)').run(id, req.user.id, now())
+    if (changes) notify(c.user_id, req.user.id, 'comment_like', { drinkId: c.drink_id, commentId: id })
+    res.json(commentLikeState(id, req.user.id))
+  })
+  app.delete('/api/comments/:id/like', auth, (req, res) => {
+    const id = Number(req.params.id)
+    db.prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?').run(id, req.user.id)
+    db.prepare("DELETE FROM notifications WHERE kind = 'comment_like' AND comment_id = ? AND actor_id = ?").run(id, req.user.id)
+    res.json(commentLikeState(id, req.user.id))
+  })
+
+  // Supprimer un commentaire : son auteur, l'auteur de la conso, ou un admin
+  app.delete('/api/comments/:id', auth, (req, res) => {
+    const c = db.prepare('SELECT c.user_id, c.drink_id, d.user_id AS owner FROM drink_comments c JOIN drinks d ON d.id = c.drink_id WHERE c.id = ?').get(Number(req.params.id))
+    if (!c) return bad(res, 'Commentaire introuvable', 404)
+    if (c.user_id !== req.user.id && c.owner !== req.user.id && !req.user.is_admin) return bad(res, 'Pas ton commentaire', 403)
+    db.prepare('DELETE FROM drink_comments WHERE id = ?').run(Number(req.params.id))
+    res.json(commentsOf(c.drink_id))
   })
 
   // Supprimer une de ses consos (erreur de saisie)
@@ -1253,25 +1420,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json({ ...place, owner, creator, ...stats, drinks, people, recent: logs.map(logOut) })
   })
 
-  // Modifier un lieu (tout est facultatif dans le corps) :
+  // Champs d'un lieu envoyés par le client (tout est facultatif dans le corps), validés pour le lieu `pl` :
   //   name                         renommer                      — son créateur, ou un admin
   //   private, groups: [id…]       visibilité et bandes autorisées — son créateur, ou un admin
-  //   lat, lng (null, null = vider) position, pour une future carte — créateur/admin ; les autres peuvent
+  //   lat, lng (null, null = vider) position, pour le plan — créateur/admin ; les autres peuvent
   //                                 seulement remplir une position encore vide (comme la photo d'une boisson)
-  app.patch('/api/places/:id', auth, (req, res) => {
-    const pl = db.prepare('SELECT * FROM places WHERE id = ?').get(Number(req.params.id))
-    if (!pl || !canSeePlace.get(pl.id, req.user.id, req.user.id)) return bad(res, 'Lieu introuvable', 404)
-    const owner = pl.created_by === req.user.id || req.user.is_admin
-    const b = req.body
+  //   address, description, photo  idem : les autres complètent seulement ce qui manque
+  // → { set, groups } ou { error, status }
+  const placeChanges = (b, pl, user) => {
+    const owner = pl.created_by === user.id || user.is_admin
     const set = {}
     if ('name' in b) {
       const name = String(b.name ?? '').trim()
       if (pl.home_of != null) {
         // Le client renvoie le nom tel qu'affiché : on l'ignore s'il n'a pas changé
-        if (!/^chez moi$/i.test(name)) return bad(res, '« Chez moi » ne se renomme pas : les autres le voient avec ton pseudo')
+        if (!/^chez moi$/i.test(name)) return { error: '« Chez moi » ne se renomme pas : les autres le voient avec ton pseudo' }
       } else {
-        if (!name || name.length > 60 || /\p{Cc}/u.test(name)) return bad(res, 'Nom de lieu entre 1 et 60 caractères')
-        if (/^chez moi$/i.test(name)) return bad(res, '« Chez moi » est réservé : choisis-le directement quand tu ajoutes un verre')
+        if (!name || name.length > 60 || /\p{Cc}/u.test(name)) return { error: 'Nom de lieu entre 1 et 60 caractères' }
+        if (/^chez moi$/i.test(name)) return { error: '« Chez moi » est réservé : choisis-le directement quand tu ajoutes un verre' }
         set.name = name
       }
     }
@@ -1281,7 +1447,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       const lat = Number(b.lat)
       const lng = Number(b.lng)
       if (!clear && !(Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180)) {
-        return bad(res, 'Position invalide (latitude -90 à 90, longitude -180 à 180)')
+        return { error: 'Position invalide (latitude -90 à 90, longitude -180 à 180)' }
       }
       set.lat = clear ? null : Math.round(lat * 1e6) / 1e6
       set.lng = clear ? null : Math.round(lng * 1e6) / 1e6
@@ -1289,12 +1455,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     for (const [k, label, max] of [['description', 'Description', 1000], ['address', 'Adresse', 150]]) {
       if (!(k in b)) continue
       const v = b[k] == null ? '' : String(b[k]).trim()
-      if (v.length > max || (k === 'address' ? /\p{Cc}/u.test(v) : /[\p{Cc}--[\n\r\t]]/v.test(v))) return bad(res, `${label} : ${max} caractères maximum`)
+      if (v.length > max || (k === 'address' ? /\p{Cc}/u.test(v) : /[\p{Cc}--[\n\r\t]]/v.test(v))) return { error: `${label} : ${max} caractères maximum` }
       set[k] = v || null
     }
     if ('photo' in b) {
       const { log, error } = checkLog({ photo: b.photo })
-      if (error) return bad(res, error)
+      if (error) return { error }
       set.photo = log.photo
       set.photo_key = log.photo ? photoKey() : null
     }
@@ -1303,23 +1469,56 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const fills = { lat: pl.lat == null, lng: pl.lng == null, address: pl.address == null, description: pl.description == null, photo: pl.photo == null, photo_key: pl.photo == null }
     const onlyFilling = pl.home_of == null && !('groups' in b) && Object.keys(set).length > 0
       && Object.entries(set).every(([k, v]) => fills[k] && v != null)
-    if (!owner && !onlyFilling) return bad(res, "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent compléter ce qui manque)", 403)
+    if (!owner && !onlyFilling) return { error: "Seul celui qui l'a créé peut modifier ce lieu (les autres peuvent compléter ce qui manque)", status: 403 }
     const groups = Array.isArray(b.groups) ? b.groups.map(Number) : null
-    if (groups?.some((g) => !isMember(g, req.user.id))) return bad(res, "Tu n'es pas dans cette bande", 403)
-    if (groups?.some(isOpenGroup)) return bad(res, 'La bande proposée à tous est ouverte : un lieu privé ne peut pas y être partagé')
+    if (groups?.some((g) => !isMember(g, user.id))) return { error: "Tu n'es pas dans cette bande", status: 403 }
+    if (groups?.some(isOpenGroup)) return { error: 'La bande proposée à tous est ouverte : un lieu privé ne peut pas y être partagé' }
     // Pas deux lieux de même nom dans la même portée (public, ou privés d'une même personne)
     const name = set.name ?? pl.name
     const priv = set.private ?? pl.private
     const clash = pl.home_of == null && db.prepare(`SELECT 1 FROM places WHERE id != ? AND name = ? AND home_of IS NULL AND ${priv ? 'private = 1 AND created_by = ?' : 'private = 0'}`)
-      .get(pl.id, name, ...(priv ? [pl.created_by] : []))
-    if (clash) return bad(res, priv ? 'Tu as déjà un lieu privé de ce nom' : 'Un lieu public porte déjà ce nom', 409)
-    db.exec('BEGIN')
-    for (const [k, v] of Object.entries(set)) db.prepare(`UPDATE places SET ${k} = ? WHERE id = ?`).run(v, pl.id)
-    if (!priv) db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
+      .get(pl.id ?? 0, name, ...(priv ? [pl.created_by] : []))
+    if (clash) return { error: priv ? 'Tu as déjà un lieu privé de ce nom' : 'Un lieu public porte déjà ce nom', status: 409 }
+    return { set, groups, priv }
+  }
+  // Enregistre les changements validés par placeChanges (dans une transaction ouverte par l'appelant)
+  const applyPlace = (id, { set, groups, priv }) => {
+    for (const [k, v] of Object.entries(set)) db.prepare(`UPDATE places SET ${k} = ? WHERE id = ?`).run(v, id)
+    if (!priv) db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(id)
     else if (groups) {
-      db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(pl.id)
-      for (const g of groups) db.prepare('INSERT INTO place_groups (place_id, group_id) VALUES (?, ?)').run(pl.id, g)
+      db.prepare('DELETE FROM place_groups WHERE place_id = ?').run(id)
+      for (const g of groups) db.prepare('INSERT INTO place_groups (place_id, group_id) VALUES (?, ?)').run(id, g)
     }
+  }
+
+  // Créer un lieu depuis La carte › Lieux (sans passer par un verre) : mêmes champs que la modification,
+  // le nom en plus (obligatoire). Public par défaut.
+  app.post('/api/places', auth, (req, res) => {
+    const b = { ...req.body, name: req.body.name ?? '' }
+    const draft = { id: null, name: '', home_of: null, private: 0, created_by: req.user.id }
+    const ch = placeChanges(b, draft, req.user)
+    if (ch.error) return bad(res, ch.error, ch.status)
+    db.exec('BEGIN')
+    try {
+      const id = Number(db.prepare('INSERT INTO places (name, private, created_by, created_at) VALUES (?, ?, ?, ?)')
+        .run(ch.set.name, ch.priv ? 1 : 0, req.user.id, now()).lastInsertRowid)
+      applyPlace(id, ch)
+      db.exec('COMMIT')
+      const { home_of, ...place } = placesOf(req, { id })[0]
+      res.json(place)
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+  })
+
+  app.patch('/api/places/:id', auth, (req, res) => {
+    const pl = db.prepare('SELECT * FROM places WHERE id = ?').get(Number(req.params.id))
+    if (!pl || !canSeePlace.get(pl.id, req.user.id, req.user.id)) return bad(res, 'Lieu introuvable', 404)
+    const ch = placeChanges(req.body, pl, req.user)
+    if (ch.error) return bad(res, ch.error, ch.status)
+    db.exec('BEGIN')
+    applyPlace(pl.id, ch)
     db.exec('COMMIT')
     res.json({ ok: true })
   })

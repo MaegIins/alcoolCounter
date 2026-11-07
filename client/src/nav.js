@@ -2,9 +2,11 @@
 // (history.pushState), on peut recharger, partager un lien, et le bouton retour du navigateur marche.
 //   /                 Ma soirée          /activite          Activité de la bande
 //   /carte            La carte           /reglages          Réglages
+//   /notifs           Mes notifs
 //   /profil/12        Profil (?onglet=boissons|stats|journal|badges)
 //   /boisson/34       Page d'une boisson
 //   /lieu/5           Page d'un lieu
+//   /conso/78         Page d'une conso (avis, photo, likes, commentaires)
 import { reactive } from 'vue'
 import { urlOf, parseUrl } from './utils.js'
 
@@ -13,15 +15,16 @@ export const ui = reactive({
   userId: null, // profil affiché (view = 'user')
   productId: null, // page d'une boisson (view = 'product')
   placeId: null, // page d'un lieu (view = 'place')
+  postId: null, // page d'une conso (view = 'post')
   tab: null, // onglet du profil
   back: false, // ouvert depuis un autre écran de l'appli : « ← Retour » possible
   log: null, // fenêtre « + » : null = fermée ; {} ; { product } ; { drink } ; { edit: conso }
   refresh: 0, // incrémenté après chaque changement de données : les écrans rechargent
 })
 
-const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, placeId: ui.placeId, tab: ui.tab, back: ui.back })
+const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, placeId: ui.placeId, postId: ui.postId, tab: ui.tab, back: ui.back })
 function show(next, { replace = false, back = false } = {}) {
-  Object.assign(ui, { userId: null, productId: null, placeId: null, tab: null }, next, { back })
+  Object.assign(ui, { userId: null, productId: null, placeId: null, postId: null, tab: null }, next, { back })
   const url = urlOf(ui) + window.location.hash
   if (replace) history.replaceState(state(), '', url)
   else if (url !== window.location.pathname + window.location.search) history.pushState(state(), '', url)
@@ -55,6 +58,13 @@ export const openProduct = (id) => {
 export const openPlace = (id) => {
   if (!id || (ui.view === 'place' && ui.placeId === id)) return
   show({ view: 'place', placeId: id }, { back: true })
+}
+/** Mes notifs (cloche de l'en-tête) */
+export const openNotifs = () => ui.view !== 'notifs' && show({ view: 'notifs' }, { back: true })
+/** Page d'une conso (avis, photo, likes, commentaires) */
+export const openPost = (id) => {
+  if (!id || (ui.view === 'post' && ui.postId === id)) return
+  show({ view: 'post', postId: id }, { back: true })
 }
 /** Onglet du profil, dans l'URL sans nouvelle entrée d'historique */
 export function setTab(tab) {

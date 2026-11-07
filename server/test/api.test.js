@@ -983,6 +983,31 @@ test('modifier un lieu : nom et position par le créateur ; les autres ajoutent 
   assert.equal((await patch(a.token, { name: '' })).status, 400)
 })
 
+test('créer un lieu sans verre : public par défaut, privé partagé à ses bandes, noms uniques par portée', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob') // même bande qu'Alice
+  const c = await s.register('Chloé', '123456', { group: false })
+  const post = (t, body) => s.call('POST', '/places', { token: t, body })
+  assert.equal((await post(a.token, {})).status, 400)
+  assert.equal((await post(a.token, { name: 'Chez moi' })).status, 400)
+  assert.equal((await post(a.token, { name: 'Le Rade', lat: 91, lng: 0 })).status, 400)
+  const r = await post(a.token, { name: 'Le Rade', address: '1 rue du Bar', lat: 45.76, lng: 4.83, photo: PNG })
+  assert.equal(r.status, 200)
+  assert.deepEqual([r.body.name, r.body.private, r.body.mine, r.body.address, r.body.lat, r.body.logs], ['Le Rade', false, true, '1 rue du Bar', 45.76, 0])
+  assert.ok(r.body.photo_key)
+  assert.equal((await post(b.token, { name: 'le rade' })).status, 409) // public déjà pris
+  // Un verre noté « Le Rade » rejoint ce lieu
+  await s.drink(b.token, '2026-11-02', { place: 'Le Rade' })
+  assert.equal((await s.call('GET', '/places', { token: c.token })).body.find((p) => p.name === 'Le Rade').logs, 1)
+  // Privé, partagé avec la bande d'Alice : Bob le voit, Chloé non
+  const g = (await s.call('GET', '/groups', { token: a.token })).body[0]
+  assert.equal((await post(a.token, { name: 'Ma cave', private: true, groups: [g.id] })).status, 200)
+  assert.ok((await s.call('GET', '/places', { token: b.token })).body.some((p) => p.name === 'Ma cave'))
+  assert.ok(!(await s.call('GET', '/places', { token: c.token })).body.some((p) => p.name === 'Ma cave'))
+  assert.equal((await post(c.token, { name: 'Ma cave', private: true, groups: [g.id] })).status, 403) // pas sa bande
+  assert.equal((await post(c.token, { name: 'Ma cave', private: true })).status, 200) // son propre lieu privé
+})
+
 describe('gestion des bandes', () => {
   test('le patron renomme, change le code, exclut, passe la main ; les autres non', async () => {
     const a = await s.register('Alice') // patronne de la bande de test
