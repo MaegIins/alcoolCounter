@@ -12,6 +12,7 @@ import DrinkFields from './DrinkFields.vue'
 import InfoFields from './InfoFields.vue'
 import PhotoField from './PhotoField.vue'
 import Icon from './Icon.vue'
+import PhotoSource from './PhotoSource.vue'
 
 const props = defineProps({ productId: Number, me: Object, colors: Object })
 
@@ -248,7 +249,7 @@ const zoom = ref('')
           <button v-if="!p.photo_key" class="btn btn-ghost px-3 py-1.5 text-sm font-semibold" :disabled="uploading" @click="quickInput.click()">
             <Icon name="camera" /> {{ uploading ? 'Envoi…' : 'Ajouter une photo' }}
           </button>
-          <input ref="quickInput" type="file" accept="image/*" class="hidden" @change="quickPhoto" />
+          <PhotoSource ref="quickInput" @change="quickPhoto" />
         </div>
       </section>
 

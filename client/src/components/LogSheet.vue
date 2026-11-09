@@ -11,6 +11,7 @@ import DrinkFields from './DrinkFields.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import PhotoSource from './PhotoSource.vue'
 import PlaceEditForm from './PlaceEditForm.vue'
 
 const props = defineProps({ preset: { type: Object, default: () => ({}) }, me: Object, groups: { type: Array, default: () => [] } })
@@ -493,7 +494,7 @@ async function remove() {
               <button v-else type="button" class="btn btn-ghost flex items-center gap-2 px-3 py-2 text-sm font-medium" @click="fileInput.click()">
                 <Icon name="camera" :size="18" /> Ajouter une photo
               </button>
-              <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onPhoto" />
+              <PhotoSource ref="fileInput" @change="onPhoto" />
             </div>
           </div>
 

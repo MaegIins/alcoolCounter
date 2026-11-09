@@ -4,6 +4,7 @@
 import { ref, computed } from 'vue'
 import { resizePhoto } from '../api'
 import Icon from './Icon.vue'
+import PhotoSource from './PhotoSource.vue'
 
 const photo = defineModel({ type: [String, null], default: undefined })
 const props = defineProps({ current: { type: String, default: '' }, label: { type: String, default: 'Photo' } })
@@ -34,7 +35,7 @@ async function onFile(e) {
       <button v-if="shown" type="button" class="text-sm font-semibold text-muted hover:text-alert" @click="photo = props.current ? null : undefined">
         Retirer
       </button>
-      <input ref="input" type="file" accept="image/*" class="hidden" @change="onFile" />
+      <PhotoSource ref="input" @change="onFile" />
     </div>
     <p v-if="error" class="mt-2 text-sm font-semibold text-alert">{{ error }}</p>
   </div>

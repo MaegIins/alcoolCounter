@@ -5,6 +5,7 @@ import { ask } from '../juice'
 import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
+import PhotoSource from './PhotoSource.vue'
 
 const props = defineProps({ me: Object, color: String, groups: Array })
 const emit = defineEmits(['update', 'back', 'groups', 'deleted'])
@@ -109,7 +110,7 @@ async function deleteAccount() {
           <button v-if="me.avatar_v" class="text-sm font-semibold text-muted hover:text-ink" @click="removeAvatar">
             supprimer
           </button>
-          <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onAvatar" />
+          <PhotoSource ref="fileInput" facing="user" @change="onAvatar" />
         </div>
       </div>
       <p v-if="avatarMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ avatarMsg.ok }} <Icon name="check" /></p>
