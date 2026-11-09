@@ -72,6 +72,11 @@ export const openPost = (id) => {
   if (!id || (ui.view === 'post' && ui.postId === id)) return
   show({ view: 'post', postId: id }, { back: true })
 }
+/** N'importe quel écran depuis son URL (appui sur une notif push) */
+export function openUrl(url) {
+  const u = new URL(url, window.location.origin)
+  show(parseUrl(u.pathname, u.search), { back: true })
+}
 /** Onglet du profil, dans l'URL sans nouvelle entrée d'historique */
 export function setTab(tab) {
   ui.tab = tab

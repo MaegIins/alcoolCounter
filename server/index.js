@@ -17,6 +17,8 @@ const { app } = createApp({
   // Derrière un reverse proxy (Caddy, Nginx…) : TRUST_PROXY=1, pour que les limites par IP voient la vraie IP
   trustProxy: process.env.TRUST_PROXY ? (Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY) : false,
   sessionDays: Number(process.env.SESSION_DAYS) || 90, // session inutilisée pendant N jours = déconnectée
+  // Notifs push sur les téléphones : clés générées une fois avec `npm --prefix server run vapid`
+  push: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT },
 })
 
 app.listen(PORT, () => console.log(`🍺 L’Ardoise API sur http://localhost:${PORT}`))

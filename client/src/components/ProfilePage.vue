@@ -7,6 +7,7 @@ import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
 import PhotoSource from './PhotoSource.vue'
 import InstallCard from './InstallCard.vue'
+import PushCard from './PushCard.vue'
 
 const props = defineProps({ me: Object, color: String, groups: Array })
 const emit = defineEmits(['update', 'back', 'groups', 'deleted'])
@@ -101,6 +102,7 @@ async function deleteAccount() {
     </section>
 
     <InstallCard />
+    <PushCard :me="me" />
 
     <section class="box">
       <div class="px-5 pt-4 font-bold">Photo</div>

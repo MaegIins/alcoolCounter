@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import * as webpush from 'web-push'
 import { computeBadges, computeBadgeState, BADGES, GROUPS } from './badges.js'
 
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
@@ -154,7 +155,7 @@ const DUMMY_HASH = hashPin('0000')
  *                                 (ex. 1), pour que les limites par IP voient la vraie IP des visiteurs
  * @param {number} [o.sessionDays] une session inutilisée pendant ce nombre de jours expire (90 par défaut)
  */
-export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now, distDir, admins = [], tz = 'Europe/Paris', trustProxy = false, sessionDays = 90 } = {}) {
+export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now, distDir, admins = [], tz = 'Europe/Paris', trustProxy = false, sessionDays = 90, push = null } = {}) {
   const db = new DatabaseSync(dbPath)
   const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
   const hadGroups = hasTable('groups')
@@ -665,6 +666,61 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     },
     tz,
   })
+  // --- Notifs push (Web Push) : la notif arrive aussi sur le téléphone, appli fermée ---------------------------
+  // Désactivées sans clés VAPID (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY). Un abonnement = un navigateur, rattaché à la
+  // session qui l'a créé : déconnexion, changement de PIN, session expirée → plus rien n'arrive sur ce téléphone.
+  // Coût : une requête sortante par notif et par téléphone abonné, au moment où elle est créée. Rien en boucle.
+  db.exec(`CREATE TABLE IF NOT EXISTS push_subs (
+    endpoint TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs(user_id);`)
+  const pushOn = !!(push?.publicKey && push?.privateKey)
+  if (pushOn && !push.send) webpush.setVapidDetails(push.subject || 'mailto:ardoise@example.com', push.publicKey, push.privateKey)
+  const pushSend = push?.send ?? ((sub, body, opts) => webpush.sendNotification(sub, body, opts)) // `send` : remplaçable (tests)
+  const recentPush = new Map() // anti-rafale : like, unlike, like… → une seule notif par 10 min
+  /** Envoie { title, body, url, tag } aux téléphones abonnés de la personne (sans attendre la réponse) */
+  function pushTo(userId, payload) {
+    if (!pushOn || !userId) return 0
+    const key = `${userId}:${payload.tag}`
+    if (now() - (recentPush.get(key) ?? -Infinity) < 10 * 60e3) return 0
+    if (recentPush.size > 5000) recentPush.clear()
+    recentPush.set(key, now())
+    const subs = db.prepare(`
+      SELECT p.endpoint, p.p256dh, p.auth FROM push_subs p JOIN sessions s ON s.token = p.session
+      WHERE p.user_id = ? AND s.last_used > ?
+    `).all(userId, now() - SESSION_TTL)
+    for (const sub of subs) {
+      Promise.resolve()
+        .then(() => pushSend({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload), { TTL: 86400, urgency: 'normal' }))
+        .catch((err) => {
+          // 404 / 410 : appli désinstallée, notifs coupées… l'abonnement est mort
+          if (err?.statusCode === 404 || err?.statusCode === 410) {
+            try { db.prepare('DELETE FROM push_subs WHERE endpoint = ?').run(sub.endpoint) } catch { /* base fermée */ }
+          } else console.warn('Notif push non envoyée :', err?.statusCode ?? err?.message)
+        })
+    }
+    return subs.length
+  }
+  // Même texte que la page Notifs du client
+  const PUSH_TEXT = { like: 'a liké ta conso', comment: 'a commenté ta conso', reply: 'a aussi commenté', comment_like: 'a liké ton commentaire', follow: 'te suit' }
+  function pushNotif(userId, actorId, kind, drinkId, commentId) {
+    if (!pushOn || !PUSH_TEXT[kind]) return
+    const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(actorId)?.name ?? 'Quelqu’un'
+    const drink = drinkId ? db.prepare('SELECT name FROM drinks WHERE id = ?').get(drinkId)?.name : null
+    const comment = commentId ? db.prepare('SELECT SUBSTR(body, 1, 140) AS b FROM drink_comments WHERE id = ?').get(commentId)?.b : null
+    pushTo(userId, {
+      title: `${actor} ${PUSH_TEXT[kind]}`,
+      body: comment ? (kind === 'comment_like' ? `« ${comment} »` : `${drink ? `${drink} · ` : ''}« ${comment} »`) : drink ?? '',
+      url: drinkId ? `/conso/${drinkId}` : `/profil/${actorId}`,
+      tag: [kind, drinkId, commentId, actorId].join(':'),
+    })
+  }
+
   // Journée en cours (jusqu'à 6h on compte la veille) : les victoires comptent les journées terminées
   const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz })
   const todayDay = () => dayFmt.format(now() - 6 * 3600e3)
@@ -682,6 +738,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     for (const b of fresh) {
       db.prepare('INSERT OR IGNORE INTO user_badges (user_id, key, at, shown) VALUES (?, ?, ?, ?)').run(userId, b.key, at, silent ? 0 : 1)
       if (!silent) db.prepare("INSERT INTO notifications (user_id, actor_id, kind, badge, at, read) VALUES (?, ?, 'badge', ?, ?, ?)").run(userId, userId, b.key, at, read ? 1 : 0)
+    }
+    // Sur le téléphone, sauf s'ils viennent d'être fêtés à l'écran (read) : une notif pour le lot
+    if (fresh.length && !silent && !read) {
+      pushTo(userId, {
+        title: fresh.length === 1 ? `${fresh[0].icon} Succès débloqué : ${fresh[0].label}` : `🏅 ${fresh.length} succès débloqués`,
+        body: fresh.length === 1 ? fresh[0].desc : fresh.map((b) => `${b.icon} ${b.label}`).join(' · '),
+        url: `/profil/${userId}?onglet=badges`,
+        tag: `badge:${fresh.map((b) => b.key).join(',')}`,
+      })
     }
     return fresh
   }
@@ -1293,8 +1358,40 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     }
     db.prepare('INSERT INTO notifications (user_id, actor_id, kind, drink_id, comment_id, at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(userId, actorId, kind, drinkId, commentId, now())
+    pushNotif(userId, actorId, kind, drinkId, commentId)
   }
   const unread = (userId) => db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0').get(userId).n
+  // Notifs push : clé publique (null = pas configuré sur ce serveur), abonner / désabonner ce navigateur
+  const PUSH_HOSTS = /(^|\.)(googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/
+  app.get('/api/push/key', auth, (_req, res) => res.json({ key: pushOn ? push.publicKey : null }))
+  app.post('/api/push/subscribe', auth, (req, res) => {
+    if (!pushOn) return bad(res, 'Notifs push pas configurées sur ce serveur', 503)
+    const { endpoint, keys } = req.body ?? {}
+    let url = null
+    try { url = new URL(endpoint) } catch { /* invalide */ }
+    // Seulement les services de push des navigateurs (le serveur enverra des requêtes à cette adresse)
+    const ok = url?.protocol === 'https:' && PUSH_HOSTS.test(url.hostname) && endpoint.length <= 1000
+      && typeof keys?.p256dh === 'string' && keys.p256dh.length <= 200 && typeof keys?.auth === 'string' && keys.auth.length <= 100
+    if (!ok) return bad(res, 'Abonnement invalide')
+    db.prepare(`
+      INSERT INTO push_subs (endpoint, session, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET session = excluded.session, user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth
+    `).run(endpoint, tokenHash(bearer(req)), req.user.id, keys.p256dh, keys.auth, now())
+    // Au plus 10 appareils par personne : les plus anciens sautent
+    db.prepare('DELETE FROM push_subs WHERE user_id = ? AND endpoint NOT IN (SELECT endpoint FROM push_subs WHERE user_id = ? ORDER BY created_at DESC LIMIT 10)')
+      .run(req.user.id, req.user.id)
+    res.json({ ok: true })
+  })
+  // « Tester » (Réglages) : une notif à soi, affichée même appli ouverte. Une toutes les 30 s au plus.
+  app.post('/api/push/test', auth, (req, res) => {
+    if (!pushOn) return bad(res, 'Notifs push pas configurées sur ce serveur', 503)
+    const n = pushTo(req.user.id, { title: '🍺 Ça marche !', body: 'Les likes, commentaires et succès arriveront ici.', url: '/notifs', tag: `test:${Math.floor(now() / 30e3)}`, force: true })
+    res.json({ sent: n })
+  })
+  app.post('/api/push/unsubscribe', auth, (req, res) => {
+    db.prepare('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?').run(String(req.body?.endpoint ?? ''), req.user.id)
+    res.json({ ok: true })
+  })
   // Mes notifs, plus récentes d'abord (?before=<id> pour la suite)
   app.get('/api/notifications', auth, (req, res) => {
     syncBadgesLazy(req.user.id)

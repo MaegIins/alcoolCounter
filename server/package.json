@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env --disable-warning=ExperimentalWarning index.js",
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning index.js",
-    "test": "node --disable-warning=ExperimentalWarning --test --test-reporter=spec \"test/**/*.test.js\""
+    "test": "node --disable-warning=ExperimentalWarning --test --test-reporter=spec \"test/**/*.test.js\"",
+    "vapid": "web-push generate-vapid-keys"
   },
   "dependencies": {
-    "express": "^4.22.3"
+    "express": "^4.22.3",
+    "web-push": "^4.0.0"
   },
   "type": "module",
   "private": true

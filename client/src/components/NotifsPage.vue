@@ -7,8 +7,9 @@ import { goBack, openPost, openUser } from '../nav'
 import { notifs } from '../notifs'
 import Avatar from './Avatar.vue'
 import Icon from './Icon.vue'
+import PushCard from './PushCard.vue'
 
-defineProps({ colors: { type: Object, default: () => ({}) } })
+defineProps({ colors: { type: Object, default: () => ({}) }, me: { type: Object, default: null } })
 const items = ref(null)
 const next = ref(null)
 const loading = ref(false)
@@ -47,6 +48,7 @@ const open = (n) => (n.kind === 'badge' ? openUser(n.actor_id, { tab: 'badges' }
   <div class="mx-auto max-w-2xl">
     <button class="mb-4 text-sm font-semibold text-muted hover:text-hi" @click="goBack"><Icon name="back" /> Retour</button>
     <h2 class="font-display text-2xl">Notifs</h2>
+    <PushCard v-if="me" :me="me" compact />
 
     <div v-if="!items" class="py-20 text-center text-muted">Chargement…</div>
     <p v-else-if="!items.length" class="py-16 text-center text-muted">

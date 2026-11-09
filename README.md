@@ -42,6 +42,8 @@ Ces variables peuvent aussi aller dans `server/.env` (non versionné), lu par `n
 - `TRUST_PROXY` : derrière un reverse proxy (Caddy, Nginx…), mets `TRUST_PROXY=1` pour que les limites par IP voient
   la vraie IP des visiteurs (sans ça, tout le monde a l'IP du proxy et partage les mêmes limites).
 - `SESSION_DAYS` : une session inutilisée pendant ce nombre de jours expire (90 par défaut).
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` : notifs push sur les téléphones (voir plus bas). Sans ces
+  clés, pas de push : les notifs restent dans l'appli.
 
 Le droit admin est attaché au **compte** qui a le premier porté un pseudo listé dans `ADMINS`, pas au pseudo : si
 l'admin change de pseudo ou supprime son compte, personne ne devient admin en reprenant ce pseudo, qui reste réservé.
@@ -57,6 +59,15 @@ sur l'écran d'accueil, plein écran sans barre d'adresse, et un appui long sur 
 - `client/public/sw.js` : service worker minimal, qui affiche une page « Pas de réseau » hors ligne. Il ne met ni l'API
   ni l'appli en cache, donc un déploiement est pris tout de suite. Il n'est enregistré que sur le build, pas en dev.
 - Réglages › « Installer l'appli » : bouton d'installation en un appui (Chrome, Edge) ou tuto Android / iPhone / ordi.
+- **Notifs push** (Réglages › « Notifs sur le téléphone », ou le bandeau de la page Notifs) : likes, commentaires,
+  abonnés et succès arrivent sur le téléphone, appli fermée. Rien n'est affiché si l'appli est au premier plan (la
+  cloche suffit). Sur iPhone, seulement dans l'appli installée (iOS 16.4+). Mise en place, une fois :
+  ```bash
+  npm --prefix server run vapid   # affiche une paire de clés
+  ```
+  puis dans `server/.env` : `VAPID_PUBLIC_KEY=…`, `VAPID_PRIVATE_KEY=…` et `VAPID_SUBJECT=https://ton-domaine` (ou
+  `mailto:toi@exemple.fr`), et redémarre. Ne change plus les clés ensuite : les téléphones abonnés seraient perdus
+  (ils se réabonnent seulement en réactivant). La clé privée reste secrète.
 - Le bouton retour d'Android ferme la fenêtre « + » au lieu de changer d'écran.
 - Au retour au premier plan après plus de 5 min, les écrans se rechargent (une seule vague de requêtes).
 

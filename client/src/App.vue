@@ -5,6 +5,7 @@ import {
 } from './api'
 import { ui, go, openUser, openLog, openNotifs, bump } from './nav'
 import { notifs, startNotifs, stopNotifs, refreshNotifs } from './notifs'
+import { initPush, disablePush } from './push'
 import { toasts, dismiss, ask, toast } from './juice'
 import AuthCard from './components/AuthCard.vue'
 import Avatar from './components/Avatar.vue'
@@ -89,6 +90,7 @@ const welcome = ref(false)
 
 async function onLogged(user, { registered = false } = {}) {
   me.value = user
+  initPush(user.id)
   // À l'inscription, le lien d'invitation a déjà fait rejoindre la bande (côté serveur)
   if (inviteCode && !registered) await api('/groups/join', { method: 'POST', body: { code: inviteCode } }).then((g) => {
     setGroup(g.id)
@@ -158,6 +160,7 @@ function onDeleted() {
 
 async function logout() {
   if (!(await ask({ title: 'Se déconnecter ?', message: 'Il faudra retaper ton PIN.', confirm: 'Se déconnecter' }))) return
+  await disablePush() // plus de notifs de ce compte sur ce téléphone
   await api('/logout', { method: 'POST' }).catch(() => {})
   setToken('')
   me.value = null
@@ -271,7 +274,7 @@ async function logout() {
         <FeedPage v-else-if="ui.view === 'feed'" :key="'f' + currentGroup" :me="me" :colors="colors" :solo="solo" />
         <!-- La carte est commune à tout le monde, bande ou pas -->
         <CartePage v-else-if="ui.view === 'carte'" key="carte" :me="me" @saved="bump" @back="go('home')" />
-        <NotifsPage v-else-if="ui.view === 'notifs'" key="notifs" :colors="colors" />
+        <NotifsPage v-else-if="ui.view === 'notifs'" key="notifs" :colors="colors" :me="me" />
         <PostPage v-else-if="ui.view === 'post'" :key="'c' + ui.postId" :post-id="ui.postId" :me="me" :colors="colors" />
         <PlacePage v-else-if="ui.view === 'place'" :key="'l' + ui.placeId" :place-id="ui.placeId" :me="me" :colors="colors" />
         <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
