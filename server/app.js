@@ -2325,7 +2325,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       FROM drinks WHERE day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)
       GROUP BY user_id, day ORDER BY day
     `).all(from, to, req.group.id)
-    res.json(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'number' && k !== 'user_id' ? round1(v) : v]))))
+    // Pas arrondi au dixième ici : le client additionne ces journées (cumul, total des barres) et arrondit à
+    // l'affichage, comme le classement (sinon 2,376 + 15,56 = 17,9 au classement mais 2,4 + 15,6 = 18 dans les stats)
+    const r3 = (n) => Math.round(n * 1000) / 1000
+    res.json(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'number' && k !== 'user_id' ? r3(v) : v]))))
   })
 
   // En prod : sert le front buildé

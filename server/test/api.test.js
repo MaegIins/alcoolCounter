@@ -224,10 +224,11 @@ describe('classement', () => {
     await s.drink(a.token, '2026-11-02', SHOT)
     await s.drink(a.token, '2026-11-02', { name: 'Monster', cat: 'energy', cl: 50, abv: 0 })
     const r = await s.call('GET', '/series?from=2026-11-01&to=2026-11-03', { token: a.token })
-    // Verres standard par catégorie alcoolisée, et nombre de consos par catégorie (sans alcool compris)
+    // Verres standard par catégorie alcoolisée (pas arrondis au dixième : le client les additionne), et nombre de
+    // consos par catégorie (sans alcool compris)
     assert.deepEqual(r.body, [{
-      user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.3, cocktail: 0, autre: 0,
-      n_biere: 2, n_vin: 0, n_fort: 1, n_cocktail: 0, n_autre: 0, n_energy: 1, n_soft: 0, n_chaud: 0, total: 5.3, count: 4,
+      user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.28, cocktail: 0, autre: 0,
+      n_biere: 2, n_vin: 0, n_fort: 1, n_cocktail: 0, n_autre: 0, n_energy: 1, n_soft: 0, n_chaud: 0, total: 5.28, count: 4,
     }])
   })
 })
