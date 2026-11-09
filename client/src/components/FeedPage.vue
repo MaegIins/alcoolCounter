@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import { api } from '../api'
 import { ui, openLog } from '../nav'
 import LogCard from './LogCard.vue'
+import BadgeCard from './BadgeCard.vue'
 
 const props = defineProps({ me: Object, colors: Object, solo: Boolean })
 // Fil de la bande, ou des gens que je suis (retenu sur l'appareil ; en solo, les abonnements)
@@ -56,13 +57,16 @@ async function more() {
           <button class="seg" :aria-pressed="scope === 'follow'" @click="scope = 'follow'">Abonnements</button>
         </div>
       </div>
-      <p class="mt-1 mb-2 text-sm text-muted">Les derniers verres, avec les notes, les avis et les photos. Touche une boisson pour sa fiche.<template v-if="scope === 'follow'"> Suis des gens depuis la recherche ou leur profil.</template></p>
+      <p class="mt-1 mb-2 text-sm text-muted">Les derniers verres, avec les notes, les avis et les photos, et les succès débloqués. Touche une boisson pour sa fiche.<template v-if="scope === 'follow'"> Suis des gens depuis la recherche ou leur profil.</template></p>
       <div v-if="loaded && !items.length" class="py-12 text-center">
         <p class="text-muted">Rien pour l'instant.</p>
         <button class="mt-3 font-semibold text-hi hover:underline" @click="openLog()">Ajoute ton premier verre</button>
       </div>
       <TransitionGroup tag="div" name="item" class="divide-y divide-white/5 lg:grid lg:grid-cols-2 lg:gap-x-10 lg:divide-y-0 lg:[&>*]:border-b lg:[&>*]:border-white/5">
-        <LogCard v-for="l in items" :key="l.id" :log="l" :me="me" :colors="colors" />
+        <template v-for="l in items" :key="l.id">
+          <BadgeCard v-if="l.kind === 'badges'" :item="l" :me="me" :colors="colors" />
+          <LogCard v-else :log="l" :me="me" :colors="colors" />
+        </template>
       </TransitionGroup>
       <button v-if="next" class="btn btn-ghost mt-4 w-full py-2.5 text-sm font-medium" :disabled="loadingMore" @click="more">
         {{ loadingMore ? 'Chargement…' : 'Voir plus' }}

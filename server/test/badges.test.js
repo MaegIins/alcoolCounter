@@ -120,3 +120,15 @@ test('secret Irish coffee : café et alcool fort à 10 minutes près', () => {
   assert.ok(computeBadges({ drinks: [cafe, shot('22:08')] }).has('irish'))
   assert.ok(!computeBadges({ drinks: [cafe, shot('22:15')] }).has('irish'))
 })
+
+test('progression des badges chiffrés (et rien pour les secrets)', async () => {
+  const { computeBadgeState } = await import('../badges.js')
+  const day = (i) => `2026-10-${String(i + 1).padStart(2, '0')}`
+  const { got, progress } = computeBadgeState({ drinks: Array.from({ length: 4 }, (_, i) => pinte(day(i), `${day(i)}T21:00:00+01:00`)) })
+  assert.deepEqual(progress.pilier, [4, 10])
+  assert.deepEqual(progress.semaine, [4, 7])
+  assert.deepEqual(progress.cent, [8, 100]) // 4 pintes × 2 verres standard
+  assert.deepEqual(progress.tonneau, [2, 100]) // 2 litres
+  assert.ok(got.has('serie') && progress.serie[0] === 3)
+  for (const b of BADGES.filter((x) => x.secret)) assert.equal(progress[b.key], undefined)
+})

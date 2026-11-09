@@ -150,10 +150,31 @@ test('notifs de succès : une fois chacun, lues si fêtées à l’écran, et ce
   await s.call('DELETE', `/drinks/${first.body.id}`, { token: a.token })
   const again = await s.drink(a.token, '2026-11-03')
   assert.deepEqual(again.body.badges, [])
-  // 10 commentaires écrits : « Bavard », notifié (non lu) dès le prochain passage de la cloche
+  // 10 commentaires écrits : « Bavard », notifié (non lu) tout de suite
   for (let i = 0; i < 10; i++) await s.call('POST', `/drinks/${again.body.id}/comments`, { token: a.token, body: { body: `Santé ${i}` } })
   assert.equal((await s.call('GET', '/notifications/unread', { token: a.token })).body.unread, 1)
   n = await list()
   assert.deepEqual(n.map((x) => [x.badge.key, x.read]), [['bavard', false], ['premiere', true]])
   assert.equal(n[0].actor_id, a.id)
+})
+
+test('succès : dans le fil (regroupés, juste au-dessus de la conso qui les débloque), rareté, progression, paliers', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob')
+  s.clock.t = Date.parse('2026-11-03T21:00:00+01:00')
+  await s.drink(a.token, '2026-11-03')
+  const feed = (await s.call('GET', '/feed', { token: b.token })).body.items
+  const [badgeItem, log] = feed.filter((x) => x.user_id === a.id)
+  assert.equal(badgeItem.kind, 'badges')
+  assert.deepEqual(badgeItem.badges.map((x) => x.key), ['premiere'])
+  assert.equal(log.name, 'Pinte')
+  const st = (await s.call('GET', `/users/${a.id}/stats`, { token: b.token })).body
+  const premiere = st.badges.find((x) => x.key === 'premiere')
+  assert.equal(premiere.rarity, 100) // seule joueuse à avoir noté une conso
+  assert.equal(premiere.progress, undefined)
+  assert.deepEqual(st.badges.find((x) => x.key === 'pilier').progress, [1, 10])
+  assert.equal(st.badges.find((x) => x.key === 'vendredi13').progress, undefined)
+  const ranks = (await s.call('GET', '/ranks', { token: b.token })).body
+  assert.equal(ranks.counts[a.id], 1)
+  assert.equal(ranks.total, st.badges.length)
 })

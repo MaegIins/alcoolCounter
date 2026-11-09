@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { computeBadges, BADGES, GROUPS } from './badges.js'
+import { computeBadges, computeBadgeState, BADGES, GROUPS } from './badges.js'
 
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
 // 1 verre standard = 10 g d'alcool pur ; grammes = cl × 10 × degré/100 × 0,8 (densité de l'éthanol).
@@ -161,6 +161,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const hadProducts = hasTable('products')
   db.exec(`
     PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL; -- recommandé avec WAL : moins d'écritures disque forcées, rien de perdu en cas de plantage de l'appli
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -474,6 +475,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     PRIMARY KEY (user_id, key)
   )`)
   addCols('notifications', [['badge', 'TEXT']]) // kind = 'badge' : clé du succès débloqué
+  // shown = annoncé dans le fil d'activité (0 pour ceux enregistrés en silence : déjà là avant, pas « nouveaux »)
+  if (!db.prepare('PRAGMA table_info(user_badges)').all().some((c) => c.name === 'shown')) {
+    db.exec('ALTER TABLE user_badges ADD COLUMN shown INTEGER NOT NULL DEFAULT 0')
+  }
   // Consos d'avant : rattachées au produit de la carte de même nom, volume et degré
   if (!drinkColsBefore.includes('product_id')) {
     db.exec(`UPDATE drinks SET product_id = (
@@ -661,7 +666,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     tz,
   })
   // Journée en cours (jusqu'à 6h on compte la veille) : les victoires comptent les journées terminées
-  const todayDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now() - 6 * 3600e3)
+  const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz })
+  const todayDay = () => dayFmt.format(now() - 6 * 3600e3)
   // Victoires pour les succès : la meilleure de ses bandes
   const bestWins = (userId) => Math.max(0, ...db.prepare('SELECT group_id FROM group_members WHERE user_id = ?').all(userId)
     .map(({ group_id }) => winsMap(todayDay(), group_id)[userId] || 0))
@@ -674,10 +680,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const fresh = BADGES.filter((b) => got.has(b.key) && !have.has(b.key))
     const at = now()
     for (const b of fresh) {
-      db.prepare('INSERT OR IGNORE INTO user_badges (user_id, key, at) VALUES (?, ?, ?)').run(userId, b.key, at)
+      db.prepare('INSERT OR IGNORE INTO user_badges (user_id, key, at, shown) VALUES (?, ?, ?, ?)').run(userId, b.key, at, silent ? 0 : 1)
       if (!silent) db.prepare("INSERT INTO notifications (user_id, actor_id, kind, badge, at, read) VALUES (?, ?, 'badge', ?, ?, ?)").run(userId, userId, b.key, at, read ? 1 : 0)
     }
     return fresh
+  }
+  // Succès qui tombent sans conso (victoires…) : rattrapés par la cloche, au plus toutes les 15 min par personne
+  const lastSync = new Map()
+  const syncBadgesLazy = (userId) => {
+    if (now() - (lastSync.get(userId) ?? 0) < 15 * 60e3) return
+    lastSync.set(userId, now())
+    syncBadges(userId)
   }
   const newBadges = (userId, fn) => {
     const out = fn()
@@ -1108,8 +1121,25 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       ORDER BY d.at DESC, d.id DESC LIMIT ?
     `).all(...ids, ...(cursor ? [bAt, bAt, bId] : []), limit + 1)
     const more = rows.length > limit
-    const items = rows.slice(0, limit).map(logOut)
-    res.json({ items, next: more ? `${items.at(-1).at}:${items.at(-1).id}` : null })
+    const logs = rows.slice(0, limit).map(logOut)
+    // Succès débloqués dans la même tranche de temps que cette page (bornes : curseur reçu, dernière conso de la page)
+    const low = more ? logs.at(-1).at : 0
+    const unlocked = db.prepare(`
+      SELECT b.user_id, b.key, b.at, u.name AS user_name, u.avatar_v FROM user_badges b JOIN users u ON u.id = b.user_id
+      WHERE b.shown = 1 AND b.user_id IN (${ids.map(() => '?').join(',')}) AND b.at >= ? ${cursor ? 'AND b.at < ?' : ''}
+      ORDER BY b.at DESC
+    `).all(...ids, low, ...(cursor ? [bAt] : []))
+    const groups = new Map()
+    for (const r of unlocked) {
+      const b = BADGE.get(r.key)
+      if (!b) continue
+      const k = `${r.user_id}:${r.at}`
+      if (!groups.has(k)) groups.set(k, { kind: 'badges', id: `b${k}`, user_id: r.user_id, user_name: r.user_name, avatar_v: r.avatar_v, at: r.at, badges: [] })
+      groups.get(k).badges.push({ key: b.key, icon: b.icon, label: b.label, desc: b.desc })
+    }
+    // Même instant qu'une conso (débloqué par elle) : le succès au-dessus, comme plus récent
+    const items = [...logs, ...groups.values()].sort((a, b) => b.at - a.at || (b.kind === 'badges') - (a.kind === 'badges'))
+    res.json({ items, next: more ? `${logs.at(-1).at}:${logs.at(-1).id}` : null })
   })
 
   // Recherche : des personnes (toutes, bande ou pas) et des boissons de la carte, par nom (sans accents ni casse)
@@ -1152,7 +1182,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
     if (id === req.user.id) return bad(res, 'Tu ne peux pas te suivre toi-même')
     const { changes } = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
-    if (changes) notify(id, req.user.id, 'follow')
+    if (changes) { notify(id, req.user.id, 'follow'); syncBadges(id) } // Influenceur
     res.json({ iFollow: true })
   })
   app.delete('/api/users/:id/follow', auth, (req, res) => {
@@ -1254,7 +1284,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const unread = (userId) => db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0').get(userId).n
   // Mes notifs, plus récentes d'abord (?before=<id> pour la suite)
   app.get('/api/notifications', auth, (req, res) => {
-    syncBadges(req.user.id)
+    syncBadgesLazy(req.user.id)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 30))
     const before = Number(req.query.before) || null
     const rows = db.prepare(`
@@ -1268,8 +1298,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const items = rows.slice(0, limit).map(({ badge, ...r }) => ({ ...r, read: !!r.read, ...(r.kind === 'badge' && { badge: badgeOut(badge) }) }))
     res.json({ items, next: rows.length > limit ? items.at(-1).id : null, unread: unread(req.user.id) })
   })
+  // Succès obtenus par chacun (anneau de palier autour des avatars, partout dans l'appli)
+  app.get('/api/ranks', auth, (req, res) => {
+    const counts = Object.fromEntries(db.prepare('SELECT user_id, COUNT(*) AS n FROM user_badges GROUP BY user_id').all().map((r) => [r.user_id, r.n]))
+    res.json({ total: BADGES.length, counts })
+  })
   app.get('/api/notifications/unread', auth, (req, res) => {
-    syncBadges(req.user.id) // succès débloqués sans conso : likes reçus, abonnés, victoires…
+    syncBadgesLazy(req.user.id) // victoires (pas d'action qui les déclenche) : au plus toutes les 15 min
     res.json({ unread: unread(req.user.id) })
   })
   app.post('/api/notifications/read', auth, (req, res) => {
@@ -1299,7 +1334,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
     const { changes } = db.prepare('INSERT OR IGNORE INTO drink_likes (drink_id, user_id, at) VALUES (?, ?, ?)').run(id, req.user.id, now())
-    if (changes) notify(ownerOf(id), req.user.id, 'like', { drinkId: id })
+    if (changes) { notify(ownerOf(id), req.user.id, 'like', { drinkId: id }); syncBadges(ownerOf(id)) } // Populaire, Star
     res.json(likeState(id, req.user.id))
   })
   app.delete('/api/drinks/:id/like', auth, (req, res) => {
@@ -1333,6 +1368,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const cid = Number(db.prepare('INSERT INTO drink_comments (drink_id, user_id, at, body) VALUES (?, ?, ?, ?)').run(id, req.user.id, now(), body).lastInsertRowid)
     const owner = ownerOf(id)
     notify(owner, req.user.id, 'comment', { drinkId: id, commentId: cid })
+    syncBadges(req.user.id) // Bavard
     // Ceux qui ont déjà commenté cette conso (sauf l'auteur, déjà prévenu) : une réponse
     for (const { user_id } of db.prepare('SELECT DISTINCT user_id FROM drink_comments WHERE drink_id = ? AND user_id NOT IN (?, ?)').all(id, owner, req.user.id)) {
       notify(user_id, req.user.id, 'reply', { drinkId: id, commentId: cid })
@@ -1605,7 +1641,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const hm = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     const minOf = (at) => { const [h, m] = hm.format(at).split(':').map(Number); return (h % 24) * 60 + m }
     // Aujourd'hui (la journée court jusqu'à 6h)
-    const todayDay = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now() - 6 * 3600e3)
+    const todayDay = dayFmt.format(now() - 6 * 3600e3)
     const DAY = 864e5
     const shift = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10)
     const r1 = (n) => round1(n)
@@ -1817,7 +1853,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       db.prepare(`SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND kind = ?${d ? ' AND day = ?' : ''}`).get(...[id, kind, d].filter(Boolean)).n
     const wins = req.group ? winsMap(req.query.winsBefore, req.group.id)[id] || 0 : 0
     // Succès : victoires dans sa meilleure bande (pareil quelle que soit la bande de celui qui regarde)
-    const got = computeBadges({ ...historyOf(id), wins: bestWins(id) })
+    const { got, progress } = computeBadgeState({ ...historyOf(id), wins: bestWins(id) })
+    // Rareté : part des joueurs (ceux qui ont noté au moins une conso) qui ont chaque succès
+    const players = db.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM drinks').get().n || 1
+    const owners = Object.fromEntries(db.prepare('SELECT key, COUNT(*) AS n FROM user_badges GROUP BY key').all().map((r) => [r.key, r.n]))
+    const rarity = (key) => Math.min(100, Math.round((100 * (owners[key] ?? 0)) / players))
     const tops = db.prepare(`
       SELECT t.slot, ${PRODUCT_COLS} FROM user_tops t JOIN products p ON p.id = t.product_id
       LEFT JOIN users u ON u.id = p.created_by WHERE t.user_id = ? ORDER BY t.slot
@@ -1856,7 +1896,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       clope: extraCount('clope'),
       tonight: day ? { eau: extraCount('eau', day), clope: extraCount('clope', day) } : null,
       // Secrets : on ne dévoile que ceux obtenus
-      badges: BADGES.map((b) => (b.secret && !got.has(b.key) ? { key: b.key, group: b.group, icon: '❓', label: '???', desc: 'Badge secret', secret: true, got: false } : { ...b, got: got.has(b.key) })),
+      badges: BADGES.map((b) => ({
+        ...(b.secret && !got.has(b.key) ? { key: b.key, group: b.group, icon: '❓', label: '???', desc: 'Badge secret', secret: true } : b),
+        got: got.has(b.key),
+        rarity: rarity(b.key),
+        ...(!got.has(b.key) && progress[b.key] && { progress: progress[b.key] }),
+      })),
       badgeGroups: GROUPS,
       byCat: Object.fromEntries(Object.entries(byCat).map(([k, v]) => [k, round1(v)])),
       top,
@@ -2163,13 +2208,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // En prod : sert le front buildé
+  // Fichiers du build (assets/) : nom avec empreinte, changé à chaque build → en cache un an, sans revalidation.
+  // index.html : toujours revalidé, pour que les clients prennent le nouveau build.
   if (distDir && existsSync(distDir)) {
-    app.use(express.static(distDir))
-    app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(distDir, 'index.html')))
+    app.use('/assets', express.static(path.join(distDir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }))
+    app.use(express.static(distDir, { setHeaders: (res, file) => file.endsWith('.html') && res.set('Cache-Control', 'no-cache') }))
+    app.get(/^(?!\/api).*/, (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(distDir, 'index.html')))
   }
 
   // Erreurs non prévues (JSON mal formé, contrainte SQL…) : toujours une réponse JSON
   app.use((err, _req, res, _next) => {
+    if (err.status === 404) return res.status(404).end() // fichier du build absent (vieil onglet après un déploiement)
     if (err.type === 'entity.parse.failed') return bad(res, 'JSON invalide')
     if (err.type === 'entity.too.large') return bad(res, 'Requête trop lourde', 413)
     if (String(err.code).startsWith('ERR_SQLITE') && /UNIQUE/.test(err.message)) {

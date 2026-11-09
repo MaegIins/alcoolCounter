@@ -119,7 +119,14 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   Le détail par catégorie se lit en **consos** (toutes les catégories, sans alcool compris) ou en **verres standard**.
   **Victoires** (♛) = journées gagnées ; **suspect** au-delà de 30 verres standard. Limites : 200 cl par verre,
   100 verres par jour.
-- **Badges** : 18 succès calculés depuis l'historique alcoolisé (`server/badges.js`).
+- **Succès** : 82 badges en 15 rubriques, calculés depuis l'historique (`server/badges.js`, `computeBadgeState` :
+  obtenus + progression des badges chiffrés), dont 5 secrets (« ??? » tant qu'on ne les a pas, rien n'est dévoilé
+  par l'API). Débloqués : toast, notif (`user_badges` retient ceux déjà vus ; au premier lancement, les existants
+  sont enregistrés sans notif) et carte dans le fil d'activité. Onglet Badges : rareté (% des joueurs qui l'ont),
+  progression, tri par rubrique ou par rareté. Victoires comptées dans la meilleure bande de la personne.
+- **Paliers** selon le % de succès (`RANKS` dans `client/src/utils.js`) : Bleu, Touriste, Régulier, Pilier de comptoir,
+  Vieux briscard, Taulier, Patron du rade, Propriétaire des murs. Anneau de couleur autour des avatars partout
+  (`GET /api/ranks`, `client/src/ranks.js`), titre et échelle sur le profil.
 - **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
 - **Le plan des lieux** (La carte › Lieux, sous la liste ; bouton plein écran) : Leaflet + tuiles OpenStreetMap assombries. Seuls les lieux

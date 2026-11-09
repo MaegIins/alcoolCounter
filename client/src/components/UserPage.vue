@@ -144,8 +144,15 @@ const rankProgress = computed(() => {
   return !r ? 0 : !r.next ? 100 : Math.min(100, (100 * (r.pct - r.min)) / (r.next.min - r.min))
 })
 // Badges rangés par rubrique (obtenus d'abord dans chaque rubrique)
+// Tri de l'onglet Badges : par rubrique, ou du plus rare au plus courant (retenu sur cet appareil)
+const badgeSort = ref((() => { try { return localStorage.getItem('badge-sort') || 'rubrique' } catch { return 'rubrique' } })())
+watch(badgeSort, (v) => { try { localStorage.setItem('badge-sort', v) } catch {} })
 const badgeGroups = computed(() => {
   const all = data.value?.badges ?? []
+  if (badgeSort.value === 'rarete') {
+    const badges = [...all].sort((a, b) => (a.rarity ?? 100) - (b.rarity ?? 100) || b.got - a.got)
+    return [{ key: 'rarete', label: 'Du plus rare au plus courant', badges, got: all.filter((b) => b.got).length }]
+  }
   const groups = data.value?.badgeGroups ?? [{ key: undefined, label: 'Badges' }]
   return groups
     .map((g) => {
@@ -183,9 +190,9 @@ const dayNum = (day) => Number(day.slice(8))
         <span class="rounded-full p-[3px]" :style="ringStyle">
           <span class="block rounded-full bg-paper p-[2px]">
             <button v-if="data.user.avatar_v" class="block cursor-zoom-in rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
-              <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
+              <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" :ring="false" />
             </button>
-            <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" />
+            <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" :ring="false" />
           </span>
         </span>
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
@@ -442,6 +449,12 @@ const dayNum = (day) => Number(day.slice(8))
             </li>
           </ol>
         </div>
+        <div class="mb-4 flex justify-end">
+          <div class="flex rounded-full bg-white/5 p-1 text-sm">
+            <button class="seg" :aria-pressed="badgeSort === 'rubrique'" @click="badgeSort = 'rubrique'">Par rubrique</button>
+            <button class="seg" :aria-pressed="badgeSort === 'rarete'" @click="badgeSort = 'rarete'">Par rareté</button>
+          </div>
+        </div>
         <section v-for="g in badgeGroups" :key="g.key" class="mb-6">
           <h3 class="mb-2 flex items-baseline justify-between text-sm font-semibold">
             {{ g.label }}
@@ -451,13 +464,24 @@ const dayNum = (day) => Number(day.slice(8))
             <div
               v-for="b in g.badges"
               :key="b.key"
-              class="rounded-md p-3 text-center"
-              :class="b.got ? 'bg-panel' : 'bg-panel/40 opacity-50'"
+              class="flex flex-col rounded-md p-3 text-center"
+              :class="b.got ? 'bg-panel' : 'bg-panel/40'"
               :title="b.desc"
             >
-              <div class="text-2xl" :class="!b.got && 'grayscale'">{{ b.got || b.secret ? b.icon : '·' }}</div>
-              <div class="mt-1 text-sm leading-tight font-semibold">{{ b.label }}</div>
-              <div class="mt-0.5 text-xs leading-tight text-muted">{{ b.desc }}</div>
+              <div class="text-2xl" :class="!b.got && 'opacity-50 grayscale'">{{ b.got || b.secret ? b.icon : '·' }}</div>
+              <div class="mt-1 text-sm leading-tight font-semibold" :class="!b.got && 'text-muted'">{{ b.label }}</div>
+              <div class="mt-0.5 text-xs leading-tight text-muted" :class="!b.got && 'opacity-70'">{{ b.desc }}</div>
+              <!-- Où on en est (badges chiffrés pas encore obtenus) -->
+              <div v-if="b.progress" class="mt-2">
+                <div class="h-1 overflow-hidden rounded-full bg-sunk">
+                  <div class="h-full rounded-full bg-hi/70" :style="{ width: `${(100 * b.progress[0]) / b.progress[1]}%` }" />
+                </div>
+                <div class="mt-0.5 text-[11px] text-faint tabular-nums">{{ num(b.progress[0]) }} / {{ num(b.progress[1]) }}</div>
+              </div>
+              <!-- Rareté : part des joueurs qui l'ont -->
+              <div v-if="b.rarity != null" class="mt-auto pt-1.5 text-[10px] leading-tight" :class="b.rarity <= 10 ? 'font-semibold text-neon' : 'text-faint'">
+                {{ b.rarity <= 10 ? 'Rare · ' : '' }}{{ b.rarity }} % des joueurs
+              </div>
             </div>
           </div>
         </section>

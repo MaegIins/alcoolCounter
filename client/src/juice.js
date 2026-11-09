@@ -1,6 +1,7 @@
 // Effets « juicy » : texte qui s'envole, bulles, confettis, toasts, vibration.
 // Les particules sont de simples éléments DOM animés en CSS (style.css), retirés à la fin de l'animation.
 import { reactive } from 'vue'
+import { refreshRanks } from './ranks'
 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
@@ -77,6 +78,7 @@ export function dismiss(id) {
 
 // Badges débloqués : gros toast + confettis
 export function celebrateBadges(badges = []) {
+  if (badges.length) refreshRanks() // mon anneau change peut-être de couleur
   badges.forEach((b, i) =>
     setTimeout(() => {
       toast(`${b.icon} Badge débloqué : ${b.label}`, { kind: 'badge', ms: 3500 })
