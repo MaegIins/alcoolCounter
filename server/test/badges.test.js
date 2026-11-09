@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeBadges, BADGES, hourIn } from '../badges.js'
+import { computeBadges, BADGES, hourIn, isLate } from '../badges.js'
 
 const T = (s) => Date.parse(s)
 const pinte = (day, at, extra = {}) => ({ day, at: T(at), name: 'Pinte', cat: 'biere', cl: 50, abv: 5, ...extra })
@@ -131,4 +131,16 @@ test('progression des badges chiffrés (et rien pour les secrets)', async () => 
   assert.deepEqual(progress.tonneau, [2, 100]) // 2 litres
   assert.ok(got.has('serie') && progress.serie[0] === 3)
   for (const b of BADGES.filter((x) => x.secret)) assert.equal(progress[b.key], undefined)
+})
+
+test('conso notée après coup : pas de succès liés à l’heure (l’heure est celle de la saisie)', () => {
+  // Samedi, noté dimanche à 15h36 : ni « En avance », ni « Enchaînement », ni « Marathon »
+  const late = (m) => pinte('2026-11-07', new Date(T('2026-11-09T15:36:00+01:00') + m * 60e3).toISOString())
+  assert.ok(isLate(late(0)))
+  const b = computeBadges({ drinks: [0, 1, 2, 3, 4].map(late) })
+  assert.ok(b.has('premiere'))
+  for (const k of ['apero', 'tournee', 'marathon', 'petitdej', 'pausedej']) assert.ok(!b.has(k), k)
+  // Notée sur le moment, même après minuit (avant 6h = encore la journée de la veille) : l’heure compte
+  assert.ok(!isLate(pinte('2026-11-07', '2026-11-08T02:00:00+01:00')))
+  assert.ok(computeBadges({ drinks: [pinte('2026-11-07', '2026-11-07T15:00:00+01:00')] }).has('apero'))
 })

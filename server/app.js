@@ -5,7 +5,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypt
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import * as webpush from 'web-push'
-import { computeBadges, computeBadgeState, BADGES, GROUPS } from './badges.js'
+import { computeBadges, computeBadgeState, BADGES, GROUPS, isLate } from './badges.js'
 
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
 // 1 verre standard = 10 g d'alcool pur ; grammes = cl × 10 × degré/100 × 0,8 (densité de l'éthanol).
@@ -1112,7 +1112,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     return db.prepare('SELECT id FROM places WHERE name = ? AND private = 0').get(name).id
   }
   const placeOpts = (req) => ({ priv: req.body.place_private === true, groupId: Number(req.headers['x-group']) || myGroups(req.user.id)[0]?.id || null })
-  const logOut = (r) => ({ ...r, units: round1(unitsOf(r)), ...('liked' in r ? { liked: !!r.liked } : {}) })
+  // late : notée après coup (pour une autre journée que celle de la saisie) → l'heure `at` n'est pas celle du verre
+  const logOut = (r) => ({ ...r, units: round1(unitsOf(r)), late: isLate(r, tz), ...('liked' in r ? { liked: !!r.liked } : {}) })
   const getLog = (id) => db.prepare(`SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.id = ?`).get(id)
 
   // Ajouter une conso (une par appel : un verre = un tap), avec en option note, avis et photo.

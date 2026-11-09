@@ -46,7 +46,7 @@ const count = ref(props.log.comments ?? 0)
           <Avatar :user="{ id: log.user_id, name: log.user_name, avatar_v: log.avatar_v }" :color="colors[log.user_id]" :size="20" />
           <span class="truncate font-semibold">{{ mine ? 'Toi' : log.user_name }}</span>
         </button>
-        <button class="shrink-0 text-faint hover:text-ink hover:underline" :title="'Ouvrir la conso'" @click="openPost(log.id)">{{ timeAgo(log.at) }}</button>
+        <button class="shrink-0 text-faint hover:text-ink hover:underline" :title="'Ouvrir la conso'" @click="openPost(log.id)">{{ log.late ? `noté après coup, ${timeAgo(log.at)}` : timeAgo(log.at) }}</button>
       </div>
 
       <div class="flex items-start gap-2">

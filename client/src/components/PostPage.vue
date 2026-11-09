@@ -54,7 +54,7 @@ function onLike({ likes, liked }) {
         </button>
         <div class="min-w-0 flex-1">
           <button class="block truncate font-bold hover:text-hi" @click="openUser(p.user_id)">{{ mine ? 'Toi' : p.user_name }}</button>
-          <span class="text-sm text-faint"><span class="first-letter:uppercase">{{ prettyDay(p.day) }}</span> · {{ time(p.at) }} · {{ timeAgo(p.at) }}</span>
+          <span class="text-sm text-faint"><span class="first-letter:uppercase">{{ prettyDay(p.day) }}</span> · <template v-if="p.late">noté après coup, {{ timeAgo(p.at) }}</template><template v-else>{{ time(p.at) }} · {{ timeAgo(p.at) }}</template></span>
         </div>
         <button v-if="mine" class="btn btn-ghost flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-sm font-semibold" @click="openLog({ edit: p })">
           <Icon name="edit" :size="14" /> Modifier

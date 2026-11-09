@@ -130,6 +130,17 @@ const fmtIn = (tz) => {
 const hmIn = (ms, tz) => fmtIn(tz).format(ms)
 /** Heure locale (0-23) d'un instant dans un fuseau */
 export const hourIn = (ms, tz) => Number(hmIn(ms, tz).slice(0, 2))
+// Journée (AAAA-MM-JJ) d'un instant : jusqu'à 6h du matin, c'est encore la veille (comme partout dans l'appli)
+const dayFormatters = new Map()
+const dayIn = (ms, tz) => {
+  if (!dayFormatters.has(tz)) dayFormatters.set(tz, new Intl.DateTimeFormat('en-CA', { timeZone: tz }))
+  return dayFormatters.get(tz).format(ms - 6 * 3600e3)
+}
+/**
+ * Conso notée après coup : saisie pendant une autre journée que celle où elle a été bue (« samedi », noté dimanche).
+ * Son `at` est alors l'heure de saisie, pas celle du verre : elle ne compte pas pour les succès liés à l'heure.
+ */
+export const isLate = (d, tz = 'Europe/Paris') => dayIn(d.at, tz) !== d.day
 
 const BULLES = /champ|cr[ée]mant|prosecco|cava\b|p[ée]tillant/i
 const RHUM = /rhum|rum\b|ti.?punch|mojito|daiquiri|pi[ñn]a/i
@@ -178,8 +189,9 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   goal('mille', total, 1000)
   goal('tonneau', drinks.reduce((s, d) => s + d.cl, 0) / 100, 100) // en litres
 
-  // Horaires (heure locale)
-  for (const d of drinks) {
+  // Horaires (heure locale) : seulement les consos notées sur le moment (l'heure d'une conso notée après coup est fausse)
+  const timed = drinks.filter((d) => !isLate(d, tz))
+  for (const d of timed) {
     const hhmm = hmIn(d.at, tz)
     const h = Number(hhmm.slice(0, 2))
     add('couchetard', h >= 3 && h < 6)
@@ -188,7 +200,7 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
     add('pausedej', h >= 12 && h < 14 && weekday(d.day) < 5)
     add('minuit', hhmm === '00:00')
   }
-  const times = drinks.map((d) => d.at).sort((a, b) => a - b)
+  const times = timed.map((d) => d.at).sort((a, b) => a - b)
   for (let i = 4; i < times.length; i++) if (times[i] - times[i - 4] <= 3600e3) got.add('tournee')
 
   // Par journée (on garde les records du jour pour la progression)
@@ -205,8 +217,8 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
     add('suspect', u > 30)
     add('pilepoil', Math.round(u * 10) === 100)
     add('lundi', weekday(day) === 0 && u >= 5)
-    const ats = list.map((d) => d.at)
-    add('marathon', Math.max(...ats) - Math.min(...ats) >= 8 * 3600e3)
+    const ats = list.filter((d) => !isLate(d, tz)).map((d) => d.at)
+    add('marathon', ats.length > 1 && Math.max(...ats) - Math.min(...ats) >= 8 * 3600e3)
     add('sage', list.length >= 3 && (waterByDay.get(day) ?? 0) >= list.length)
     const [, m, dom] = day.split('-').map(Number)
     add('reveillon', m === 12 && dom === 31)
@@ -310,8 +322,8 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   goal('empire', wins, 50)
 
   // Secrets (pas de progression : ça les trahirait)
-  const cafes = all.filter((d) => d.cat === 'chaud')
-  add('irish', of('fort').some((f) => cafes.some((c) => Math.abs(c.at - f.at) <= 10 * 60e3)))
+  const cafes = all.filter((d) => d.cat === 'chaud' && !isLate(d, tz))
+  add('irish', timed.filter((d) => d.cat === 'fort').some((f) => cafes.some((c) => Math.abs(c.at - f.at) <= 10 * 60e3)))
   const same = new Map()
   for (const d of drinks) same.set(d.name.toLowerCase(), (same.get(d.name.toLowerCase()) ?? 0) + 1)
   add('fidele', [...same.values()].some((n) => n >= 50))
