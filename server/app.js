@@ -2300,7 +2300,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         return { ...u, ...a, ...Object.fromEntries(ALCO.map((c) => [c, round1(a[c])])), total: round1(a.total), wins: winMap[u.id] || 0,
           eau: extraMap[u.id]?.eau ?? 0, clope: extraMap[u.id]?.clope ?? 0 }
       })
-      .sort((x, y) => y.total - x.total || x.name.localeCompare(y.name))
+      // Égalité (ou personne n'a bu) : le plus couronné devant, puis l'ordre alphabétique
+      .sort((x, y) => y.total - x.total || y.wins - x.wins || x.name.localeCompare(y.name))
 
     // On masque les inactifs (rien bu depuis activeSince), sauf soi-même.
     // Pour une période terminée (ended=1), ceux qui y ont participé restent affichés.

@@ -190,6 +190,17 @@ describe('classement', () => {
     assert.deepEqual(Object.fromEntries(r.body.map((x) => [x.name, x.wins])), { Alice: 1, Bob: 1 })
   })
 
+  test('classement : à égalité (ou à zéro), le plus couronné devant, puis l’ordre alphabétique', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const c = await s.register('Chloé')
+    await s.drink(c.token, '2026-11-01', {}, 2) // Chloé gagne le 1er
+    await s.drink(b.token, '2026-11-01', {})
+    for (const t of [a.token, b.token, c.token]) await s.drink(t, '2026-11-02', { name: 'Coca', cat: 'soft', abv: 0 }) // actifs, 0 verre
+    const r = await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02&winsBefore=2026-11-02', { token: a.token })
+    assert.deepEqual(r.body.map((x) => [x.name, x.total, x.wins]), [['Chloé', 0, 1], ['Alice', 0, 0], ['Bob', 0, 0]])
+  })
+
   test('inactifs depuis 7 jours masqués, sauf moi ; période terminée = participants visibles', async () => {
     const me = await s.register('Moi')
     const active = await s.register('Actif')
