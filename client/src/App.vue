@@ -49,6 +49,17 @@ async function focusNudge() {
 // Lien d'invitation : /?bande=CODE (rejoint direct si connecté, sinon pré-remplit l'inscription)
 const inviteCode = new URLSearchParams(window.location.search).get('bande')?.toUpperCase() ?? ''
 if (inviteCode) history.replaceState(history.state, '', window.location.pathname) // on retire ?bande= de l'URL
+// Raccourci de l'appli installée (appui long sur l'icône) : /?ajouter ouvre direct la fenêtre « + »
+let quickAdd = new URLSearchParams(window.location.search).has('ajouter')
+if (quickAdd) history.replaceState(history.state, '', window.location.pathname)
+
+// Appli remise au premier plan après un moment (téléphone en poche) : on recharge les écrans.
+// Rien en tâche de fond : une seule vague de requêtes, au retour.
+let hiddenAt = 0
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now()
+  else if (me.value && hiddenAt && Date.now() - hiddenAt > 5 * 60e3) bump()
+})
 
 // Session expirée ou révoquée (PIN changé ailleurs) : retour à l'écran de connexion
 setUnauthorizedHandler(() => {
@@ -85,6 +96,8 @@ async function onLogged(user, { registered = false } = {}) {
   }).catch(() => {})
   await loadGroups()
   if (registered) welcome.value = true
+  if (quickAdd && !registered) openLog({ day: day.value })
+  quickAdd = false
 }
 
 onMounted(async () => {

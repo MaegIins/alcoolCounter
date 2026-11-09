@@ -24,6 +24,9 @@ export const ui = reactive({
 
 const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, placeId: ui.placeId, postId: ui.postId, tab: ui.tab, back: ui.back })
 function show(next, { replace = false, back = false } = {}) {
+  // Fenêtre « + » ouverte (elle a son entrée d'historique) : le nouvel écran la remplace
+  if (history.state?.sheet) replace = true
+  ui.log = null
   Object.assign(ui, { userId: null, productId: null, placeId: null, postId: null, tab: null }, next, { back })
   const url = urlOf(ui) + window.location.hash
   if (replace) history.replaceState(state(), '', url)
@@ -37,9 +40,12 @@ Object.assign(ui, parseUrl(window.location.pathname, window.location.search), { 
 history.replaceState(state(), '', window.location.href)
 // Bouton retour / avant du navigateur
 window.addEventListener('popstate', (e) => {
+  // Bouton « avant » vers une fenêtre « + » déjà fermée : on n'y reste pas
+  if (e.state?.sheet) return history.back()
+  const closingSheet = !!ui.log
   Object.assign(ui, e.state ?? { ...parseUrl(window.location.pathname, window.location.search), back: false })
   ui.log = null
-  window.scrollTo({ top: 0 })
+  if (!closingSheet) window.scrollTo({ top: 0 }) // retour qui ferme la fenêtre : on reste où on était
 })
 
 /** Onglet (barre du bas, logo…) */
@@ -76,5 +82,14 @@ export function goBack() {
   if (ui.back) history.back()
   else go('home')
 }
-export const openLog = (preset = {}) => (ui.log = preset)
+/** Fenêtre « + ». Elle a sa propre entrée d'historique : le bouton retour (Android, navigateur) la ferme. */
+export function openLog(preset = {}) {
+  if (!ui.log) history.pushState({ ...state(), sheet: true }, '', window.location.href)
+  ui.log = preset
+}
+export function closeLog() {
+  if (!ui.log) return
+  if (history.state?.sheet) history.back() // popstate remet ui.log à null
+  else ui.log = null
+}
 export const bump = () => ui.refresh++
