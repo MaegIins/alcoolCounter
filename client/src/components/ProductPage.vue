@@ -189,7 +189,7 @@ const zoom = ref('')
         <div class="absolute inset-0 bg-gradient-to-b from-transparent via-paper/40 to-paper" aria-hidden="true" />
 
         <div class="relative flex gap-4 px-4 pt-4 pb-2">
-          <button v-if="photo" class="shrink-0" aria-label="Agrandir la photo" @click="zoom = photo">
+          <button v-if="photo" class="cursor-zoom-in shrink-0" aria-label="Agrandir la photo" @click="zoom = photo">
             <Poster :drink="p" :width="118" />
           </button>
           <Poster v-else :drink="p" :width="96" :icon="96" />
@@ -356,7 +356,7 @@ const zoom = ref('')
                 <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
               </div>
               <p v-if="r.review" class="mt-1.5 whitespace-pre-line text-ink/90">{{ r.review }}</p>
-              <button v-if="r.photo_key" class="mt-2 block" aria-label="Agrandir la photo" @click="zoom = photoUrl(r.photo_key)">
+              <button v-if="r.photo_key" class="cursor-zoom-in mt-2 block" aria-label="Agrandir la photo" @click="zoom = photoUrl(r.photo_key)">
                 <img :src="photoUrl(r.photo_key)" alt="" loading="lazy" class="max-h-56 rounded-lg" />
               </button>
             </div>
@@ -384,7 +384,7 @@ const zoom = ref('')
     </template>
 
     <Teleport to="body">
-      <div v-if="zoom" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = ''">
+      <div v-if="zoom" class="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/90 p-4" @click="zoom = ''">
         <img :src="zoom" alt="" class="max-h-full max-w-full rounded-lg" />
       </div>
     </Teleport>

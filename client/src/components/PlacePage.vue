@@ -62,7 +62,7 @@ const drinkHere = () => openLog({ place: p.value.name })
     <template v-else>
       <!-- En-tête -->
       <header class="flex items-start gap-4">
-        <button v-if="p.photo_key" class="shrink-0" aria-label="Agrandir la photo" @click="zoom = true">
+        <button v-if="p.photo_key" class="cursor-zoom-in shrink-0" aria-label="Agrandir la photo" @click="zoom = true">
           <img :src="photoUrl(p.photo_key)" alt="" class="h-20 w-20 rounded-2xl object-cover ring-1 ring-black/50" />
         </button>
         <span v-else class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-hi/15 text-3xl text-hi">
@@ -193,7 +193,7 @@ const drinkHere = () => openLog({ place: p.value.name })
     </template>
 
     <Teleport to="body">
-      <div v-if="zoom" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = false">
+      <div v-if="zoom" class="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/90 p-4" @click="zoom = false">
         <img :src="photoUrl(p.photo_key)" alt="" class="max-h-full max-w-full rounded-lg" />
       </div>
     </Teleport>

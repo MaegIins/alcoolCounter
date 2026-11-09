@@ -91,7 +91,7 @@ function onLike({ likes, liked }) {
         <button class="font-semibold text-hi hover:underline" @click="openLog({ edit: p })">En écrire un</button>
       </p>
 
-      <button v-if="p.photo_key" class="mt-6 block w-full" aria-label="Agrandir la photo" @click="zoom = true">
+      <button v-if="p.photo_key" class="cursor-zoom-in mt-6 block w-full" aria-label="Agrandir la photo" @click="zoom = true">
         <img :src="photoUrl(p.photo_key)" alt="" class="max-h-[32rem] w-full rounded-lg object-cover" />
       </button>
 
@@ -119,7 +119,7 @@ function onLike({ likes, liked }) {
     </article>
 
     <Teleport to="body">
-      <div v-if="zoom" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = false">
+      <div v-if="zoom" class="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/90 p-4" @click="zoom = false">
         <img :src="photoUrl(p.photo_key)" alt="" class="max-h-full max-w-full rounded-md" />
       </div>
     </Teleport>
