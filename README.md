@@ -48,6 +48,18 @@ l'admin change de pseudo ou supprime son compte, personne ne devient admin en re
 ⚠️ Sur une installation neuve, inscris le compte admin **avant** d'ouvrir l'appli aux autres : le premier à
 s'inscrire avec ce pseudo devient admin.
 
+### Sur Android (appli installable)
+
+Le site est une PWA : servi en **HTTPS**, Chrome Android propose « Installer l'appli » (menu ⋮). On obtient une icône
+sur l'écran d'accueil, plein écran sans barre d'adresse, et un appui long sur l'icône donne les raccourcis « Ajouter »
+(`/?ajouter`) et « Activité ».
+- `client/public/manifest.webmanifest` : nom, couleurs, icônes (`client/public/icons/`, dont une « maskable »).
+- `client/public/sw.js` : service worker minimal, qui affiche une page « Pas de réseau » hors ligne. Il ne met ni l'API
+  ni l'appli en cache, donc un déploiement est pris tout de suite. Il n'est enregistré que sur le build, pas en dev.
+- Réglages › « Installer l'appli » : bouton d'installation en un appui (Chrome, Edge) ou tuto Android / iPhone / ordi.
+- Le bouton retour d'Android ferme la fenêtre « + » au lieu de changer d'écran.
+- Au retour au premier plan après plus de 5 min, les écrans se rechargent (une seule vague de requêtes).
+
 ## Fonctionnement
 
 ### Bandes

@@ -1,7 +1,20 @@
 @import 'tailwindcss';
 
-/* Curseurs (version PC) : Tailwind 4 remet les boutons en curseur flèche ; tout ce qui se clique repasse en main */
 @layer base {
+  /* Tactile : pas de flash bleu au toucher, pas d'attente du double-tap (zoom) sur les contrôles */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+  /* Curseurs (version PC) : Tailwind 4 remet les boutons en curseur flèche ; tout ce qui se clique repasse en main */
   button:not(:disabled),
   [role='button'],
   [role='tab'],

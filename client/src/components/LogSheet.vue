@@ -5,7 +5,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
   api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, fmtProduct, today, addDays, prettyDay, resizePhoto, photoUrl,
 } from '../api'
-import { ui, bump, openProduct } from '../nav'
+import { ui, bump, openProduct, closeLog } from '../nav'
 import { toast, ask, celebrateBadges, vibrate } from '../juice'
 import DrinkFields from './DrinkFields.vue'
 import Poster from './Poster.vue'
@@ -15,7 +15,7 @@ import PhotoSource from './PhotoSource.vue'
 import PlaceEditForm from './PlaceEditForm.vue'
 
 const props = defineProps({ preset: { type: Object, default: () => ({}) }, me: Object, groups: { type: Array, default: () => [] } })
-const close = () => (ui.log = null)
+const close = closeLog
 
 const edit = props.preset.edit ?? null
 const step = ref(edit || props.preset.product || props.preset.drink ? 'details' : 'pick')
@@ -219,8 +219,7 @@ async function save() {
 
 // Aller sur la page de la boisson (on ferme la fenêtre)
 function toPage(id) {
-  close()
-  openProduct(id)
+  openProduct(id) // remplace l'entrée d'historique de la fenêtre, qui se ferme
 }
 // Conso d'une boisson qui n'est pas sur la carte : on l'y met (ses consos y sont rattachées) et on va sur sa page
 async function createPage() {

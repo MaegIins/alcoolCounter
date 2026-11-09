@@ -2229,7 +2229,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // index.html : toujours revalidé, pour que les clients prennent le nouveau build.
   if (distDir && existsSync(distDir)) {
     app.use('/assets', express.static(path.join(distDir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }))
-    app.use(express.static(distDir, { setHeaders: (res, file) => file.endsWith('.html') && res.set('Cache-Control', 'no-cache') }))
+    app.use(express.static(distDir, { setHeaders: (res, file) => /\.(html|webmanifest)$|sw\.js$/.test(file) && res.set('Cache-Control', 'no-cache') }))
     app.get(/^(?!\/api).*/, (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(distDir, 'index.html')))
   }
 

@@ -6,6 +6,7 @@ import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
 import PhotoSource from './PhotoSource.vue'
+import InstallCard from './InstallCard.vue'
 
 const props = defineProps({ me: Object, color: String, groups: Array })
 const emit = defineEmits(['update', 'back', 'groups', 'deleted'])
@@ -98,6 +99,8 @@ async function deleteAccount() {
       <h3 class="mb-3 text-lg font-bold">Mes bandes</h3>
       <GroupsPanel :groups="groups" :me="me" @changed="emit('groups')" />
     </section>
+
+    <InstallCard />
 
     <section class="box">
       <div class="px-5 pt-4 font-bold">Photo</div>
