@@ -93,8 +93,8 @@ export const BADGES = [
   { key: 'critique', group: 'critique', icon: '📝', label: 'Critique', desc: '10 boissons notées' },
   { key: 'jury', group: 'critique', icon: '⚖️', label: 'Jury', desc: '50 boissons notées' },
   { key: 'plume', group: 'critique', icon: '🖋️', label: 'Plume', desc: '10 avis écrits' },
-  { key: 'coupdecoeur', group: 'critique', icon: '💘', label: 'Coup de cœur', desc: 'Mettre 10/10' },
-  { key: 'severe', group: 'critique', icon: '🤮', label: 'Sans pitié', desc: 'Mettre 1/10' },
+  { key: 'coupdecoeur', group: 'critique', icon: '💘', label: 'Coup de cœur', desc: 'Mettre 5 étoiles' },
+  { key: 'severe', group: 'critique', icon: '🤮', label: 'Sans pitié', desc: 'Mettre une demi-étoile' },
   { key: 'photographe', group: 'critique', icon: '📸', label: 'Photographe', desc: '10 consos avec photo' },
   // Eau et clopes
   { key: 'chameau', group: 'extras', icon: '💧', label: 'Hydraté', desc: '10 verres d’eau' },
