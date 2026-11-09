@@ -74,7 +74,11 @@ test('notifs : like, commentaire, réponse, follow ; jamais pour soi ; lues ; re
   const b = await s.register('Bob')
   const c = await s.register('Carl')
   const id = (await s.drink(a.token, '2026-11-03')).body.id
-  const notifs = async (t) => (await s.call('GET', '/notifications', { token: t })).body
+  // Les succès (« Premier verre »…) ont leur propre test
+  const notifs = async (t) => {
+    const body = (await s.call('GET', '/notifications', { token: t })).body
+    return { ...body, items: body.items.filter((x) => x.kind !== 'badge') }
+  }
 
   await s.call('PUT', `/drinks/${id}/like`, { token: a.token }) // soi-même : rien
   await s.call('PUT', `/drinks/${id}/like`, { token: b.token })
@@ -132,4 +136,24 @@ test('likes de commentaires : compteur, « liké par moi », notif à l’auteur
   await s.call('DELETE', `/comments/${cm.id}`, { token: b.token }) // commentaire supprimé : likes et notifs partent
   assert.deepEqual(await kinds(), [])
   assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM comment_likes').get().n, 0)
+})
+
+test('notifs de succès : une fois chacun, lues si fêtées à l’écran, et ceux gagnés sans conso (commentaires)', async () => {
+  const a = await s.register('Alice')
+  s.clock.t = Date.parse('2026-11-03T21:00:00+01:00') // le soir : ni « apéro » ni « pause déj »
+  const first = await s.drink(a.token, '2026-11-03')
+  assert.deepEqual(first.body.badges.map((b) => b.key), ['premiere'])
+  const list = async () => (await s.call('GET', '/notifications', { token: a.token })).body.items.filter((x) => x.kind === 'badge')
+  let n = await list()
+  assert.deepEqual(n.map((x) => [x.badge.key, x.badge.label, x.read]), [['premiere', 'Premier verre', true]])
+  // Supprimée puis remise : pas de deuxième notif
+  await s.call('DELETE', `/drinks/${first.body.id}`, { token: a.token })
+  const again = await s.drink(a.token, '2026-11-03')
+  assert.deepEqual(again.body.badges, [])
+  // 10 commentaires écrits : « Bavard », notifié (non lu) dès le prochain passage de la cloche
+  for (let i = 0; i < 10; i++) await s.call('POST', `/drinks/${again.body.id}/comments`, { token: a.token, body: { body: `Santé ${i}` } })
+  assert.equal((await s.call('GET', '/notifications/unread', { token: a.token })).body.unread, 1)
+  n = await list()
+  assert.deepEqual(n.map((x) => [x.badge.key, x.read]), [['bavard', false], ['premiere', true]])
+  assert.equal(n[0].actor_id, a.id)
 })

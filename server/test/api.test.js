@@ -525,6 +525,10 @@ describe('badges', () => {
     const st = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body
     assert.ok(st.badges.find((b) => b.key === 'tournee').got)
     assert.equal(st.badges.find((b) => b.key === 'chameau').got, false)
+    // Secrets pas encore obtenus : rien de dévoilé ; rubriques fournies
+    const secret = st.badges.find((b) => b.key === 'vendredi13')
+    assert.deepEqual([secret.label, secret.desc, secret.got], ['???', 'Badge secret', false])
+    assert.ok(st.badgeGroups.some((g) => g.key === 'secret'))
   })
 })
 

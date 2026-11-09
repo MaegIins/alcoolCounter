@@ -133,6 +133,17 @@ const since = computed(() => {
 })
 const catTotal = computed(() => Math.max(0.1, ALCO_CATS.reduce((s, c) => s + (data.value?.byCat[c.key] ?? 0), 0)))
 const nights = computed(() => [...(data.value?.recent ?? [])].reverse())
+// Badges rangés par rubrique (obtenus d'abord dans chaque rubrique)
+const badgeGroups = computed(() => {
+  const all = data.value?.badges ?? []
+  const groups = data.value?.badgeGroups ?? [{ key: undefined, label: 'Badges' }]
+  return groups
+    .map((g) => {
+      const badges = all.filter((b) => b.group === g.key || groups.length === 1)
+      return { ...g, badges: [...badges].sort((a, b) => b.got - a.got), got: badges.filter((b) => b.got).length }
+    })
+    .filter((g) => g.badges.length)
+})
 const nightsMax = computed(() => Math.max(1, ...nights.value.map((n) => n.units)))
 const dayNum = (day) => Number(day.slice(8))
 </script>
@@ -377,22 +388,35 @@ const dayNum = (day) => Number(day.slice(8))
       <UserDrinks v-else-if="tab === 'boissons'" :user-id="userId" :is-me="isMe" />
       <UserStats v-else-if="tab === 'stats'" :user-id="userId" :profile="data" :me="me" :colors="colors" />
 
-      <!-- Badges -->
+      <!-- Badges, par rubrique -->
       <div v-else class="pt-6">
-        <p class="mb-4 text-sm text-muted">{{ data.badges.filter((b) => b.got).length }} sur {{ data.badges.length }}</p>
-        <div class="grid grid-cols-3 gap-2 lg:grid-cols-5">
-          <div
-            v-for="b in data.badges"
-            :key="b.key"
-            class="rounded-md p-3 text-center"
-            :class="b.got ? 'bg-panel' : 'bg-panel/40 opacity-50'"
-            :title="b.desc"
-          >
-            <div class="text-2xl" :class="!b.got && 'grayscale'">{{ b.got ? b.icon : '·' }}</div>
-            <div class="mt-1 text-sm leading-tight font-semibold">{{ b.label }}</div>
-            <div class="mt-0.5 text-xs leading-tight text-muted">{{ b.desc }}</div>
+        <div class="mb-6 flex items-center gap-3">
+          <p class="shrink-0 text-sm text-muted">
+            <span class="font-display text-xl text-ink">{{ data.badges.filter((b) => b.got).length }}</span> sur {{ data.badges.length }}
+          </p>
+          <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-panel">
+            <div class="h-full rounded-full bg-hi" :style="{ width: `${(100 * data.badges.filter((b) => b.got).length) / data.badges.length}%` }" />
           </div>
         </div>
+        <section v-for="g in badgeGroups" :key="g.key" class="mb-6">
+          <h3 class="mb-2 flex items-baseline justify-between text-sm font-semibold">
+            {{ g.label }}
+            <span class="text-xs font-normal text-faint">{{ g.got }}/{{ g.badges.length }}</span>
+          </h3>
+          <div class="grid grid-cols-3 gap-2 lg:grid-cols-5">
+            <div
+              v-for="b in g.badges"
+              :key="b.key"
+              class="rounded-md p-3 text-center"
+              :class="b.got ? 'bg-panel' : 'bg-panel/40 opacity-50'"
+              :title="b.desc"
+            >
+              <div class="text-2xl" :class="!b.got && 'grayscale'">{{ b.got || b.secret ? b.icon : '·' }}</div>
+              <div class="mt-1 text-sm leading-tight font-semibold">{{ b.label }}</div>
+              <div class="mt-0.5 text-xs leading-tight text-muted">{{ b.desc }}</div>
+            </div>
+          </div>
+        </section>
       </div>
     </template>
 

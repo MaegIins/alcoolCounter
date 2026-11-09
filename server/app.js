@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { computeBadges, BADGES } from './badges.js'
+import { computeBadges, BADGES, GROUPS } from './badges.js'
 
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
 // 1 verre standard = 10 g d'alcool pur ; grammes = cl × 10 × degré/100 × 0,8 (densité de l'éthanol).
@@ -465,6 +465,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     );
     CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, at);
   `)
+  // Succès déjà débloqués (pour ne notifier qu'une fois). Table nouvelle : on la remplira sans notifier (voir plus bas).
+  const badgesTableNew = !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_badges'").get()
+  db.exec(`CREATE TABLE IF NOT EXISTS user_badges (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  )`)
+  addCols('notifications', [['badge', 'TEXT']]) // kind = 'badge' : clé du succès débloqué
   // Consos d'avant : rattachées au produit de la carte de même nom, volume et degré
   if (!drinkColsBefore.includes('product_id')) {
     db.exec(`UPDATE drinks SET product_id = (
@@ -638,15 +647,41 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Badges d'une personne ; `newBadges(userId, fn)` donne ceux débloqués par fn()
   const historyOf = (userId) => ({
-    drinks: db.prepare('SELECT day, at, name, cat, cl, abv FROM drinks WHERE user_id = ? AND abv > 0').all(userId),
+    drinks: db.prepare(`
+      SELECT d.day, d.at, d.name, d.cat, d.cl, d.abv, d.rating, d.review, d.photo_key IS NOT NULL AS photo, d.place_id,
+        pl.home_of IS NOT NULL AS home
+      FROM drinks d LEFT JOIN places pl ON pl.id = d.place_id WHERE d.user_id = ?
+    `).all(userId),
     extras: db.prepare('SELECT day, at, kind FROM extras WHERE user_id = ?').all(userId),
+    social: {
+      comments: db.prepare('SELECT COUNT(*) AS n FROM drink_comments WHERE user_id = ?').get(userId).n,
+      likes: db.prepare('SELECT COUNT(*) AS n FROM drink_likes k JOIN drinks d ON d.id = k.drink_id WHERE d.user_id = ? AND k.user_id != ?').get(userId, userId).n,
+      followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?').get(userId).n,
+    },
     tz,
   })
+  // Journée en cours (jusqu'à 6h on compte la veille) : les victoires comptent les journées terminées
+  const todayDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now() - 6 * 3600e3)
+  // Victoires pour les succès : la meilleure de ses bandes
+  const bestWins = (userId) => Math.max(0, ...db.prepare('SELECT group_id FROM group_members WHERE user_id = ?').all(userId)
+    .map(({ group_id }) => winsMap(todayDay(), group_id)[userId] || 0))
+  const BADGE = new Map(BADGES.map((b) => [b.key, b]))
+  // Enregistre les succès nouvellement obtenus et les notifie (une seule fois, même si on les reperd puis regagne).
+  // read : déjà fêtés à l'écran (toast après une conso) → la notif arrive lue. silent : pas de notif (remplissage initial).
+  const syncBadges = (userId, { read = false, silent = false } = {}) => {
+    const got = computeBadges({ ...historyOf(userId), wins: bestWins(userId) })
+    const have = new Set(db.prepare('SELECT key FROM user_badges WHERE user_id = ?').all(userId).map((r) => r.key))
+    const fresh = BADGES.filter((b) => got.has(b.key) && !have.has(b.key))
+    const at = now()
+    for (const b of fresh) {
+      db.prepare('INSERT OR IGNORE INTO user_badges (user_id, key, at) VALUES (?, ?, ?)').run(userId, b.key, at)
+      if (!silent) db.prepare("INSERT INTO notifications (user_id, actor_id, kind, badge, at, read) VALUES (?, ?, 'badge', ?, ?, ?)").run(userId, userId, b.key, at, read ? 1 : 0)
+    }
+    return fresh
+  }
   const newBadges = (userId, fn) => {
-    const before = computeBadges(historyOf(userId))
     const out = fn()
-    const after = computeBadges(historyOf(userId))
-    return { out, badges: BADGES.filter((b) => after.has(b.key) && !before.has(b.key)) }
+    return { out, badges: syncBadges(userId, { read: true }) }
   }
 
   const app = express()
@@ -1219,19 +1254,24 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const unread = (userId) => db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0').get(userId).n
   // Mes notifs, plus récentes d'abord (?before=<id> pour la suite)
   app.get('/api/notifications', auth, (req, res) => {
+    syncBadges(req.user.id)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 30))
     const before = Number(req.query.before) || null
     const rows = db.prepare(`
-      SELECT n.id, n.kind, n.at, n.read, n.drink_id, n.actor_id, u.name AS actor_name, u.avatar_v AS actor_avatar_v,
+      SELECT n.id, n.kind, n.at, n.read, n.drink_id, n.actor_id, n.badge, u.name AS actor_name, u.avatar_v AS actor_avatar_v,
         d.name AS drink_name, d.cat AS drink_cat, SUBSTR(c.body, 1, 140) AS comment
       FROM notifications n JOIN users u ON u.id = n.actor_id
       LEFT JOIN drinks d ON d.id = n.drink_id LEFT JOIN drink_comments c ON c.id = n.comment_id
       WHERE n.user_id = ? ${before ? 'AND n.id < ?' : ''} ORDER BY n.id DESC LIMIT ?
     `).all(req.user.id, ...(before ? [before] : []), limit + 1)
-    const items = rows.slice(0, limit).map((r) => ({ ...r, read: !!r.read }))
+    const badgeOut = (key) => { const b = BADGE.get(key); return b && { key, icon: b.icon, label: b.label, desc: b.desc } }
+    const items = rows.slice(0, limit).map(({ badge, ...r }) => ({ ...r, read: !!r.read, ...(r.kind === 'badge' && { badge: badgeOut(badge) }) }))
     res.json({ items, next: rows.length > limit ? items.at(-1).id : null, unread: unread(req.user.id) })
   })
-  app.get('/api/notifications/unread', auth, (req, res) => res.json({ unread: unread(req.user.id) }))
+  app.get('/api/notifications/unread', auth, (req, res) => {
+    syncBadges(req.user.id) // succès débloqués sans conso : likes reçus, abonnés, victoires…
+    res.json({ unread: unread(req.user.id) })
+  })
   app.post('/api/notifications/read', auth, (req, res) => {
     db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0').run(req.user.id)
     res.json({ unread: 0 })
@@ -1545,6 +1585,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     `).all(isDay(before) ? before : '9999-12-31', groupId)
     return Object.fromEntries(rows.map((w) => [w.user_id, w.wins]))
   }
+  // Première fois avec les notifs de succès : ceux déjà obtenus sont enregistrés sans notifier
+  if (badgesTableNew) {
+    db.exec('BEGIN')
+    for (const { id } of db.prepare('SELECT id FROM users').all()) syncBadges(id, { silent: true })
+    db.exec('COMMIT')
+  }
 
   // Fiche d'un joueur : stats depuis le début, boissons préférées, dernières soirées, détail d'une soirée.
   // Visible par tout le monde (on trouve les gens avec la recherche) ; victoires comptées dans ma bande courante.
@@ -1808,7 +1854,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       eau: extraCount('eau'),
       clope: extraCount('clope'),
       tonight: day ? { eau: extraCount('eau', day), clope: extraCount('clope', day) } : null,
-      badges: BADGES.map((b) => ({ ...b, got: got.has(b.key) })),
+      // Secrets : on ne dévoile que ceux obtenus
+      badges: BADGES.map((b) => (b.secret && !got.has(b.key) ? { key: b.key, group: b.group, icon: '❓', label: '???', desc: 'Badge secret', secret: true, got: false } : { ...b, got: got.has(b.key) })),
+      badgeGroups: GROUPS,
       byCat: Object.fromEntries(Object.entries(byCat).map(([k, v]) => [k, round1(v)])),
       top,
       recent: nights.slice(0, 14).map((n) => ({ day: n.day, units: round1(n.units), count: n.count })),

@@ -1,5 +1,5 @@
 <script setup>
-// Mes notifs : likes, commentaires, réponses, nouveaux abonnés. Ouvrir la page les marque comme lues
+// Mes notifs : likes, commentaires, réponses, nouveaux abonnés, succès débloqués. Ouvrir la page les marque comme lues
 // (les nouvelles restent surlignées le temps de la visite).
 import { ref, onMounted } from 'vue'
 import { api, catOf, timeAgo } from '../api'
@@ -37,9 +37,10 @@ const KINDS = {
   reply: { icon: 'fa-comments', color: 'text-fort', text: 'a aussi commenté' },
   comment_like: { icon: 'fa-heart', color: 'text-neon', text: 'a liké ton commentaire' },
   follow: { icon: 'fa-user-plus', color: 'text-cocktail', text: 'te suit' },
+  badge: { icon: 'fa-trophy', color: 'text-hi', text: '' },
 }
 const kindOf = (n) => KINDS[n.kind] ?? { icon: 'fa-bell', color: 'text-muted', text: '' }
-const open = (n) => (n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
+const open = (n) => (n.kind === 'badge' ? openUser(n.actor_id, { tab: 'badges' }) : n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
 </script>
 
 <template>
@@ -49,7 +50,7 @@ const open = (n) => (n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
 
     <div v-if="!items" class="py-20 text-center text-muted">Chargement…</div>
     <p v-else-if="!items.length" class="py-16 text-center text-muted">
-      Rien pour l'instant. Les likes, commentaires et nouveaux abonnés arriveront ici.
+      Rien pour l'instant. Les likes, commentaires, nouveaux abonnés et succès débloqués arriveront ici.
     </p>
     <ul v-else class="mt-3 divide-y divide-white/5">
       <li v-for="n in items" :key="n.id">
@@ -59,13 +60,18 @@ const open = (n) => (n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
           @click="open(n)"
         >
           <span class="relative shrink-0">
-            <Avatar :user="{ id: n.actor_id, name: n.actor_name, avatar_v: n.actor_avatar_v }" :color="colors[n.actor_id]" :size="36" />
+            <span v-if="n.kind === 'badge'" class="flex h-9 w-9 items-center justify-center rounded-full bg-hi/15 text-xl">{{ n.badge?.icon ?? '🏅' }}</span>
+            <Avatar v-else :user="{ id: n.actor_id, name: n.actor_name, avatar_v: n.actor_avatar_v }" :color="colors[n.actor_id]" :size="36" />
             <span class="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-panel text-[11px]" :class="kindOf(n).color">
               <Icon :name="kindOf(n).icon" />
             </span>
           </span>
           <span class="min-w-0 flex-1">
-            <span class="block">
+            <span v-if="n.kind === 'badge'" class="block">
+              Succès débloqué : <b class="text-hi">{{ n.badge?.label ?? '?' }}</b>
+              <span v-if="n.badge?.desc" class="block text-sm text-muted">{{ n.badge.desc }}</span>
+            </span>
+            <span v-else class="block">
               <b>{{ n.actor_name }}</b> {{ kindOf(n).text }}
               <template v-if="n.drink_name">
                 : <span class="font-semibold" :style="{ color: catOf(n.drink_cat).hex }">{{ n.drink_name }}</span>
