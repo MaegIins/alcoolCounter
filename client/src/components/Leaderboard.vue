@@ -40,10 +40,11 @@ const title = computed(() => {
 })
 
 const max = computed(() => Math.max(1, ...rows.value.map((r) => r.total)))
-// Rang « sportif » : les ex æquo partagent le même rang (1, 2, 2, 4…)
+// Rang « sportif » : les ex æquo partagent le même rang (1, 1, 3…), au dixième près comme à l'affichage
+const tenths = (n) => Math.round(n * 10)
 const ranks = computed(() => {
   const m = new Map()
-  rows.value.forEach((r, i) => m.set(r.id, i && r.total === rows.value[i - 1].total ? m.get(rows.value[i - 1].id) : i + 1))
+  rows.value.forEach((r, i) => m.set(r.id, i && tenths(r.total) === tenths(rows.value[i - 1].total) ? m.get(rows.value[i - 1].id) : i + 1))
   return m
 })
 const drinkers = computed(() => rows.value.filter((r) => r.total > 0))

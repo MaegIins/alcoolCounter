@@ -1721,12 +1721,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     `).all(req.user.id))
   })
 
-  // Soirées gagnées par personne (ex æquo tous gagnants), avant la date donnée (= soirée en cours exclue)
+  // Soirées gagnées par personne (ex æquo tous gagnants, au dixième près comme à l'affichage : 15,56 et 15,6
+  // s'affichent tous deux « 15,6 »), avant la date donnée (= soirée en cours exclue)
   // Calculé entre les membres de la bande seulement.
   const winsMap = (before, groupId) => {
     const rows = db.prepare(`
       WITH totals AS (
-        SELECT user_id, day, ROUND(SUM(${UNITS()}), 2) AS t FROM drinks
+        SELECT user_id, day, ROUND(SUM(${UNITS()}), 1) AS t FROM drinks
         WHERE day < ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?) GROUP BY user_id, day
       ), best AS (
         SELECT day, MAX(t) AS m FROM totals GROUP BY day HAVING m > 0
@@ -1908,7 +1909,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       const catRows = db.prepare(`
         SELECT user_id, cat, SUM(${UNITS()}) AS units, COUNT(*) AS count FROM drinks WHERE user_id IN (${ph}) GROUP BY user_id, cat
       `).all(...ids)
-      const rankIn = (list, v) => 1 + list.filter((x) => x > v).length
+      // Ex æquo au dixième près (ce qui est affiché) : même rang, donc même couronne
+      const rankIn = (list, v) => 1 + list.filter((x) => round1(x) > round1(v)).length
       band = {
         name: req.group.name,
         members: ids.length,
