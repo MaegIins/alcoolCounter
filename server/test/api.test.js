@@ -1331,3 +1331,15 @@ test('PIN : 6 chiffres minimum pour un nouveau PIN, les anciens PIN à 4 chiffre
   assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '4321' } })).status, 400)
   assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '654321' } })).status, 200)
 })
+
+describe('succès vus depuis une autre bande', () => {
+  test('les victoires comptent dans la meilleure bande de la personne, pas dans celle de celui qui regarde', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    s.clock.t = Date.parse('2026-11-02T21:00:00+01:00')
+    await s.drink(a.token, '2026-11-01')
+    s.clock.t = Date.parse('2026-11-03T21:00:00+01:00')
+    const st = (await s.call('GET', `/users/${a.id}/stats?winsBefore=2026-11-03`, { token: b.token })).body
+    assert.ok(st.badges.find((x) => x.key === 'roi').got)
+  })
+})

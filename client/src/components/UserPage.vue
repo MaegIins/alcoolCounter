@@ -1,7 +1,7 @@
 <script setup>
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
-import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl } from '../api'
+import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl, RANKS, rankOf } from '../api'
 import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
 import Avatar from './Avatar.vue'
@@ -133,6 +133,16 @@ const since = computed(() => {
 })
 const catTotal = computed(() => Math.max(0.1, ALCO_CATS.reduce((s, c) => s + (data.value?.byCat[c.key] ?? 0), 0)))
 const nights = computed(() => [...(data.value?.recent ?? [])].reverse())
+// État du profil selon le % de succès débloqués (anneau autour de l'avatar, titre sous le nom)
+const rank = computed(() => data.value && rankOf(data.value.badges.filter((b) => b.got).length, data.value.badges.length))
+const ringStyle = computed(() => ({
+  background: rank.value?.next ? rank.value.color : 'conic-gradient(from 210deg, #d4bc35, #b8432c, #d4bc35, #f3e7a0, #d4bc35)',
+}))
+// Barre vers l'état suivant (0-100 entre le seuil actuel et le suivant)
+const rankProgress = computed(() => {
+  const r = rank.value
+  return !r ? 0 : !r.next ? 100 : Math.min(100, (100 * (r.pct - r.min)) / (r.next.min - r.min))
+})
 // Badges rangés par rubrique (obtenus d'abord dans chaque rubrique)
 const badgeGroups = computed(() => {
   const all = data.value?.badges ?? []
@@ -169,11 +179,24 @@ const dayNum = (day) => Number(day.slice(8))
     <template v-else>
       <!-- En-tête -->
       <header class="flex flex-col items-center text-center">
-        <button v-if="data.user.avatar_v" class="rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
-          <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
-        </button>
-        <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" />
+        <!-- Anneau de la couleur de son état -->
+        <span class="rounded-full p-[3px]" :style="ringStyle">
+          <span class="block rounded-full bg-paper p-[2px]">
+            <button v-if="data.user.avatar_v" class="block cursor-zoom-in rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
+              <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
+            </button>
+            <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" />
+          </span>
+        </span>
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
+        <button
+          class="mb-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold hover:bg-white/5"
+          :style="{ borderColor: rank.color, color: rank.color }"
+          :title="`${rank.got} succès sur ${rank.total}`"
+          @click="tab = 'badges'"
+        >
+          {{ rank.icon }} {{ rank.label }} · {{ Math.floor(rank.pct) }} %
+        </button>
         <p class="text-sm text-muted">
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
           Depuis {{ since }}<template v-if="data.wins"> · <Icon name="crown" class="text-hi" /> {{ data.wins }} journée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
@@ -390,13 +413,34 @@ const dayNum = (day) => Number(day.slice(8))
 
       <!-- Badges, par rubrique -->
       <div v-else class="pt-6">
-        <div class="mb-6 flex items-center gap-3">
-          <p class="shrink-0 text-sm text-muted">
-            <span class="font-display text-xl text-ink">{{ data.badges.filter((b) => b.got).length }}</span> sur {{ data.badges.length }}
-          </p>
-          <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-panel">
-            <div class="h-full rounded-full bg-hi" :style="{ width: `${(100 * data.badges.filter((b) => b.got).length) / data.badges.length}%` }" />
+        <!-- État du profil et le suivant -->
+        <div class="mb-6 rounded-lg bg-panel p-4">
+          <div class="flex items-center gap-3">
+            <span class="text-4xl">{{ rank.icon }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="font-display text-xl" :style="{ color: rank.color }">{{ rank.label }}</div>
+              <div class="text-sm text-muted">{{ rank.got }} succès sur {{ rank.total }} · {{ Math.floor(rank.pct) }} %</div>
+            </div>
           </div>
+          <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-sunk">
+            <div class="h-full rounded-full" :style="{ width: `${rankProgress}%`, background: rank.next ? rank.next.color : rank.color }" />
+          </div>
+          <p class="mt-1.5 text-xs text-faint">
+            <template v-if="rank.next">Encore {{ rank.missing }} succès pour {{ rank.next.icon }} {{ rank.next.label }} ({{ rank.next.min }} %)</template>
+            <template v-else>Tous les succès. Respect.</template>
+          </p>
+          <ol class="mt-3 flex flex-wrap gap-1.5">
+            <li
+              v-for="(r, i) in RANKS"
+              :key="r.label"
+              class="rounded-full border px-2 py-0.5 text-[11px]"
+              :class="i > rank.i && 'opacity-40'"
+              :style="i <= rank.i ? { borderColor: r.color, color: r.color } : { borderColor: 'var(--color-line)' }"
+              :title="`${r.min} % des succès`"
+            >
+              {{ r.icon }} {{ r.label }}
+            </li>
+          </ol>
         </div>
         <section v-for="g in badgeGroups" :key="g.key" class="mb-6">
           <h3 class="mb-2 flex items-baseline justify-between text-sm font-semibold">

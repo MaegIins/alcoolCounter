@@ -1816,7 +1816,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const extraCount = (kind, d) =>
       db.prepare(`SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND kind = ?${d ? ' AND day = ?' : ''}`).get(...[id, kind, d].filter(Boolean)).n
     const wins = req.group ? winsMap(req.query.winsBefore, req.group.id)[id] || 0 : 0
-    const got = computeBadges({ ...historyOf(id), wins })
+    // Succès : victoires dans sa meilleure bande (pareil quelle que soit la bande de celui qui regarde)
+    const got = computeBadges({ ...historyOf(id), wins: bestWins(id) })
     const tops = db.prepare(`
       SELECT t.slot, ${PRODUCT_COLS} FROM user_tops t JOIN products p ON p.id = t.product_id
       LEFT JOIN users u ON u.id = p.created_by WHERE t.user_id = ? ORDER BY t.slot
