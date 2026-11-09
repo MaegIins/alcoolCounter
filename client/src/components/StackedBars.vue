@@ -61,6 +61,10 @@ const bars = computed(() =>
 
 const xLabelEvery = computed(() => Math.ceil(props.days.length / Math.max(2, Math.floor(iw.value / 44))))
 const hover = ref(null)
+// Au doigt (pas de « souris qui sort ») : toucher ailleurs sur la page referme la bulle
+const outside = (e) => el.value && !el.value.contains(e.target) && (hover.value = null)
+onMounted(() => document.addEventListener('pointerdown', outside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
 </script>
 
 <template>
@@ -90,7 +94,8 @@ const hover = ref(null)
       <rect
         v-for="b in bars" :key="'h' + b.d"
         :x="M.l + band * b.i" :y="M.t" :width="band" :height="ih" fill="transparent"
-        @pointerenter="hover = b.i" @click="hover = b.i"
+        @pointerenter="(e) => e.pointerType === 'mouse' && (hover = b.i)"
+        @pointerdown="(e) => e.pointerType !== 'mouse' && (hover = hover === b.i ? null : b.i)"
       />
     </svg>
 

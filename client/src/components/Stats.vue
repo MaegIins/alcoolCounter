@@ -90,6 +90,8 @@ function pick(id) {
     return
   }
   if (picked.value.includes(id)) {
+    // Retirer la dernière courbe affichée : on revient à « Moi + top 3 » plutôt qu'à un graphique vide
+    if (selectedIds.value.length === 1 && selectedIds.value[0] === id) return reset()
     picked.value = picked.value.filter((x) => x !== id)
     const { [id]: _, ...rest } = slots.value
     slots.value = rest

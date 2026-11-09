@@ -89,12 +89,26 @@ const endLabels = computed(() => {
 })
 
 const hover = ref(null)
-function onMove(e) {
+const indexAt = (e) => {
   const r = el.value.getBoundingClientRect()
   const px = e.clientX - r.left - M.value.l
   const n = props.days.length
-  hover.value = Math.min(n - 1, Math.max(0, Math.round((px / iw.value) * (n - 1))))
+  return Math.min(n - 1, Math.max(0, Math.round((px / iw.value) * (n - 1))))
 }
+function onMove(e) {
+  // Au doigt : on suit le glissé seulement si la bulle est ouverte (sinon un tap qui tremble la rouvrirait)
+  if (e.pointerType !== 'mouse' && hover.value == null) return
+  hover.value = indexAt(e)
+}
+// Au doigt : toucher le même jour une 2e fois referme la bulle
+function onDown(e) {
+  const i = indexAt(e)
+  hover.value = e.pointerType !== 'mouse' && hover.value === i ? null : i
+}
+// Au doigt (pas de « souris qui sort ») : toucher ailleurs sur la page referme la bulle
+const outside = (e) => el.value && !el.value.contains(e.target) && (hover.value = null)
+onMounted(() => document.addEventListener('pointerdown', outside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
 const tip = computed(() => {
   if (hover.value == null) return null
   const i = hover.value
@@ -113,7 +127,7 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
     ref="el"
     class="relative touch-pan-y select-none"
     @pointermove="onMove"
-    @pointerdown="onMove"
+    @pointerdown="onDown"
     @pointerleave="(e) => e.pointerType === 'mouse' && (hover = null)"
   >
     <svg :width="width" :height="height" class="block overflow-visible">
