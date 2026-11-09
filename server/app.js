@@ -1126,19 +1126,25 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json({ iFollow: false })
   })
 
-  // Toutes les boissons différentes d'une personne (même nom, volume et degré = même boisson), avec ses chiffres
+  // Toutes les boissons différentes d'une personne, avec ses chiffres : une boisson de la carte = une ligne, même si le
+  // volume ou le degré d'une conso a changé (fiche corrigée, verre différent) ; hors carte, même nom, volume et degré
   app.get('/api/users/:id/drinks', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
     const rows = db.prepare(`
-      SELECT d.name, d.cat, d.cl, d.abv, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key,
-        COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating, COUNT(d.rating) AS ratings, COUNT(d.review) AS reviews,
-        COUNT(d.photo_key) AS photos, MIN(d.day) AS first_day, MAX(d.day) AS last_day, MAX(d.at) AS last_at,
-        (SELECT d2.photo_key FROM drinks d2 WHERE d2.user_id = d.user_id AND d2.name = d.name AND d2.cl = d.cl AND d2.abv = d.abv
-          AND d2.photo_key IS NOT NULL ORDER BY d2.at DESC LIMIT 1) AS last_photo_key
+      SELECT COALESCE(MAX(p.name), d.name) AS name, COALESCE(MAX(p.cat), d.cat) AS cat,
+        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv,
+        d.product_id, MAX(p.photo_key) AS product_photo_key,
+        COUNT(*) AS count, SUM(d.cl * d.abv * 0.008) AS units, ROUND(AVG(d.rating), 1) AS rating, COUNT(d.rating) AS ratings,
+        COUNT(d.review) AS reviews, COUNT(d.photo_key) AS photos, MIN(d.day) AS first_day, MAX(d.day) AS last_day, MAX(d.at) AS last_at,
+        (SELECT d2.photo_key FROM drinks d2 WHERE d2.user_id = d.user_id AND d2.photo_key IS NOT NULL
+          AND (CASE WHEN d.product_id IS NOT NULL THEN d2.product_id = d.product_id
+            ELSE d2.product_id IS NULL AND d2.name = d.name COLLATE NOCASE AND d2.cl = d.cl AND d2.abv = d.abv END)
+          ORDER BY d2.at DESC LIMIT 1) AS last_photo_key
       FROM drinks d LEFT JOIN products p ON p.id = d.product_id
       WHERE d.user_id = ?
-      GROUP BY d.name COLLATE NOCASE, d.cl, d.abv
+      GROUP BY d.product_id, CASE WHEN d.product_id IS NULL THEN d.name END COLLATE NOCASE,
+        CASE WHEN d.product_id IS NULL THEN d.cl END, CASE WHEN d.product_id IS NULL THEN d.abv END
       ORDER BY count DESC, last_at DESC
     `).all(id)
     const marked = db.prepare(`
@@ -1146,7 +1152,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       FROM product_tried t JOIN products p ON p.id = t.product_id WHERE t.user_id = ?
     `).all(id).filter((m) => !rows.some((r) => r.product_id === m.product_id || (fold(r.name) === fold(m.name) && r.cl === m.cl && r.abv === m.abv)))
     res.json([
-      ...rows.map((r) => ({ ...r, units: round1(unitsOf(r) * r.count) })),
+      ...rows.map((r) => ({ ...r, units: round1(r.units) })),
       ...marked.map((m) => ({ ...m, count: 0, rating: null, ratings: 0, reviews: 0, photos: 0, first_day: null, last_day: null, last_at: null, last_photo_key: null, units: 0, marked: true })),
     ])
   })
@@ -1155,15 +1161,22 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.get('/api/users/:id/drinks/logs', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
+    // Boisson de la carte (?product_id=) : toutes ses consos ; sinon (?name=&cl=&abv=) celles hors carte
+    const productId = Number(req.query.product_id)
     const { name } = req.query
     const cl = Number(req.query.cl)
     const abv = Number(req.query.abv)
-    if (!name || !Number.isFinite(cl) || !Number.isFinite(abv)) return bad(res, 'Boisson invalide')
-    const rows = db.prepare(`
-      SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
-      WHERE d.user_id = ? AND d.name = ? COLLATE NOCASE AND d.cl = ? AND d.abv = ?
-      ORDER BY d.at DESC, d.id DESC LIMIT 500
-    `).all(id, String(name), cl, abv)
+    if (!(productId > 0) && (!name || !Number.isFinite(cl) || !Number.isFinite(abv))) return bad(res, 'Boisson invalide')
+    const rows = productId > 0
+      ? db.prepare(`
+          SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+          WHERE d.user_id = ? AND d.product_id = ? ORDER BY d.at DESC, d.id DESC LIMIT 500
+        `).all(id, productId)
+      : db.prepare(`
+          SELECT ${LOG_COLS} FROM drinks d LEFT JOIN products p ON p.id = d.product_id
+          WHERE d.user_id = ? AND d.product_id IS NULL AND d.name = ? COLLATE NOCASE AND d.cl = ? AND d.abv = ?
+          ORDER BY d.at DESC, d.id DESC LIMIT 500
+        `).all(id, String(name), cl, abv)
     res.json(rows.map(logOut))
   })
 
@@ -1759,10 +1772,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       SELECT ${ALCO.map((c) => `COALESCE(SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} END), 0) AS ${c}`).join(', ')}
       FROM drinks WHERE user_id = ?
     `).get(id)
+    // Comme l'onglet Boissons : une boisson de la carte = une ligne, quel que soit le volume ou le degré des verres
     const top = db.prepare(`
-      SELECT name, cat, cl, abv, MAX(product_id) AS product_id, COUNT(*) AS count, ROUND(AVG(rating), 1) AS rating
-      FROM drinks WHERE user_id = ?
-      GROUP BY name, cat, cl, abv ORDER BY count DESC, MAX(at) DESC LIMIT 5
+      SELECT COALESCE(MAX(p.name), d.name) AS name, COALESCE(MAX(p.cat), d.cat) AS cat,
+        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv,
+        d.product_id, COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating
+      FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.user_id = ?
+      GROUP BY d.product_id, CASE WHEN d.product_id IS NULL THEN d.name END COLLATE NOCASE,
+        CASE WHEN d.product_id IS NULL THEN d.cl END, CASE WHEN d.product_id IS NULL THEN d.abv END
+      ORDER BY count DESC, MAX(d.at) DESC LIMIT 5
     `).all(id)
     const drinks = day
       ? db.prepare('SELECT id, at, name, cat, cl, abv FROM drinks WHERE user_id = ? AND day = ? ORDER BY at DESC, id DESC').all(id, day)
@@ -1920,7 +1938,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(rows.map(productOut))
   })
 
-  // Ajouter un produit à la carte (il passe direct dans mes favoris)
+  // Ajouter un produit à la carte (pas mis en favori : chacun choisit les siens)
   app.post('/api/products', auth, (req, res) => {
     const { drink, error } = checkDrink(req.body)
     if (error) return bad(res, error)
@@ -1936,7 +1954,6 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     ).run(drink.name, drink.cat, drink.cl, drink.abv, req.user.id, log.photo, log.photo ? photoKey() : null,
       info.maker ?? null, info.origin ?? null, info.style ?? null, info.description ?? null)
     const id = Number(lastInsertRowid)
-    db.prepare('INSERT INTO product_favs (user_id, product_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
     // Les consos déjà bues de cette boisson (par tout le monde) rejoignent sa fiche
     db.prepare('UPDATE drinks SET product_id = ? WHERE product_id IS NULL AND name = ? COLLATE NOCASE AND abv = ?').run(id, drink.name, drink.abv)
     res.json(productOut(getProduct(id, req.user.id)))

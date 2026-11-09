@@ -181,7 +181,7 @@ async function create() {
     })
     products.value = [p, ...products.value]
     draft.value = null
-    say(`${p.name} ajouté à la carte et à tes favoris`)
+    say(`${p.name} ajouté à la carte`)
   } catch (e) {
     error.value = e.message
   }

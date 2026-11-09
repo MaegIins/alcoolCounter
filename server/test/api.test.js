@@ -302,16 +302,17 @@ describe('stats d’un profil : bande, compagnons, notes', () => {
 describe('la carte', () => {
   const CHOUFFE = { name: 'Chouffe', cat: 'biere', cl: 33, abv: 8 }
 
-  test('ajouter un produit : visible par tous, en favori pour son auteur', async () => {
+  test('ajouter un produit : visible par tous, pas mis en favori', async () => {
     const a = await s.register('Alice')
     const b = await s.register('Bob')
     const r = await s.call('POST', '/products', { token: a.token, body: CHOUFFE })
     assert.equal(r.status, 200)
     assert.equal(r.body.units, 2.1)
     assert.equal(r.body.created_by_name, 'Alice')
-    assert.deepEqual((await s.call('GET', '/products/favorites', { token: a.token })).body.map((p) => p.name), ['Chouffe'])
+    assert.equal(r.body.fav, false)
+    assert.deepEqual((await s.call('GET', '/products/favorites', { token: a.token })).body, [])
     const seenByBob = (await s.call('GET', '/products', { token: b.token })).body
-    assert.deepEqual(seenByBob.map((p) => [p.name, p.fav, p.favs]), [['Chouffe', false, 1]])
+    assert.deepEqual(seenByBob.map((p) => [p.name, p.fav, p.favs]), [['Chouffe', false, 0]])
   })
 
   test('une fiche par boisson : doublon refusé (même nom sans la casse, même degré), même dans un autre volume', async () => {
@@ -351,7 +352,7 @@ describe('la carte', () => {
     s.clock.t += 1000
     const r = await s.call('PUT', `/products/${p1.id}/fav`, { token: b.token })
     assert.equal(r.body.fav, true)
-    assert.equal(r.body.favs, 2)
+    assert.equal(r.body.favs, 1)
     await s.call('PUT', `/products/${p1.id}/fav`, { token: b.token })
     assert.deepEqual((await s.call('GET', '/products/favorites', { token: b.token })).body.map((p) => p.name), ['Ricard', 'Chouffe'])
     await s.call('DELETE', `/products/${p2.id}/fav`, { token: b.token })
@@ -807,6 +808,21 @@ describe('boissons d’un profil', () => {
     assert.equal(logs.at(-1).review, 'Top')
     assert.equal((await s.call('GET', `/users/${a.id}/drinks`, { token: c.token })).body.length, 2)
     assert.equal((await s.call('GET', `/users/${a.id}/drinks/logs?name=Chouffe`, { token: a.token })).status, 400)
+  })
+  test('une boisson de la carte reste une seule ligne même si volume ou degré diffèrent entre les consos', async () => {
+    const a = await s.register('Alice')
+    const p = (await s.call('POST', '/products', { token: a.token, body: { name: 'Russe noir', cat: 'cocktail', cl: 8, abv: 30 } })).body
+    // Une vieille conso saisie avant que la fiche ne soit corrigée (6 cl à 18,6 %)
+    const old = (await s.drink(a.token, '2026-11-01', { product_id: p.id, cl: 6 })).body.id
+    s.db.prepare('UPDATE drinks SET abv = 18.6 WHERE id = ?').run(old)
+    await s.drink(a.token, '2026-11-02', { product_id: p.id, cl: 8 }, 2)
+    const list = (await s.call('GET', `/users/${a.id}/drinks`, { token: a.token })).body
+    assert.deepEqual(list.map((d) => [d.name, d.count, d.cl, d.abv, d.product_id]), [['Russe noir', 3, 8, 30, p.id]])
+    assert.equal(list[0].units, Math.round((6 * 18.6 + 2 * 8 * 30) * 0.008 * 10) / 10)
+    assert.equal((await s.call('GET', `/users/${a.id}/drinks/logs?product_id=${p.id}`, { token: a.token })).body.length, 3)
+    // Pareil dans « Les plus bues » du profil
+    const top = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body.top
+    assert.deepEqual(top.map((t) => [t.name, t.count, t.cl, t.abv]), [['Russe noir', 3, 8, 30]])
   })
 })
 

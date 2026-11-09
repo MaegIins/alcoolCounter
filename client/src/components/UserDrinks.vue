@@ -59,13 +59,16 @@ watch([search, cat, onlyReviews, sort], () => (limit.value = 20))
 
 // --- Détail d'une boisson ---------------------------------------------------------------------
 const open = ref(null) // la boisson (ligne de la liste)
+// Une ligne = une boisson de la carte, ou hors carte un nom + volume + degré
+const keyOf = (d) => (d.product_id ? `p${d.product_id}` : `${d.name}|${d.cl}|${d.abv}`)
 const logs = ref([])
 const logSort = ref('recent')
 async function show(d) {
   open.value = d
   logs.value = []
   document.body.style.overflow = 'hidden'
-  logs.value = await api(`/users/${props.userId}/drinks/logs?name=${encodeURIComponent(d.name)}&cl=${d.cl}&abv=${d.abv}`).catch(() => [])
+  const q = d.product_id ? `product_id=${d.product_id}` : `name=${encodeURIComponent(d.name)}&cl=${d.cl}&abv=${d.abv}`
+  logs.value = await api(`/users/${props.userId}/drinks/logs?${q}`).catch(() => [])
 }
 function close() {
   open.value = null
@@ -73,7 +76,7 @@ function close() {
 }
 onBeforeUnmount(() => (document.body.style.overflow = ''))
 // Après une modif (note…) dans le +, on garde la fiche à jour
-watch(() => ui.refresh, () => open.value && show(list.value.find((d) => d.name === open.value.name && d.cl === open.value.cl && d.abv === open.value.abv) ?? open.value))
+watch(() => ui.refresh, () => open.value && show(list.value.find((d) => keyOf(d) === keyOf(open.value)) ?? open.value))
 const sortedLogs = computed(() => {
   const l = logSort.value === 'reviews' ? logs.value.filter((x) => x.review || x.photo_key) : [...logs.value]
   if (logSort.value === 'old') l.reverse()
@@ -130,7 +133,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
     <p v-if="loaded && !list.length" class="py-10 text-center text-muted">Rien bu pour l'instant.</p>
     <p v-else-if="loaded && !shown.length" class="py-10 text-center text-muted">Rien ne correspond.</p>
     <ul class="box divide-y divide-white/5">
-      <li v-for="d in shown.slice(0, limit)" :key="`${d.name}|${d.cl}|${d.abv}`">
+      <li v-for="d in shown.slice(0, limit)" :key="keyOf(d)">
         <button class="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5" @click="d.count ? show(d) : openProduct(d.product_id)">
           <img v-if="thumb(d)" :src="thumb(d)" alt="" loading="lazy" class="h-11 w-11 shrink-0 rounded-lg object-cover ring-1 ring-black/50" />
           <Poster v-else :drink="d" :width="44" :icon="44" class="!h-11" />
