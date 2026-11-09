@@ -1,8 +1,9 @@
 <script setup>
 // Mode solo (aucune bande) : pousser à rejoindre ou créer une bande.
-// variant="banner" : encart avec code + création en ligne.
+// variant="banner" : encart avec code + création en ligne. Fermable (retenu sur l'appareil) : le bouton du classement
+// verrouillé le rouvre.
 // variant="teaser" : faux classement flouté, verrouillé, qui renvoie vers l'encart.
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { api, setGroup } from '../api'
 import { toast, confetti } from '../juice'
 import Icon from './Icon.vue'
@@ -32,7 +33,19 @@ const name = ref('')
 const creating = ref(false)
 const error = ref('')
 const codeInput = ref(null)
-defineExpose({ focus: () => codeInput.value?.focus() })
+// Encart fermé : retenu sur cet appareil (try : stockage parfois indisponible)
+const hidden = ref((() => { try { return localStorage.getItem('solo-nudge-hidden') === '1' } catch { return false } })())
+function hide(v) {
+  hidden.value = v
+  try { v ? localStorage.setItem('solo-nudge-hidden', '1') : localStorage.removeItem('solo-nudge-hidden') } catch {}
+}
+defineExpose({
+  focus: async () => {
+    hide(false)
+    await nextTick()
+    codeInput.value?.focus()
+  },
+})
 
 async function join() {
   error.value = ''
@@ -66,8 +79,16 @@ const FAKE = [
 
 <template>
   <!-- Encart -->
-  <section v-if="variant === 'banner'" class="box border-hi/30 p-5">
-    <div class="flex items-start gap-3">
+  <section v-if="variant === 'banner' && !hidden" class="box relative border-hi/30 p-5">
+    <button
+      class="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full text-faint hover:bg-white/5 hover:text-ink"
+      aria-label="Fermer"
+      title="Fermer (tu peux rejoindre une bande depuis le classement)"
+      @click="hide(true)"
+    >
+      <Icon name="close" :size="16" />
+    </button>
+    <div class="flex items-start gap-3 pr-6">
       <Icon name="chair" :size="28" class="text-hi" />
       <div>
         <h3 class="font-display text-xl">Tu bois seul.</h3>
@@ -108,7 +129,7 @@ const FAKE = [
   </section>
 
   <!-- Classement verrouillé -->
-  <section v-else class="space-y-5">
+  <section v-else-if="variant !== 'banner'" class="space-y-5">
     <h2 class="font-display text-2xl">Le classement</h2>
     <div class="box relative">
       <ol class="divide-y divide-white/5 blur-[3px] select-none" aria-hidden="true">

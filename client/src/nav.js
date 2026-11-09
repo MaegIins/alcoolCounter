@@ -45,9 +45,9 @@ window.addEventListener('popstate', (e) => {
 /** Onglet (barre du bas, logo…) */
 export const go = (view) => show({ view })
 /** Profil de quelqu'un ; `fromTab` = ouvert depuis la barre du bas (pas de « Retour ») */
-export const openUser = (id, { fromTab = false } = {}) => {
-  if (ui.view === 'user' && ui.userId === id) return
-  show({ view: 'user', userId: id }, { back: !fromTab })
+export const openUser = (id, { fromTab = false, tab = null } = {}) => {
+  if (ui.view === 'user' && ui.userId === id && (!tab || ui.tab === tab)) return
+  show({ view: 'user', userId: id, tab }, { back: !fromTab })
 }
 /** Page d'une boisson de la carte */
 export const openProduct = (id) => {

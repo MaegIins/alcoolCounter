@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CATS, FORMATS, PALETTE, colorMap, unitsOf, fmtDrink, drinkId, toDay, nightOf, addDays, monthBounds, mondayOf, dayLabel,
-  fmt, niceMax, niceTicks, sanitizeDigits, starsText, timeAgo,
+  fmt, niceMax, niceTicks, sanitizeDigits, starsText, timeAgo, RANKS, rankOf,
 } from '../src/utils.js'
 
 test('CATS : clés alignées sur le serveur, couleurs uniques ; formats valides', () => {
@@ -120,4 +120,18 @@ test('URL de chaque écran, aller-retour', async () => {
   assert.equal(parseUrl('/n-importe-quoi').view, 'home')
   assert.equal(parseUrl('/carte/').view, 'carte')
   assert.equal(parseUrl('/profil/abc').view, 'home')
+})
+
+test('rankOf : état du profil selon le % de succès, et ce qu’il manque pour le suivant', () => {
+  assert.equal(rankOf(0, 82).label, 'Bleu')
+  assert.equal(rankOf(0, 0).label, 'Bleu')
+  const r = rankOf(37, 82) // 45 %
+  assert.equal(r.label, 'Pilier de comptoir')
+  assert.equal(r.next.label, 'Vieux briscard')
+  assert.equal(r.missing, 4) // 41 = 50 % de 82
+  assert.equal(rankOf(41, 82).label, 'Vieux briscard')
+  const top = rankOf(82, 82)
+  assert.deepEqual([top.label, top.next, top.missing], ['Propriétaire des murs', null, 0])
+  assert.equal(rankOf(81, 82).label, 'Patron du rade')
+  assert.ok(RANKS.every((x, i) => !i || x.min > RANKS[i - 1].min))
 })

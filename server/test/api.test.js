@@ -6,6 +6,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createApp, hashPin } from '../app.js'
 import { start, PINTE, SHOT, VIN } from './helpers.js'
+// Le fil mêle consos et succès débloqués ; la plupart des tests ne regardent que les consos
+const drinksOnly = (x) => x.kind !== 'badges'
 
 let s
 beforeEach(async () => (s = await start()))
@@ -526,6 +528,10 @@ describe('badges', () => {
     const st = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body
     assert.ok(st.badges.find((b) => b.key === 'tournee').got)
     assert.equal(st.badges.find((b) => b.key === 'chameau').got, false)
+    // Secrets pas encore obtenus : rien de dévoilé ; rubriques fournies
+    const secret = st.badges.find((b) => b.key === 'vendredi13')
+    assert.deepEqual([secret.label, secret.desc, secret.got], ['???', 'Badge secret', false])
+    assert.ok(st.badgeGroups.some((g) => g.key === 'secret'))
   })
 })
 
@@ -700,7 +706,7 @@ describe('journal : note, avis, photo', () => {
     const lb = (await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })).body
     assert.deepEqual([lb[0].total, lb[0].count], [2, 1])
     const feed = (await s.call('GET', '/feed', { token: a.token })).body
-    assert.deepEqual(feed.items.map((d) => d.name), ['Pinte', 'Monster Ultra'])
+    assert.deepEqual(feed.items.filter(drinksOnly).map((d) => d.name), ['Pinte', 'Monster Ultra'])
     const stats = (await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body
     assert.deepEqual([stats.units, stats.count, stats.rated], [2, 1, 1])
   })
@@ -715,12 +721,15 @@ describe('journal : note, avis, photo', () => {
     }
     await s.drink(c.token, '2026-11-03', { name: 'Secrète' })
     const p1 = (await s.call('GET', '/feed?limit=3', { token: a.token })).body
-    assert.deepEqual(p1.items.map((d) => [d.name, d.user_name]), [['Bière 4', 'Alice'], ['Bière 3', 'Bob'], ['Bière 2', 'Alice']])
+    assert.deepEqual(p1.items.filter(drinksOnly).map((d) => [d.name, d.user_name]), [['Bière 4', 'Alice'], ['Bière 3', 'Bob'], ['Bière 2', 'Alice']])
     const p2 = (await s.call('GET', `/feed?limit=3&before=${p1.next}`, { token: a.token })).body
-    assert.deepEqual(p2.items.map((d) => d.name), ['Bière 1', 'Bière 0'])
+    assert.deepEqual(p2.items.filter(drinksOnly).map((d) => d.name), ['Bière 1', 'Bière 0'])
     assert.equal(p2.next, null)
+    // Succès (« Premier verre » d'Alice et de Bob) : chacun une seule fois sur l'ensemble des pages
+    const unlocked = [...p1.items, ...p2.items].filter((x) => x.kind === 'badges').map((x) => x.user_name).sort()
+    assert.deepEqual(unlocked, ['Alice', 'Bob'])
     // Chloé, seule : son propre fil
-    assert.deepEqual((await s.call('GET', '/feed', { token: c.token })).body.items.map((d) => d.name), ['Secrète'])
+    assert.deepEqual((await s.call('GET', '/feed', { token: c.token })).body.items.filter(drinksOnly).map((d) => d.name), ['Secrète'])
   })
 
   test('journal : par soirée, plus récentes d’abord, visible hors bande', async () => {
@@ -904,8 +913,8 @@ test('follow : suivre hors bande, fil « abonnements », avis des gens suivis, c
   assert.equal((await s.call('PUT', `/users/${a.id}/follow`, { token: a.token })).status, 400)
   assert.equal((await s.call('GET', `/products/${p.id}`, { token: a.token })).body.reviews.length, 0)
   assert.equal((await s.call('PUT', `/users/${c.id}/follow`, { token: a.token })).body.iFollow, true)
-  assert.deepEqual((await s.call('GET', '/feed?scope=follow', { token: a.token })).body.items.map((d) => d.user_name), ['Chloé'])
-  assert.deepEqual((await s.call('GET', '/feed', { token: a.token })).body.items, []) // fil de la bande : inchangé
+  assert.deepEqual((await s.call('GET', '/feed?scope=follow', { token: a.token })).body.items.filter(drinksOnly).map((d) => d.user_name), ['Chloé'])
+  assert.deepEqual((await s.call('GET', '/feed', { token: a.token })).body.items.filter(drinksOnly), []) // fil de la bande : inchangé
   assert.equal((await s.call('GET', `/products/${p.id}`, { token: a.token })).body.reviews[0].review, 'Top')
   const st = (await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body
   assert.deepEqual([st.followers, st.following, st.iFollow], [1, 0, true])
@@ -1342,4 +1351,16 @@ test('PIN : 6 chiffres minimum pour un nouveau PIN, les anciens PIN à 4 chiffre
   const t = login.body.token
   assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '4321' } })).status, 400)
   assert.equal((await s.call('PUT', '/me/pin', { token: t, body: { current: '1234', next: '654321' } })).status, 200)
+})
+
+describe('succès vus depuis une autre bande', () => {
+  test('les victoires comptent dans la meilleure bande de la personne, pas dans celle de celui qui regarde', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    s.clock.t = Date.parse('2026-11-02T21:00:00+01:00')
+    await s.drink(a.token, '2026-11-01')
+    s.clock.t = Date.parse('2026-11-03T21:00:00+01:00')
+    const st = (await s.call('GET', `/users/${a.id}/stats?winsBefore=2026-11-03`, { token: b.token })).body
+    assert.ok(st.badges.find((x) => x.key === 'roi').got)
+  })
 })

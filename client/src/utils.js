@@ -136,3 +136,22 @@ export function parseUrl(pathname, search = '') {
   const view = Object.keys(PATHS).find((k) => PATHS[k] === pathname.replace(/\/$/, '') || (k === 'home' && pathname === '/')) ?? 'home'
   return { ...none, view }
 }
+
+// États de profil selon le % de succès débloqués (secrets compris). color = anneau autour de l'avatar.
+export const RANKS = [
+  { min: 0, label: 'Bleu', icon: '🐣', color: '#6e6a62' },
+  { min: 10, label: 'Touriste', icon: '🧳', color: '#978e76' },
+  { min: 20, label: 'Régulier', icon: '🍺', color: '#4f8f8a' },
+  { min: 35, label: 'Pilier de comptoir', icon: '🪵', color: '#739b4f' },
+  { min: 50, label: 'Vieux briscard', icon: '🎖️', color: '#6f93ad' },
+  { min: 65, label: 'Taulier', icon: '🔑', color: '#9277a8' },
+  { min: 80, label: 'Patron du rade', icon: '👑', color: '#b8432c' },
+  { min: 100, label: 'Propriétaire des murs', icon: '🏰', color: '#d4bc35' },
+]
+/** État d'un profil : { ...rang, i, pct, got, total, next, missing (succès qu'il manque pour le suivant) } */
+export function rankOf(got, total) {
+  const pct = total ? (100 * got) / total : 0
+  const i = RANKS.findLastIndex((r) => pct >= r.min)
+  const next = RANKS[i + 1] ?? null
+  return { ...RANKS[i], i, pct, got, total, next, missing: next ? Math.ceil((next.min * total) / 100) - got : 0 }
+}
