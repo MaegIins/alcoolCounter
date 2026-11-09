@@ -1,5 +1,25 @@
 @import 'tailwindcss';
 
+/* Curseurs (version PC) : Tailwind 4 remet les boutons en curseur flèche ; tout ce qui se clique repasse en main */
+@layer base {
+  button:not(:disabled),
+  [role='button'],
+  [role='tab'],
+  summary,
+  select,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  label:has(> input[type='checkbox'], > input[type='radio']) {
+    cursor: pointer;
+  }
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
+
 /* Ambiance rade glauque : béton sale, jaune pisse, nicotine, rouille. Rien de festif. */
 @theme {
   --font-sans: 'Barlow', ui-sans-serif, system-ui, sans-serif;

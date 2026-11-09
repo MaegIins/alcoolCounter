@@ -70,7 +70,7 @@ const count = ref(props.log.comments ?? 0)
       <p v-if="log.review" class="mt-2 cursor-pointer whitespace-pre-line text-[0.95rem] text-ink/90" :class="long && !open && 'line-clamp-4'" @click="openPost(log.id)">{{ log.review }}</p>
       <button v-if="long" class="mt-1 text-sm font-medium text-muted hover:text-ink" @click="open = !open">{{ open ? 'Moins' : 'Lire la suite' }}</button>
 
-      <button v-if="log.photo_key" class="mt-2.5 block" aria-label="Agrandir la photo" @click="zoom = true">
+      <button v-if="log.photo_key" class="cursor-zoom-in mt-2.5 block" aria-label="Agrandir la photo" @click="zoom = true">
         <img :src="photoUrl(log.photo_key)" alt="" loading="lazy" class="max-h-64 rounded-md object-cover" />
       </button>
 
@@ -91,7 +91,7 @@ const count = ref(props.log.comments ?? 0)
     </div>
 
     <Teleport to="body">
-      <div v-if="zoom" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = false">
+      <div v-if="zoom" class="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/90 p-4" @click="zoom = false">
         <img :src="photoUrl(log.photo_key)" alt="" class="max-h-full max-w-full rounded-md" />
       </div>
     </Teleport>

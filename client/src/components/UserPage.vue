@@ -158,7 +158,7 @@ const dayNum = (day) => Number(day.slice(8))
     <template v-else>
       <!-- En-tête -->
       <header class="flex flex-col items-center text-center">
-        <button v-if="data.user.avatar_v" class="rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
+        <button v-if="data.user.avatar_v" class="cursor-zoom-in rounded-full transition-transform hover:scale-105" :aria-label="`Agrandir la photo de ${data.user.name}`" @click="zoom = true">
           <Avatar :user="data.user" :color="colors[data.user.id]" :size="88" />
         </button>
         <Avatar v-else :user="data.user" :color="colors[data.user.id]" :size="88" />
@@ -408,7 +408,7 @@ const dayNum = (day) => Number(day.slice(8))
     </div>
     <FollowList v-if="followList" :user-id="userId" :kind="followList" :me="me" :colors="colors" @close="followList = null" />
     <Teleport to="body">
-      <div v-if="zoom && data?.user.avatar_v" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4" @click="zoom = false">
+      <div v-if="zoom && data?.user.avatar_v" class="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/90 p-4" @click="zoom = false">
         <img :src="`/api/avatar/${data.user.id}?v=${data.user.avatar_v}`" :alt="data.user.name" class="aspect-square w-72 max-w-full rounded-full object-cover ring-2 ring-white/10" />
       </div>
     </Teleport>
