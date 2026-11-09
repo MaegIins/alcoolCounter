@@ -1,4 +1,5 @@
 import express from 'express'
+import compression from 'compression'
 import { DatabaseSync } from 'node:sqlite'
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -764,6 +765,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   const app = express()
   app.disable('x-powered-by')
+  // Compression gzip (JS/CSS/JSON ~3× plus légers) : le reverse proxy transmet tel quel ce qui arrive déjà compressé
+  app.use(compression())
   if (trustProxy) app.set('trust proxy', trustProxy)
   // En-têtes de sécurité (HTML et API) + remise à zéro du « viewer » des fonctions SQL à chaque requête
   const CSP = [
