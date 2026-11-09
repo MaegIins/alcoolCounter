@@ -324,7 +324,7 @@ async function logout() {
     </nav>
 
     <Transition name="sheet">
-      <LogSheet v-if="ui.log && me" :preset="ui.log" />
+      <LogSheet v-if="ui.log && me" :preset="ui.log" :me="me" :groups="groups" />
     </Transition>
     <SearchSheet v-if="searching && me" :colors="colors" @close="searching = false" />
     <WelcomeModal v-if="me && welcome" :groups="groups" @changed="loadGroups" @close="welcome = false" />

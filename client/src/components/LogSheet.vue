@@ -11,8 +11,9 @@ import DrinkFields from './DrinkFields.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import PlaceEditForm from './PlaceEditForm.vue'
 
-const props = defineProps({ preset: { type: Object, default: () => ({}) } })
+const props = defineProps({ preset: { type: Object, default: () => ({}) }, me: Object, groups: { type: Array, default: () => [] } })
 const close = () => (ui.log = null)
 
 const edit = props.preset.edit ?? null
@@ -29,7 +30,21 @@ const review = ref(edit?.review ?? '')
 const place = ref(edit?.place ?? props.preset.place ?? '') // où on l'a bue (facultatif ; prérempli depuis la page d'un lieu)
 const placePrivate = ref(false) // lieu privé : visible seulement par moi et ma bande (réglable dans La carte › Lieux)
 const places = ref([]) // lieux que je peux voir, déjà triés (les miens récents d'abord), en suggestion
-api('/drinks/places').then((r) => (places.value = r)).catch(() => {})
+const loadPlaces = () => api('/drinks/places').then((r) => (places.value = r)).catch(() => {})
+loadPlaces()
+// « Créer » sous « Où ? » : le formulaire complet d'un nouveau lieu (adresse, position, photo…), le nom reprend
+// ce qui est tapé ; une fois créé, il est choisi pour cette conso
+const newPlace = ref(null)
+function toggleNewPlace() {
+  newPlace.value = newPlace.value ? null : { name: place.value.trim(), private: placePrivate.value, groups: [], mine: true }
+}
+function placeCreated(created) {
+  newPlace.value = null
+  if (!created) return
+  place.value = created.name
+  placePrivate.value = !!created.private
+  loadPlaces()
+}
 const photo = ref(null) // data URL choisie (nouvelle photo)
 const photoRemoved = ref(false)
 const toCarte = ref(false)
@@ -424,12 +439,18 @@ async function remove() {
 
           <!-- Lieu -->
           <div>
-            <span class="kicker">Où ?</span>
-            <label class="relative mt-2 block">
+            <div class="flex items-center justify-between">
+              <span class="kicker">Où ?</span>
+              <button type="button" class="text-sm font-semibold text-hi hover:underline" :aria-expanded="!!newPlace" @click="toggleNewPlace">
+                <Icon :name="newPlace ? 'close' : 'plus'" class="text-xs" /> {{ newPlace ? 'Fermer' : 'Créer un lieu' }}
+              </button>
+            </div>
+            <PlaceEditForm v-if="newPlace" tag="div" class="mt-2" :place="newPlace" :me="me" :groups="groups" @done="placeCreated" />
+            <label v-if="!newPlace" class="relative mt-2 block">
               <Icon name="fa-location-dot" class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
               <input v-model="place" maxlength="60" placeholder="Le bar du coin, chez Max… (facultatif)" class="field w-full py-2.5 pr-3.5 pl-10 text-base" />
             </label>
-            <div v-if="placeChips.length" class="mt-2 flex flex-wrap gap-1.5">
+            <div v-if="!newPlace && placeChips.length" class="mt-2 flex flex-wrap gap-1.5">
               <button
                 v-for="p in placeChips"
                 :key="p.id"
@@ -441,7 +462,7 @@ async function remove() {
                 <Icon v-if="p.home" name="fa-house" class="text-xs" /><Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
               </button>
             </div>
-            <label v-if="place.trim()" class="mt-2 flex items-center gap-2 text-sm text-muted">
+            <label v-if="!newPlace && place.trim()" class="mt-2 flex items-center gap-2 text-sm text-muted">
               <input v-model="placePrivate" type="checkbox" class="h-4 w-4 accent-[#d4bc35]" />
               <Icon name="lock" /> Lieu privé : visible seulement par toi et ta bande (jamais par la bande ouverte à tous)
             </label>

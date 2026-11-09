@@ -13,6 +13,9 @@ const props = defineProps({
   place: { type: Object, required: true }, // { id, name, home, private, groups, lat, lng, mine } ; sans id = nouveau lieu
   me: Object,
   groups: { type: Array, default: () => [] }, // mes bandes
+  // 'div' quand le formulaire est déjà dans un autre <form> (le « + ») : pas de formulaire imbriqué,
+  // Entrée enregistre le lieu sans envoyer le formulaire parent
+  tag: { type: String, default: 'form' },
 })
 const emit = defineEmits(['done'])
 
@@ -51,8 +54,17 @@ function locate() {
     { enableHighAccuracy: true, timeout: 10000 }
   )
 }
+const asForm = props.tag === 'form'
+function onEnter(ev) {
+  if (asForm || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'BUTTON') return
+  ev.preventDefault()
+  save()
+}
+const saving = ref(false)
 async function save() {
   const v = e.value
+  if (saving.value) return
+  if (owner && !props.place.home && !v.name?.trim()) return toast('Donne un nom au lieu')
   const coords = v.lat === '' && v.lng === '' ? { lat: null, lng: null } : { lat: Number(v.lat), lng: Number(v.lng) }
   const photo = v.photo !== undefined ? { photo: v.photo } : {}
   const body = owner
@@ -73,6 +85,7 @@ async function save() {
         ...(can('photo') && v.photo ? photo : {}),
       }
   if (!owner && !Object.keys(body).length) return emit('done')
+  saving.value = true
   try {
     const created = isNew ? await api('/places', { method: 'POST', body }) : null
     if (!isNew) await api(`/places/${props.place.id}`, { method: 'PATCH', body })
@@ -81,15 +94,17 @@ async function save() {
     emit('done', created)
   } catch (err) {
     toast(err.message)
+  } finally {
+    saving.value = false
   }
 }
 </script>
 
 <template>
-  <form class="space-y-4 rounded-xl bg-white/[.03] p-4" @submit.prevent="save">
+  <component :is="tag" class="space-y-4 rounded-xl bg-white/[.03] p-4" @submit.prevent="save" @keydown.enter="onEnter">
     <label v-if="owner && !place.home" class="block">
       <span class="kicker">Nom</span>
-      <input v-model="e.name" maxlength="60" required class="field mt-1 w-full px-3.5 py-2 text-base" />
+      <input v-model="e.name" maxlength="60" :required="asForm" class="field mt-1 w-full px-3.5 py-2 text-base" />
     </label>
     <label v-if="can('address')" class="block">
       <span class="kicker">Adresse</span>
@@ -133,8 +148,10 @@ async function save() {
       <p v-if="groups.some((g) => g.is_default)" class="mt-1 text-xs text-faint">La bande ouverte à tous ne peut pas voir un lieu privé.</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-hi flex-1 py-2.5 font-bold">{{ isNew ? 'Ajouter le lieu' : 'Enregistrer' }}</button>
+      <button :type="asForm ? 'submit' : 'button'" class="btn btn-hi flex-1 py-2.5 font-bold" :disabled="saving" @click="!asForm && save()">
+        {{ isNew ? 'Ajouter le lieu' : 'Enregistrer' }}
+      </button>
       <button type="button" class="btn btn-ghost px-4 py-2.5 font-semibold" @click="emit('done')">Annuler</button>
     </div>
-  </form>
+  </component>
 </template>
