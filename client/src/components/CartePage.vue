@@ -1,7 +1,7 @@
 <script setup>
 // La carte : produits partagés que tout le monde peut compléter. ★ = favori (en haut du ＋).
 import { ref, computed, watch, onMounted } from 'vue'
-import { api, CATS, MAX_CL, FORMATS, catOf, num, fmtDrink, fmtProduct, unitsOf, today, photoUrl } from '../api'
+import { api, CATS, MAX_CL, FORMATS, catOf, num, unitsOf, today, photoUrl } from '../api'
 import DrinkFields from './DrinkFields.vue'
 import Pager from './Pager.vue'
 import Stars from './Stars.vue'
@@ -12,6 +12,7 @@ import PlacesList from './PlacesList.vue'
 import { burst, centerOf, vibrate, toast, ask, celebrateBadges } from '../juice'
 import { ui, openProduct } from '../nav'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 
 const props = defineProps({ me: Object })
 const emit = defineEmits(['back', 'saved'])
@@ -309,7 +310,7 @@ async function create() {
             </button>
             <span v-if="p.rating" class="flex items-center gap-1.5 text-xs text-muted"><Stars :value="Math.round(p.rating)" :size="11" /> {{ p.ratings }} note{{ p.ratings > 1 ? 's' : '' }}</span>
             <span class="text-sm text-muted">
-              {{ fmtProduct(p) }}
+              <DrinkSpec :d="p" product />
               <template v-if="p.created_by === me.id"> · par toi</template>
               <template v-else-if="p.created_by_name"> · par {{ p.created_by_name }}</template>
             </span>

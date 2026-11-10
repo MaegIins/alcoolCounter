@@ -1,13 +1,14 @@
 <script setup>
 // Page d'une conso (/conso/:id) : qui, quoi, la note, l'avis en entier, la photo en grand, les likes et les commentaires.
 import { ref, computed, watch } from 'vue'
-import { api, catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
+import { api, catOf, num, prettyDay, timeAgo, photoUrl } from '../api'
 import { ui, goBack, openUser, openProduct, openPlace, openLog } from '../nav'
 import Avatar from './Avatar.vue'
 import { titleFor } from '../ranks'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 import LikeButton from './LikeButton.vue'
 import Comments from './Comments.vue'
 
@@ -76,7 +77,7 @@ function onLike({ likes, liked }) {
             <template v-else>{{ p.name }}</template>
           </h1>
           <p class="mt-1 text-muted">
-            <Icon :name="cat.fa" :style="{ color: cat.hex }" /> {{ fmtDrink(p) }}<template v-if="p.maker"> · {{ p.maker }}</template>
+            <Icon :name="cat.fa" :style="{ color: cat.hex }" /> <DrinkSpec :d="p" /><template v-if="p.maker"> · {{ p.maker }}</template>
           </p>
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <Stars v-if="p.rating" :value="p.rating" :size="20" />

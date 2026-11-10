@@ -111,6 +111,7 @@ export const num = (n) => String(round1(n)).replace('.', ',')
 export const fmt = (n) => `${num(n)} verre${round1(n) >= 2 ? 's' : ''}`
 export const fmtShort = (n) => num(n)
 // Libellé court d'une conso : « 50 cl · 6,5° »
+// (la caféine s'ajoute à l'affichage avec une tasse : composant DrinkSpec)
 export const fmtDrink = (d) => `${num(d.cl)} cl · ${d.abv > 0 ? `${num(d.abv)}°` : 'sans alcool'}`
 // Une fiche de la carte : pour une bière, pas de contenance (elle se choisit à chaque verre), juste le degré
 export const fmtProduct = (p) => (p.cat === 'biere' ? (p.abv > 0 ? `${num(p.abv)}°` : 'sans alcool') : fmtDrink(p))

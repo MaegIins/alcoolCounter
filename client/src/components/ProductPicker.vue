@@ -1,9 +1,10 @@
 <script setup>
 // Choisir un produit de la carte (pour le top 4). Émet pick(produit) ou close.
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { api, catOf, fmtProduct } from '../api'
+import { api, catOf } from '../api'
 import Poster from './Poster.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 
 const props = defineProps({ title: { type: String, default: 'Choisir une boisson' }, exclude: { type: Array, default: () => [] } })
 const emit = defineEmits(['pick', 'close'])
@@ -43,7 +44,7 @@ const shown = computed(() => {
               <Poster :drink="p" :width="34" />
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-semibold">{{ p.name }}</span>
-                <span class="text-sm text-muted">{{ catOf(p.cat).label }} · {{ fmtProduct(p) }}</span>
+                <span class="text-sm text-muted">{{ catOf(p.cat).label }} · <DrinkSpec :d="p" product /></span>
               </span>
             </button>
           </li>

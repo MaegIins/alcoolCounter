@@ -2,7 +2,7 @@
 // Page d'une boisson, façon page de film : affiche, infos (renseignées par qui l'a mise sur la carte,
 // complétables par tous), ma note, les chiffres, la répartition des notes, qui l'a bue, les avis, des boissons du même genre.
 import { ref, computed, watch } from 'vue'
-import { api, MAX_CL, catOf, num, fmtProduct, photoUrl, resizePhoto, timeAgo, prettyDay } from '../api'
+import { api, MAX_CL, catOf, num, photoUrl, resizePhoto, timeAgo, prettyDay } from '../api'
 import { ui, goBack, openLog, openUser, openProduct, bump, openPlace } from '../nav'
 import { toast, ask, burst, centerOf, vibrate } from '../juice'
 import Avatar from './Avatar.vue'
@@ -12,6 +12,7 @@ import DrinkFields from './DrinkFields.vue'
 import InfoFields from './InfoFields.vue'
 import PhotoField from './PhotoField.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 import PhotoSource from './PhotoSource.vue'
 
 const props = defineProps({ productId: Number, me: Object, colors: Object })
@@ -200,7 +201,7 @@ const zoom = ref('')
             <p class="mt-1 text-sm text-muted">
               <Icon :name="cat.fa" :style="{ color: cat.hex }" /> {{ cat.label }}<template v-if="p.style"> · {{ p.style }}</template><template v-if="p.origin"> · {{ p.origin }}</template>
             </p>
-            <p class="text-sm text-muted">{{ fmtProduct(p) }}</p>
+            <p class="text-sm text-muted"><DrinkSpec :d="p" product /></p>
             <p class="mt-1 text-sm font-semibold" :class="p.units ? 'text-hi' : 'text-faint'">
               {{ p.units ? `${num(p.units)} verre${p.units >= 2 ? 's' : ''} standard` : 'Hors score' }}
             </p>

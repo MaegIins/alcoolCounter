@@ -2,13 +2,14 @@
 // Une conso dans un fil : qui, quoi, quand, la note, l'avis, la photo.
 // Toucher l'affiche ouvre la fiche du produit ; le nom de la personne, son profil ; le crayon pour compléter les siennes.
 import { ref, computed } from 'vue'
-import { catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
+import { catOf, num, prettyDay, timeAgo, photoUrl } from '../api'
 import { openUser, openProduct, openLog, openPlace, openPost } from '../nav'
 import Avatar from './Avatar.vue'
 import { titleFor } from '../ranks'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 import Comments from './Comments.vue'
 import LikeButton from './LikeButton.vue'
 
@@ -55,7 +56,7 @@ const count = ref(props.log.comments ?? 0)
         <h3 class="min-w-0 flex-1 text-lg leading-snug font-bold break-words">
           <button v-if="log.product_id" class="text-left hover:text-hi hover:underline" @click="openProduct(log.product_id)">{{ log.name }}</button>
           <template v-else>{{ log.name }}</template>
-          <span class="ml-1.5 font-sans text-sm font-normal text-muted">{{ fmtDrink(log) }}</span>
+          <span class="ml-1.5 font-sans text-sm font-normal text-muted"><DrinkSpec :d="log" /></span>
         </h3>
         <button v-if="mine" class="-mt-0.5 -mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink" :aria-label="`Modifier ${log.name}`" @click="openLog({ edit: log })">
           <Icon name="edit" :size="16" />

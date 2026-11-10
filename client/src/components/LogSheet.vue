@@ -3,7 +3,7 @@
 // un avis et une photo, tous facultatifs. Sert aussi à compléter ou supprimer une conso (preset.edit).
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
-  api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, fmtProduct, today, addDays, prettyDay, resizePhoto, photoUrl,
+  api, FORMATS, MAX_CL, catOf, drinkId, unitsOf, num, fmtDrink, today, addDays, prettyDay, resizePhoto, photoUrl,
 } from '../api'
 import { ui, bump, openProduct, closeLog } from '../nav'
 import { toast, ask, celebrateBadges, vibrate } from '../juice'
@@ -11,6 +11,7 @@ import DrinkFields from './DrinkFields.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 import PhotoSource from './PhotoSource.vue'
 import PlaceEditForm from './PlaceEditForm.vue'
 
@@ -299,7 +300,7 @@ async function remove() {
                 <Poster :drink="r" :width="34" />
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ r.name }}</span>
-                  <span class="text-sm text-muted">{{ catOf(r.cat).label }} · {{ r.product_id ? fmtProduct(r) : fmtDrink(r) }}</span>
+                  <span class="text-sm text-muted">{{ catOf(r.cat).label }} · <DrinkSpec :d="r" :product="!!r.product_id" /></span>
                 </span>
                 <span v-if="r.product_id" class="text-xs text-faint">carte</span>
               </button>
@@ -330,7 +331,7 @@ async function remove() {
                   <button class="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-raised" @click="choose(h)">
                     <Poster :drink="h" :width="28" />
                     <span class="min-w-0 flex-1 truncate font-medium">{{ h.name }}</span>
-                    <span class="text-sm text-muted">{{ fmtDrink(h) }}</span>
+                    <span class="text-sm text-muted"><DrinkSpec :d="h" /></span>
                     <span class="w-8 text-right text-xs text-faint">×{{ h.count }}</span>
                   </button>
                 </li>
@@ -371,7 +372,7 @@ async function remove() {
             <Poster :drink="sel" :width="84" :icon="64" />
             <div class="min-w-0 flex-1 pt-1">
               <div class="text-2xl leading-tight font-bold break-words">{{ name || 'Nouvelle boisson' }}</div>
-              <div class="mt-1 text-sm text-muted">{{ catOf(sel.cat).label }} · {{ fmtDrink(sel) }}</div>
+              <div class="mt-1 text-sm text-muted">{{ catOf(sel.cat).label }} · <DrinkSpec :d="sel" /></div>
               <div class="mt-1 text-sm" :class="units ? 'text-hi' : 'text-faint'">
                 {{ units ? `+${num(units)} verre${units >= 2 ? 's' : ''} standard` : 'Hors score (sans alcool)' }}
               </div>

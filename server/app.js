@@ -1443,7 +1443,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
     const rows = db.prepare(`
       SELECT COALESCE(MAX(p.name), d.name) AS name, COALESCE(MAX(p.cat), d.cat) AS cat,
-        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv,
+        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv, COALESCE(MAX(p.caffeine), MAX(d.caffeine)) AS caffeine,
         d.product_id, MAX(p.photo_key) AS product_photo_key,
         COUNT(*) AS count, SUM(d.cl * d.abv * 0.008) AS units, ROUND(AVG(d.rating), 1) AS rating, COUNT(d.rating) AS ratings,
         COUNT(d.review) AS reviews, COUNT(d.photo_key) AS photos, MIN(d.day) AS first_day, MAX(d.day) AS last_day, MAX(d.at) AS last_at,
@@ -2154,7 +2154,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     // Comme l'onglet Boissons : une boisson de la carte = une ligne, quel que soit le volume ou le degré des verres
     const top = db.prepare(`
       SELECT COALESCE(MAX(p.name), d.name) AS name, COALESCE(MAX(p.cat), d.cat) AS cat,
-        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv,
+        COALESCE(MAX(p.cl), d.cl) AS cl, COALESCE(MAX(p.abv), d.abv) AS abv, COALESCE(MAX(p.caffeine), MAX(d.caffeine)) AS caffeine,
         d.product_id, COUNT(*) AS count, ROUND(AVG(d.rating), 1) AS rating
       FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.user_id = ?
       GROUP BY d.product_id, CASE WHEN d.product_id IS NULL THEN d.name END COLLATE NOCASE,
@@ -2162,7 +2162,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       ORDER BY count DESC, MAX(d.at) DESC LIMIT 5
     `).all(id)
     const drinks = day
-      ? db.prepare('SELECT id, at, name, cat, cl, abv FROM drinks WHERE user_id = ? AND day = ? ORDER BY at DESC, id DESC').all(id, day)
+      ? db.prepare('SELECT id, at, name, cat, cl, abv, caffeine FROM drinks WHERE user_id = ? AND day = ? ORDER BY at DESC, id DESC').all(id, day)
       : []
     const extraCount = (kind, d) =>
       db.prepare(`SELECT COUNT(*) AS n FROM extras WHERE user_id = ? AND kind = ?${d ? ' AND day = ?' : ''}`).get(...[id, kind, d].filter(Boolean)).n

@@ -381,7 +381,7 @@ const sinceLast = computed(() => {
               </span>
               <span class="shrink-0 text-right leading-tight font-semibold tabular-nums">
                 <span v-if="d.units || !d.caffeine" class="block" :style="{ color: catOf(d.cat).hex }">{{ d.units ? `+${num(d.units)}` : '0' }}</span>
-                <span v-if="d.caffeine" class="block text-xs text-caf">{{ d.caffeine }} mg</span>
+                <span v-if="d.caffeine" class="block text-xs text-caf"><Icon name="fa-mug-hot" /> {{ d.caffeine }} mg</span>
               </span>
             </button>
             <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Supprimer ${d.name}`" @click="remove(d)" ><Icon name="close" /></button>

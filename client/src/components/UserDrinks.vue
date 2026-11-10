@@ -2,11 +2,12 @@
 // Onglet « Boissons » d'un profil : toutes les boissons différentes bues, avec tris et filtres.
 // Toucher une boisson : combien de fois, quand, la note moyenne, et toutes les consos avec leurs avis et photos.
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { api, CATS, catOf, num, fmtDrink, dayLabel, photoUrl } from '../api'
+import { api, CATS, catOf, num, dayLabel, photoUrl } from '../api'
 import { ui, openLog, openProduct, openPlace } from '../nav'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 
 const props = defineProps({ userId: Number, isMe: Boolean })
 
@@ -140,7 +141,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
           <span class="min-w-0 flex-1 leading-tight">
             <span class="block truncate font-bold">{{ d.name }}</span>
             <span class="flex flex-wrap items-center gap-x-2 text-sm text-muted">
-              <span class="whitespace-nowrap">{{ fmtDrink(d) }}</span>
+              <span class="whitespace-nowrap"><DrinkSpec :d="d" /></span>
               <Stars v-if="d.rating" :value="Math.round(d.rating)" :size="11" />
               <span v-if="d.reviews" class="text-xs"><Icon name="review" /> {{ d.reviews }}</span>
             </span>
@@ -172,7 +173,7 @@ const chip = 'shrink-0 rounded-full px-3 py-1 text-sm font-semibold'
                   <button v-if="open.product_id" class="text-left hover:text-hi hover:underline" @click="toProduct">{{ open.name }}</button>
                   <template v-else>{{ open.name }}</template>
                 </h3>
-                <p class="text-sm text-muted"><Icon :name="catOf(open.cat).fa" /> {{ catOf(open.cat).label }} · {{ fmtDrink(open) }}</p>
+                <p class="text-sm text-muted"><Icon :name="catOf(open.cat).fa" /> {{ catOf(open.cat).label }} · <DrinkSpec :d="open" /></p>
                 <div v-if="open.rating" class="mt-1 flex items-center gap-2 text-sm text-muted">
                   <Stars :value="Math.round(open.rating)" :size="14" /> {{ num(open.rating / 2) }}/5 · {{ open.ratings }} note{{ open.ratings > 1 ? 's' : '' }}
                 </div>

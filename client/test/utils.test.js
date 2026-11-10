@@ -25,6 +25,7 @@ test('étoiles et temps relatif', () => {
   assert.equal(timeAgo(now - 3 * 3600e3, now), 'il y a 3 h')
   assert.equal(timeAgo(now - 2 * 864e5, now), 'il y a 2 j')
   assert.equal(fmtDrink({ cl: 50, abv: 0 }), '50 cl · sans alcool')
+  assert.equal(fmtDrink({ cl: 25, abv: 0, caffeine: 80 }), '25 cl · sans alcool')
 })
 
 test('unitsOf : 10 g d’alcool pur = 1 verre standard', () => {

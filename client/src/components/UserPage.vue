@@ -1,7 +1,7 @@
 <script setup>
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
-import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl, rankOf } from '../api'
+import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, dayLabel, today, photoUrl, rankOf } from '../api'
 import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
 import { refreshRanks, rankFor } from '../ranks'
@@ -10,6 +10,7 @@ import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
+import DrinkSpec from './DrinkSpec.vue'
 import ProductPicker from './ProductPicker.vue'
 import FollowList from './FollowList.vue'
 import UserDrinks from './UserDrinks.vue'
@@ -359,7 +360,7 @@ const dayNum = (day) => Number(day.slice(8))
               <button class="min-w-0 flex-1 text-left" :class="d.product_id && 'hover:text-hi'" @click="d.product_id && openProduct(d.product_id)">
                 <span class="block truncate font-semibold"><Icon :name="catOf(d.cat).fa" :style="{ color: catOf(d.cat).hex }" /> {{ d.name }}</span>
                 <span class="flex items-center gap-2 text-sm text-muted">
-                  {{ fmtDrink(d) }} · {{ d.count }} fois
+                  <DrinkSpec :d="d" /> · {{ d.count }} fois
                   <Stars v-if="d.rating" :value="Math.round(d.rating)" :size="11" />
                 </span>
               </button>
@@ -434,7 +435,7 @@ const dayNum = (day) => Number(day.slice(8))
                     <Stars v-if="d.rating" :value="d.rating" :size="11" />
                     <Icon v-if="d.review" name="review" :size="13" class="text-faint" />
                     <Icon v-if="d.photo_key" name="camera" :size="13" class="text-faint" />
-                    <span class="truncate text-faint">{{ fmtDrink(d) }}</span>
+                    <span class="truncate text-faint"><DrinkSpec :d="d" /></span>
                   </span>
                 </span>
                 <span class="text-sm tabular-nums" :style="{ color: d.units ? catOf(d.cat).hex : undefined }" :class="!d.units && 'text-faint'">
