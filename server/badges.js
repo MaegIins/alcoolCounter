@@ -21,6 +21,9 @@ export const GROUPS = [
   { key: 'secret', label: 'Secrets' },
 ]
 
+// Caféine minimale (mg) d'une conso pour les succès liés à l'heure (Lève-tôt, Nuit blanche)
+export const MIN_CAF_TIMED = 20
+
 export const BADGES = [
   // Les débuts
   { key: 'premiere', group: 'debut', icon: '🍺', label: 'Premier verre', desc: 'Un premier verre' },
@@ -91,8 +94,8 @@ export const BADGES = [
   { key: 'accro', group: 'cafeine', icon: '🔁', label: 'Accro', desc: 'De la caféine 7 jours de suite' },
   { key: 'centrale', group: 'cafeine', icon: '⚛️', label: 'Centrale', desc: '10 g de caféine au total' },
   { key: 'reacteur', group: 'cafeine', icon: '☢️', label: 'Réacteur', desc: '50 g de caféine au total' },
-  { key: 'levetot', group: 'cafeine', icon: '🐓', label: 'Lève-tôt', desc: 'De la caféine entre 5h et 7h du matin' },
-  { key: 'nuitblanche', group: 'cafeine', icon: '🌙', label: 'Nuit blanche', desc: 'De la caféine entre 1h et 5h du matin' },
+  { key: 'levetot', group: 'cafeine', icon: '🐓', label: 'Lève-tôt', desc: `Au moins ${MIN_CAF_TIMED} mg de caféine entre 5h et 7h du matin` },
+  { key: 'nuitblanche', group: 'cafeine', icon: '🌙', label: 'Nuit blanche', desc: `Au moins ${MIN_CAF_TIMED} mg de caféine entre 1h et 5h du matin` },
   // Lieux
   { key: 'sortie', group: 'lieux', icon: '📍', label: 'De sortie', desc: '5 lieux différents' },
   { key: 'nomade', group: 'lieux', icon: '🧳', label: 'Nomade', desc: '15 lieux différents' },
@@ -312,8 +315,9 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   const cafTotal = caf.reduce((s, d) => s + d.caffeine, 0) / 1000 // en grammes
   goal('centrale', cafTotal, 10)
   goal('reacteur', cafTotal, 50)
+  // Succès liés à l'heure : une vraie dose (café, énergisant, cola…), pas une trace (Kahlúa d'un Russe noir)
   for (const d of caf) {
-    if (isLate(d, tz)) continue
+    if (d.caffeine < MIN_CAF_TIMED || isLate(d, tz)) continue
     const h = hourIn(d.at, tz)
     add('levetot', h >= 5 && h < 7)
     add('nuitblanche', h >= 1 && h < 5)

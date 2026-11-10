@@ -151,6 +151,9 @@ test('caféine : doses du jour, total, série, horaires, café-clope', () => {
   assert.ok(b.has('surpile') && !b.has('palpitations') && !b.has('levetot'))
   assert.ok(computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T05:30:00+01:00')] }).has('levetot'))
   assert.ok(computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T02:00:00+01:00')] }).has('nuitblanche'))
+  // une trace de caféine (Russe noir, 3 mg) ne compte pas pour les succès liés à l'heure
+  assert.ok(!computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T02:00:00+01:00', 3, 'Russe noir')] }).has('nuitblanche'))
+  assert.ok(!computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T05:30:00+01:00', 19)] }).has('levetot'))
   const week = Array.from({ length: 7 }, (_, i) => cafe(`2026-11-0${i + 1}`, `2026-11-0${i + 1}T10:00:00+01:00`, 1000))
   const w = computeBadges({ drinks: week })
   assert.ok(w.has('accro') && !w.has('centrale') && w.has('palpitations'))
