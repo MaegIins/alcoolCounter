@@ -4,6 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { api, catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
 import { ui, goBack, openUser, openProduct, openPlace, openLog } from '../nav'
 import Avatar from './Avatar.vue'
+import { titleFor } from '../ranks'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
@@ -53,7 +54,10 @@ function onLike({ likes, liked }) {
           <Avatar :user="{ id: p.user_id, name: p.user_name, avatar_v: p.avatar_v }" :color="colors[p.user_id]" :size="44" />
         </button>
         <div class="min-w-0 flex-1">
-          <button class="block truncate font-bold hover:text-hi" @click="openUser(p.user_id)">{{ mine ? 'Toi' : p.user_name }}</button>
+          <button class="flex max-w-full items-baseline gap-2 font-bold hover:text-hi" @click="openUser(p.user_id)">
+            <span class="truncate">{{ mine ? 'Toi' : p.user_name }}</span>
+            <span v-if="titleFor(p.user_id)" class="min-w-0 truncate text-xs font-semibold text-hi/70">{{ titleFor(p.user_id) }}</span>
+          </button>
           <span class="text-sm text-faint"><span class="first-letter:uppercase">{{ prettyDay(p.day) }}</span> · <template v-if="p.late">noté après coup, {{ timeAgo(p.at) }}</template><template v-else>{{ time(p.at) }} · {{ timeAgo(p.at) }}</template></span>
         </div>
         <button v-if="mine" class="btn btn-ghost flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-sm font-semibold" @click="openLog({ edit: p })">

@@ -838,14 +838,19 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         tag: `badge:${fresh.map((b) => b.key).join(',')}`,
       })
     }
-    return [...fresh, ...syncTitles(userId, hist.drinks, { read, silent })]
+    return [...fresh, ...syncTitles(userId, hist, { read, silent })]
   }
   // Titres cachés : même principe que les succès. Renvoie les nouveaux, au format { kind: 'title', key, label, how, icon }.
   const TITLE = new Map(TITLES.map((t) => [t.key, t]))
   const titleOut = (key) => { const t = TITLE.get(key); return t && { kind: 'title', key, label: t.label, how: t.how, icon: '🏷️' } }
-  // drinks : ses consos si on les a déjà (syncBadges), sinon relues
-  const syncTitles = (userId, drinks, { read = false, silent = false } = {}) => {
-    const got = computeTitles({ drinks: drinks ?? db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId) })
+  // hist : son historique s'il est déjà chargé (syncBadges : { drinks, extras }), sinon relu
+  const syncTitles = (userId, hist, { read = false, silent = false } = {}) => {
+    const got = computeTitles({
+      drinks: hist?.drinks ?? db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId),
+      // Clopes et verres d'eau : { clope: n, eau: n }
+      extras: hist ? hist.extras.reduce((m, x) => ((m[x.kind] = (m[x.kind] ?? 0) + 1), m), {})
+        : Object.fromEntries(db.prepare('SELECT kind, COUNT(*) AS n FROM extras WHERE user_id = ? GROUP BY kind').all(userId).map((r) => [r.kind, r.n])),
+    })
     const have = new Set(db.prepare('SELECT key FROM user_titles WHERE user_id = ?').all(userId).map((r) => r.key))
     const fresh = TITLES.filter((t) => got.has(t.key) && !have.has(t.key))
     if (!fresh.length) return []

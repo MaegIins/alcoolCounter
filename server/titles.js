@@ -41,15 +41,18 @@ export const TITLES = [
   { key: 'topg', label: 'Top G', how: '10 Guinness', n: 10, match: GUINNESS },
   { key: 'trolls', label: 'Trolleur', how: '3 Cuvée des Trolls', n: 3, match: named(/troll/) },
   { key: 'long', label: 'Crusoé', how: '5 Long Island', n: 5, match: named(/long island|^long\b/) },
+  // Pas des boissons : les clopes et les verres d'eau notés (compteurs à part, hors score)
+  { key: 'cancereux', label: 'Cancéreux', how: '300 clopes', n: 300, extra: 'clope' },
+  { key: 'ballondeau', label: 'Ballon d’eau', how: '300 verres d’eau', n: 300, extra: 'eau' },
 ]
 
-/** Titres débloqués d'après toutes les consos d'une personne ({ name, cat, abv }) : Set de clés */
-export function computeTitles({ drinks = [] }) {
+/** Titres débloqués d'après les consos d'une personne ({ name, cat, abv }) et ses clopes / verres d'eau : Set de clés */
+export function computeTitles({ drinks = [], extras = {} }) {
   const list = drinks.map((d) => ({ cat: d.cat, abv: d.abv, f: fold(d.name) }))
   const got = new Set()
   for (const t of TITLES) {
-    let n = 0
-    for (const d of list) if (t.match(d) && ++n >= t.n) break
+    let n = t.extra ? extras[t.extra] ?? 0 : 0
+    if (!t.extra) for (const d of list) if (t.match(d) && ++n >= t.n) break
     if (n >= t.n) got.add(t.key)
   }
   return got

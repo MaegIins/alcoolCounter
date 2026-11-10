@@ -5,6 +5,7 @@ import { ref, computed } from 'vue'
 import { catOf, num, fmtDrink, prettyDay, timeAgo, photoUrl } from '../api'
 import { openUser, openProduct, openLog, openPlace, openPost } from '../nav'
 import Avatar from './Avatar.vue'
+import { titleFor } from '../ranks'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
 import Icon from './Icon.vue'
@@ -45,6 +46,7 @@ const count = ref(props.log.comments ?? 0)
         <button class="flex min-w-0 items-center gap-2 hover:text-ink" @click="openUser(log.user_id)">
           <Avatar :user="{ id: log.user_id, name: log.user_name, avatar_v: log.avatar_v }" :color="colors[log.user_id]" :size="20" />
           <span class="truncate font-semibold">{{ mine ? 'Toi' : log.user_name }}</span>
+          <span v-if="titleFor(log.user_id)" class="min-w-0 truncate text-xs text-hi/70">{{ titleFor(log.user_id) }}</span>
         </button>
         <button class="shrink-0 text-faint hover:text-ink hover:underline" :title="'Ouvrir la conso'" @click="openPost(log.id)">{{ log.late ? `noté après coup, ${timeAgo(log.at)}` : timeAgo(log.at) }}</button>
       </div>

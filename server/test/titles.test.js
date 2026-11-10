@@ -7,7 +7,7 @@ const many = (n, d) => Array.from({ length: n }, () => ({ cat: 'biere', abv: 8, 
 
 test('titres : clés uniques, seuils positifs', () => {
   assert.equal(new Set(TITLES.map((t) => t.key)).size, TITLES.length)
-  assert.ok(TITLES.every((t) => t.n >= 1 && t.label && t.how && (t.wins || typeof t.match === 'function')))
+  assert.ok(TITLES.every((t) => t.n >= 1 && t.label && t.how && (t.extra || typeof t.match === 'function')))
 })
 
 test('titres : N fois la bonne boisson (sans accents ni casse), pas avant', () => {
@@ -27,6 +27,8 @@ test('titres : N fois la bonne boisson (sans accents ni casse), pas avant', () =
   assert.ok(g.has('guinness') && g.has('topg'))
   assert.ok(!computeTitles({ drinks: many(9, { name: 'Guinness' }) }).has('topg'))
   assert.ok(computeTitles({ drinks: many(5, { name: 'Kasteel Rouge' }) }).has('kasteel'))
+  assert.ok(computeTitles({ extras: { clope: 300 } }).has('cancereux') && !computeTitles({ extras: { clope: 299 } }).has('cancereux'))
+  assert.ok(computeTitles({ extras: { eau: 300 } }).has('ballondeau') && !computeTitles({ extras: { eau: 299, clope: 900 } }).has('ballondeau'))
 })
 
 test('titres en vrai : débloqués à la conso (toast + notif), affichés d’office, choisis ou retirés, jamais un pas débloqué', async () => {
