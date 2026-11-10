@@ -2,7 +2,7 @@
 // Carte des lieux (La carte › Lieux) : les lieux que je peux voir et qui ont une position.
 // La liste vient déjà filtrée par le serveur (lieux privés non autorisés absents, position d'un « Chez X » d'un autre
 // jamais envoyée) : la carte n'affiche que ce qu'on a le droit de voir.
-// Leaflet + tuiles OpenStreetMap assombries. Repères en icônes Font Awesome, taille selon la fréquentation.
+// Leaflet + tuiles OpenStreetMap assombries. Repères en icônes Font Awesome, couleur selon la fréquentation.
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -79,9 +79,10 @@ function draw({ fit = true } = {}) {
   for (const p of located.value) {
     // Pas d'option `title` (infobulle blanche du navigateur) : une étiquette Leaflet aux couleurs de l'appli,
     // au survol seulement, cachée quand la bulle du lieu est ouverte
-    const m = L.marker([p.lat, p.lng], { icon: markerIcon(p), alt: p.name, keyboard: true, riseOnHover: true })
+    const icon = markerIcon(p)
+    const m = L.marker([p.lat, p.lng], { icon, alt: p.name, keyboard: true, riseOnHover: true })
       .bindPopup(popupHtml(p), { maxWidth: 240, minWidth: 180, className: 'ardoise-popup' })
-      .bindTooltip(esc(p.name), { direction: 'top', offset: [0, -markerIcon(p).options.iconSize[1] / 2], className: 'ardoise-tip', opacity: 1 })
+      .bindTooltip(esc(p.name), { direction: 'top', offset: [0, -icon.options.iconSize[1] / 2], className: 'ardoise-tip', opacity: 1 })
     m.on('popupopen', () => m.closeTooltip())
     m.addTo(layer)
     markers.set(p.id, m)

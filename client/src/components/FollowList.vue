@@ -23,7 +23,8 @@ function go(id) {
 }
 async function toggle(u) {
   try {
-    const r = await api(`/users/${u.id}/follow`, { method: u.iFollow ? 'DELETE' : 'PUT' })
+    const r = await api(`/users/${u.id}/follow`, { method: u.follow === 'none' ? 'PUT' : 'DELETE' })
+    u.follow = r.follow
     u.iFollow = r.iFollow
     bump()
   } catch (e) {
@@ -48,8 +49,8 @@ async function toggle(u) {
               <Avatar :user="u" :color="colors[u.id]" :size="40" class="rounded-full" />
               <span class="truncate font-bold">{{ u.id === me.id ? 'Toi' : u.name }}</span>
             </button>
-            <button v-if="u.id !== me.id" class="btn shrink-0 px-3 py-1.5 text-sm font-bold" :class="u.iFollow ? 'btn-ghost' : 'btn-hi'" @click="toggle(u)">
-              {{ u.iFollow ? 'Suivi' : 'Suivre' }}
+            <button v-if="u.id !== me.id" class="btn shrink-0 px-3 py-1.5 text-sm font-bold" :class="u.follow === 'none' ? 'btn-hi' : 'btn-ghost'" @click="toggle(u)">
+              {{ u.follow === 'yes' ? 'Suivi' : u.follow === 'pending' ? 'Demandé' : u.private ? 'Demander' : 'Suivre' }}
             </button>
           </li>
         </ul>

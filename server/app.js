@@ -517,6 +517,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     PRIMARY KEY (user_id, key)
   )`)
   addCols('users', [['title', 'TEXT']])
+  // Profil privé : seuls ceux qui partagent une de ses bandes et ses abonnés acceptés voient ses consos.
+  // Suivre un profil privé envoie une demande (follows.pending = 1) qu'il accepte ou refuse.
+  addCols('users', [['private', 'INTEGER NOT NULL DEFAULT 0']])
+  addCols('follows', [['pending', 'INTEGER NOT NULL DEFAULT 0']])
   // shown = annoncé dans le fil d'activité (0 pour ceux enregistrés en silence : déjà là avant, pas « nouveaux »)
   if (!db.prepare('PRAGMA table_info(user_badges)').all().some((c) => c.name === 'shown')) {
     db.exec('ALTER TABLE user_badges ADD COLUMN shown INTEGER NOT NULL DEFAULT 0')
@@ -653,7 +657,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const token = bearer(req)
     const hash = token ? tokenHash(token) : null
     const user = hash
-      ? db.prepare('SELECT u.id, u.name, u.avatar_v, u.is_admin, s.last_used FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?').get(hash)
+      ? db.prepare('SELECT u.id, u.name, u.avatar_v, u.is_admin, u.private, s.last_used FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?').get(hash)
       : null
     if (user && now() - user.last_used > SESSION_TTL) {
       db.prepare('DELETE FROM sessions WHERE token = ?').run(hash)
@@ -663,7 +667,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     // Dernière utilisation, mise à jour au plus une fois par heure
     if (now() - user.last_used > 3600e3) db.prepare('UPDATE sessions SET last_used = ? WHERE token = ?').run(now(), hash)
     delete user.last_used
-    req.user = { ...user, is_admin: !!user.is_admin }
+    req.user = { ...user, is_admin: !!user.is_admin, private: !!user.private }
     viewer = user.id
     next()
   }
@@ -694,6 +698,32 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     req.memberIds = [req.user.id]
     next()
   }
+  // Qui voit les consos de qui : soi, les profils publics, ceux avec qui on partage une bande, ceux dont on est
+  // abonné accepté. En SQL (colonne d'id d'utilisateur), pour filtrer les listes ; et pour une personne donnée.
+  const SEES = (col) => `(${col} = viewer_id() OR ${col} IN (SELECT id FROM users WHERE private = 0)
+    OR ${col} IN (SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = viewer_id())
+    OR ${col} IN (SELECT followee_id FROM follows WHERE follower_id = viewer_id() AND pending = 0))`
+  const canSee = (userId) => !!db.prepare(`SELECT ${SEES('u.id')} AS ok FROM users u WHERE u.id = ?`).get(userId)?.ok
+  const sharesBand = (a, b) => !!db.prepare(`SELECT 1 FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id
+    WHERE m1.user_id = ? AND m2.user_id = ?`).get(a, b)
+  // Route d'un profil (:id) : 404 s'il n'existe pas, 403 s'il est privé et que je ne le vois pas
+  const visibleUser = (req, res, next) => {
+    const id = Number(req.params.id)
+    if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
+    if (!canSee(id)) return bad(res, 'Profil privé', 403)
+    next()
+  }
+  // Une conso : visible si son auteur l'est (sinon 404 : on ne confirme pas qu'elle existe)
+  const visibleDrink = (req, res, next) => {
+    const owner = db.prepare('SELECT user_id FROM drinks WHERE id = ?').get(Number(req.params.id))?.user_id
+    if (!owner || !canSee(owner)) return bad(res, 'Conso introuvable', 404)
+    next()
+  }
+  // Où j'en suis avec quelqu'un : 'yes' (abonné), 'pending' (demande envoyée) ou 'none'
+  const followState = (followerId, followeeId) => {
+    const f = db.prepare('SELECT pending FROM follows WHERE follower_id = ? AND followee_id = ?').get(followerId, followeeId)
+    return !f ? 'none' : f.pending ? 'pending' : 'yes'
+  }
   // Peut modifier/retirer un produit de la carte commune : son auteur, ou un admin
   const canManage = (p, req) => p.created_by === req.user.id || req.user.is_admin
   const joinGroup = (groupId, userId) =>
@@ -718,7 +748,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     social: {
       comments: db.prepare('SELECT COUNT(*) AS n FROM drink_comments WHERE user_id = ?').get(userId).n,
       likes: db.prepare('SELECT COUNT(*) AS n FROM drink_likes k JOIN drinks d ON d.id = k.drink_id WHERE d.user_id = ? AND k.user_id != ?').get(userId, userId).n,
-      followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?').get(userId).n,
+      followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ? AND pending = 0').get(userId).n,
     },
     tz,
   })
@@ -763,7 +793,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     return subs.length
   }
   // Même texte que la page Notifs du client
-  const PUSH_TEXT = { like: 'a liké ta conso', comment: 'a commenté ta conso', reply: 'a aussi commenté', comment_like: 'a liké ton commentaire', follow: 'te suit' }
+  const PUSH_TEXT = {
+    like: 'a liké ta conso', comment: 'a commenté ta conso', reply: 'a aussi commenté', comment_like: 'a liké ton commentaire', follow: 'te suit',
+    follow_request: 'veut te suivre', follow_accept: 'a accepté ta demande d’abonnement',
+  }
   function pushNotif(userId, actorId, kind, drinkId, commentId) {
     if (!pushOn || !PUSH_TEXT[kind]) return
     const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(actorId)?.name ?? 'Quelqu’un'
@@ -772,7 +805,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     pushTo(userId, {
       title: `${actor} ${PUSH_TEXT[kind]}`,
       body: comment ? (kind === 'comment_like' ? `« ${comment} »` : `${drink ? `${drink} · ` : ''}« ${comment} »`) : drink ?? '',
-      url: drinkId ? `/conso/${drinkId}` : `/profil/${actorId}`,
+      url: drinkId ? `/conso/${drinkId}` : kind === 'follow_request' ? '/notifs' : `/profil/${actorId}`,
       tag: [kind, drinkId, commentId, actorId].join(':'),
     })
   }
@@ -787,8 +820,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Enregistre les succès nouvellement obtenus et les notifie (une seule fois, même si on les reperd puis regagne).
   // read : déjà fêtés à l'écran (toast après une conso) → la notif arrive lue. silent : pas de notif (remplissage initial).
   const syncBadges = (userId, { read = false, silent = false } = {}) => {
-    const wins = bestWins(userId)
-    const got = computeBadges({ ...historyOf(userId), wins })
+    const hist = historyOf(userId)
+    const got = computeBadges({ ...hist, wins: bestWins(userId) })
     const have = new Set(db.prepare('SELECT key FROM user_badges WHERE user_id = ?').all(userId).map((r) => r.key))
     const fresh = BADGES.filter((b) => got.has(b.key) && !have.has(b.key))
     const at = now()
@@ -805,13 +838,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         tag: `badge:${fresh.map((b) => b.key).join(',')}`,
       })
     }
-    return [...fresh, ...syncTitles(userId, wins, { read, silent })]
+    return [...fresh, ...syncTitles(userId, hist.drinks, { read, silent })]
   }
   // Titres cachés : même principe que les succès. Renvoie les nouveaux, au format { kind: 'title', key, label, how, icon }.
   const TITLE = new Map(TITLES.map((t) => [t.key, t]))
   const titleOut = (key) => { const t = TITLE.get(key); return t && { kind: 'title', key, label: t.label, how: t.how, icon: '🏷️' } }
-  const syncTitles = (userId, wins, { read = false, silent = false } = {}) => {
-    const got = computeTitles({ drinks: db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId), wins })
+  // drinks : ses consos si on les a déjà (syncBadges), sinon relues
+  const syncTitles = (userId, drinks, { read = false, silent = false } = {}) => {
+    const got = computeTitles({ drinks: drinks ?? db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId) })
     const have = new Set(db.prepare('SELECT key FROM user_titles WHERE user_id = ?').all(userId).map((r) => r.key))
     const fresh = TITLES.filter((t) => got.has(t.key) && !have.has(t.key))
     if (!fresh.length) return []
@@ -820,8 +854,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       db.prepare('INSERT OR IGNORE INTO user_titles (user_id, key, at) VALUES (?, ?, ?)').run(userId, t.key, at)
       if (!silent) db.prepare("INSERT INTO notifications (user_id, actor_id, kind, badge, at, read) VALUES (?, ?, 'title', ?, ?, ?)").run(userId, userId, t.key, at, read ? 1 : 0)
     }
-    // Pas encore de titre choisi : le nouveau s'affiche (plusieurs d'un coup : celui d'une boisson le plus dur à avoir)
-    const pick = [...fresh].sort((x, y) => !!x.wins - !!y.wins || y.n - x.n)[0]
+    // Pas encore de titre choisi : le nouveau s'affiche (plusieurs d'un coup : le plus dur à avoir)
+    const pick = [...fresh].sort((x, y) => y.n - x.n)[0]
     db.prepare('UPDATE users SET title = ? WHERE id = ? AND title IS NULL').run(pick.key, userId)
     if (!silent && !read) {
       pushTo(userId, {
@@ -1278,7 +1312,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const [bAt, bId] = String(req.query.before || '').split(':').map(Number)
     const cursor = Number.isFinite(bAt) && Number.isFinite(bId) && req.query.before
     const ids = req.query.scope === 'follow'
-      ? [req.user.id, ...db.prepare('SELECT followee_id FROM follows WHERE follower_id = ?').all(req.user.id).map((r) => r.followee_id)]
+      ? [req.user.id, ...db.prepare('SELECT followee_id FROM follows WHERE follower_id = ? AND pending = 0').all(req.user.id).map((r) => r.followee_id)]
       : req.memberIds
     const rows = db.prepare(`
       SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
@@ -1313,11 +1347,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const q = fold(String(req.query.q || '').trim())
     if (!q) return res.json({ users: [], products: [], places: [] })
     const rank = (name) => (fold(name).startsWith(q) ? 0 : 1)
-    const users = db.prepare('SELECT id, name, avatar_v FROM users').all()
+    const users = db.prepare('SELECT id, name, avatar_v, private FROM users').all()
       .filter((u) => fold(u.name).includes(q))
       .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
       .slice(0, 12)
-      .map((u) => ({ ...u, inBand: req.memberIds.includes(u.id), me: u.id === req.user.id }))
+      .map((u) => ({ ...u, private: !!u.private, inBand: req.memberIds.includes(u.id), me: u.id === req.user.id }))
     const products = db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by`).all(req.user.id)
       .filter((p) => fold(p.name).includes(q) || (p.maker && fold(p.maker).includes(q)))
       .sort((a, b) => rank(a.name) - rank(b.name) || b.logs - a.logs || a.name.localeCompare(b.name))
@@ -1331,14 +1365,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Abonnés (qui le suit) et abonnements (qui il suit) d'une personne, avec « je le suis ? »
   for (const [path, col, other] of [['followers', 'followee_id', 'follower_id'], ['following', 'follower_id', 'followee_id']]) {
-    app.get(`/api/users/:id/${path}`, auth, (req, res) => {
+    // Profil privé : ses listes aussi (comme le reste) ; les demandes en attente n'y figurent pas
+    app.get(`/api/users/:id/${path}`, auth, visibleUser, (req, res) => {
       const id = Number(req.params.id)
-      if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
       res.json(db.prepare(`
-        SELECT u.id, u.name, u.avatar_v,
-          EXISTS (SELECT 1 FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS iFollow
-        FROM follows f JOIN users u ON u.id = f.${other} WHERE f.${col} = ? ORDER BY f.created_at DESC
-      `).all(req.user.id, id).map((u) => ({ ...u, iFollow: !!u.iFollow })))
+        SELECT u.id, u.name, u.avatar_v, u.private,
+          (SELECT CASE WHEN x.pending THEN 'pending' ELSE 'yes' END FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS follow
+        FROM follows f JOIN users u ON u.id = f.${other} WHERE f.${col} = ? AND f.pending = 0 ORDER BY f.created_at DESC
+      `).all(req.user.id, id).map((u) => ({ ...u, private: !!u.private, follow: u.follow ?? 'none', iFollow: u.follow === 'yes' })))
     })
   }
 
@@ -1347,19 +1381,59 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404)
     if (id === req.user.id) return bad(res, 'Tu ne peux pas te suivre toi-même')
-    const { changes } = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)').run(req.user.id, id, now())
-    if (changes) { notify(id, req.user.id, 'follow'); syncBadges(id) } // Influenceur
-    res.json({ iFollow: true })
+    // Profil privé (et pas dans une de mes bandes) : une demande, qu'il acceptera ou non
+    const ask = !!db.prepare('SELECT private FROM users WHERE id = ?').get(id).private && !sharesBand(req.user.id, id)
+    const { changes } = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at, pending) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, id, now(), ask ? 1 : 0)
+    if (changes && ask) notify(id, req.user.id, 'follow_request')
+    else if (changes) { notify(id, req.user.id, 'follow'); syncBadges(id) } // Influenceur
+    const follow = followState(req.user.id, id)
+    res.json({ follow, iFollow: follow === 'yes' })
   })
+  // Ne plus suivre, ou annuler sa demande
   app.delete('/api/users/:id/follow', auth, (req, res) => {
-    db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, Number(req.params.id))
-    db.prepare("DELETE FROM notifications WHERE kind = 'follow' AND user_id = ? AND actor_id = ?").run(Number(req.params.id), req.user.id)
-    res.json({ iFollow: false })
+    const id = Number(req.params.id)
+    db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, id)
+    db.prepare("DELETE FROM notifications WHERE kind IN ('follow', 'follow_request') AND user_id = ? AND actor_id = ?").run(id, req.user.id)
+    res.json({ follow: 'none', iFollow: false })
+  })
+  // Demandes d'abonnement reçues (profil privé) : la liste, accepter, refuser
+  app.get('/api/me/follow-requests', auth, (req, res) => {
+    res.json(db.prepare(`
+      SELECT u.id, u.name, u.avatar_v, f.created_at AS at FROM follows f JOIN users u ON u.id = f.follower_id
+      WHERE f.followee_id = ? AND f.pending = 1 ORDER BY f.created_at DESC
+    `).all(req.user.id))
+  })
+  app.post('/api/me/follow-requests/:id', auth, (req, res) => {
+    const id = Number(req.params.id)
+    const { changes } = db.prepare('UPDATE follows SET pending = 0 WHERE follower_id = ? AND followee_id = ? AND pending = 1').run(id, req.user.id)
+    if (!changes) return bad(res, 'Demande introuvable', 404)
+    db.prepare("DELETE FROM notifications WHERE kind = 'follow_request' AND user_id = ? AND actor_id = ?").run(req.user.id, id)
+    notify(id, req.user.id, 'follow_accept')
+    syncBadges(req.user.id) // Influenceur
+    res.json({ ok: true })
+  })
+  app.delete('/api/me/follow-requests/:id', auth, (req, res) => {
+    const id = Number(req.params.id)
+    db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ? AND pending = 1').run(id, req.user.id)
+    db.prepare("DELETE FROM notifications WHERE kind = 'follow_request' AND user_id = ? AND actor_id = ?").run(req.user.id, id)
+    res.json({ ok: true })
+  })
+  // Profil privé ou public. Repasser en public accepte toutes les demandes en attente.
+  app.put('/api/me/private', auth, (req, res) => {
+    const priv = req.body?.private === true
+    db.prepare('UPDATE users SET private = ? WHERE id = ?').run(priv ? 1 : 0, req.user.id)
+    if (!priv) {
+      const accepted = db.prepare('UPDATE follows SET pending = 0 WHERE followee_id = ? AND pending = 1').run(req.user.id).changes
+      db.prepare("UPDATE notifications SET kind = 'follow' WHERE kind = 'follow_request' AND user_id = ?").run(req.user.id)
+      if (accepted) syncBadges(req.user.id)
+    }
+    res.json({ user: { ...req.user, private: priv } })
   })
 
   // Toutes les boissons différentes d'une personne, avec ses chiffres : une boisson de la carte = une ligne, même si le
   // volume ou le degré d'une conso a changé (fiche corrigée, verre différent) ; hors carte, même nom, volume et degré
-  app.get('/api/users/:id/drinks', auth, groupOrSolo, (req, res) => {
+  app.get('/api/users/:id/drinks', auth, groupOrSolo, visibleUser, (req, res) => {
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
     const rows = db.prepare(`
@@ -1389,7 +1463,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Toutes les consos d'une personne pour une boisson donnée (?name=&cl=&abv=), plus récentes d'abord
-  app.get('/api/users/:id/drinks/logs', auth, groupOrSolo, (req, res) => {
+  app.get('/api/users/:id/drinks/logs', auth, groupOrSolo, visibleUser, (req, res) => {
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
     // Boisson de la carte (?product_id=) : toutes ses consos ; sinon (?name=&cl=&abv=) celles hors carte
@@ -1412,7 +1486,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Journal d'une personne : ses consos par soirée, plus récentes d'abord (?offset=&limit=)
-  app.get('/api/users/:id/diary', auth, groupOrSolo, (req, res) => {
+  app.get('/api/users/:id/diary', auth, groupOrSolo, visibleUser, (req, res) => {
     const id = Number(req.params.id)
     if (!userExists(id)) return bad(res, 'Joueur introuvable', 404) // profils visibles par tous (recherche)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40))
@@ -1453,7 +1527,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Jamais pour soi-même ; un like ou un follow refait ne crée pas de doublon (l'ancienne remonte)
   const notify = (userId, actorId, kind, { drinkId = null, commentId = null } = {}) => {
     if (!userId || userId === actorId) return
-    if (kind === 'like' || kind === 'follow' || kind === 'comment_like') {
+    if (kind === 'like' || kind === 'follow' || kind === 'comment_like' || kind === 'follow_request' || kind === 'follow_accept') {
       db.prepare('DELETE FROM notifications WHERE user_id = ? AND actor_id = ? AND kind = ? AND drink_id IS ? AND comment_id IS ?')
         .run(userId, actorId, kind, drinkId, commentId)
     }
@@ -1529,7 +1603,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Page d'une conso : la conso, son auteur, et qui l'a likée (les plus récents d'abord)
-  app.get('/api/drinks/:id(\\d+)', auth, (req, res) => {
+  app.get('/api/drinks/:id(\\d+)', auth, visibleDrink, (req, res) => {
     const id = Number(req.params.id)
     const log = db.prepare(`
       SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v, p.maker AS maker FROM drinks d
@@ -1546,7 +1620,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     likes: db.prepare('SELECT COUNT(*) AS n FROM drink_likes WHERE drink_id = ?').get(id).n,
     liked: !!db.prepare('SELECT 1 FROM drink_likes WHERE drink_id = ? AND user_id = ?').get(id, userId),
   })
-  app.put('/api/drinks/:id/like', auth, (req, res) => {
+  app.put('/api/drinks/:id/like', auth, visibleDrink, (req, res) => {
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
     const { changes } = db.prepare('INSERT OR IGNORE INTO drink_likes (drink_id, user_id, at) VALUES (?, ?, ?)').run(id, req.user.id, now())
@@ -1567,12 +1641,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       EXISTS (SELECT 1 FROM comment_likes k WHERE k.comment_id = c.id AND k.user_id = viewer_id()) AS liked
     FROM drink_comments c JOIN users u ON u.id = c.user_id WHERE c.drink_id = ? ORDER BY c.at, c.id
   `).all(drinkId).map((c) => ({ ...c, liked: !!c.liked }))
-  app.get('/api/drinks/:id/comments', auth, (req, res) => {
+  app.get('/api/drinks/:id/comments', auth, visibleDrink, (req, res) => {
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
     res.json(commentsOf(id))
   })
-  app.post('/api/drinks/:id/comments', auth, (req, res) => {
+  app.post('/api/drinks/:id/comments', auth, visibleDrink, (req, res) => {
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM drinks WHERE id = ?').get(id)) return bad(res, 'Conso introuvable', 404)
     const body = String(req.body.body ?? '').trim()
@@ -1648,7 +1722,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         MAX(CASE WHEN d.user_id = ? THEN d.at END) AS my_last,
         SUM(d.user_id IN (
           SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?
-          UNION SELECT followee_id FROM follows WHERE follower_id = ?
+          UNION SELECT followee_id FROM follows WHERE follower_id = ? AND pending = 0
         )) AS circle
       FROM places pl LEFT JOIN drinks d ON d.place_id = pl.id
       WHERE place_visible(pl.id)
@@ -1702,12 +1776,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     `).all(id)
     const people = db.prepare(`
       SELECT u.id, u.name, u.avatar_v, COUNT(*) AS count, MAX(d.at) AS last_at FROM drinks d JOIN users u ON u.id = d.user_id
-      WHERE d.place_id = ? GROUP BY u.id ORDER BY count DESC, last_at DESC LIMIT 30
+      WHERE d.place_id = ? AND ${SEES('u.id')} GROUP BY u.id ORDER BY count DESC, last_at DESC LIMIT 30
     `).all(id)
     const logs = db.prepare(`
       SELECT ${LOG_COLS}, u.name AS user_name, u.avatar_v FROM drinks d
       JOIN users u ON u.id = d.user_id LEFT JOIN products p ON p.id = d.product_id
-      WHERE d.place_id = ? ORDER BY d.at DESC, d.id DESC LIMIT 30
+      WHERE d.place_id = ? AND ${SEES('d.user_id')} ORDER BY d.at DESC, d.id DESC LIMIT 30
     `).all(id)
     res.json({ ...place, owner, creator, ...stats, drinks, people, recent: logs.map(logOut) })
   })
@@ -1848,7 +1922,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   } else if (titlesTableNew) {
     // Titres ajoutés après les succès : ceux déjà mérités sont enregistrés sans notifier
     db.exec('BEGIN')
-    for (const { id } of db.prepare('SELECT id FROM users').all()) syncTitles(id, bestWins(id), { silent: true })
+    for (const { id } of db.prepare('SELECT id FROM users').all()) syncTitles(id, null, { silent: true })
     db.exec('COMMIT')
   }
 
@@ -1858,7 +1932,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // par mois, catégorie, jour de la semaine, heure ; calendrier de l'année ; séries et pauses ; ce mois contre le
   // précédent ; volumes et équivalences ; notes (face aux autres) ; découvertes ; lieux ; rythme ; eau et clopes ;
   // compagnons de verre (même journée, même lieu visible) ; et face à ma bande si la personne en fait partie.
-  app.get('/api/users/:id(\\d+)/insights', auth, groupOrSolo, (req, res) => {
+  app.get('/api/users/:id(\\d+)/insights', auth, groupOrSolo, visibleUser, (req, res) => {
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) return bad(res, 'Joueur introuvable', 404)
     const rows = db.prepare('SELECT day, at, name, cat, cl, abv, product_id, rating, place_id FROM drinks WHERE user_id = ? ORDER BY at').all(id)
@@ -2052,8 +2126,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   app.get('/api/users/:id/stats', auth, groupOrSolo, (req, res) => {
     const id = Number(req.params.id)
-    const user = db.prepare('SELECT id, name, avatar_v, created_at FROM users WHERE id = ?').get(id)
+    const user = db.prepare('SELECT id, name, avatar_v, created_at, private FROM users WHERE id = ?').get(id)
     if (!user) return bad(res, 'Joueur introuvable', 404)
+    user.private = !!user.private
+    const followers = db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ? AND pending = 0').get(id).n
+    const following = db.prepare('SELECT COUNT(*) AS n FROM follows WHERE follower_id = ? AND pending = 0').get(id).n
+    const follow = followState(req.user.id, id)
+    // Profil privé que je ne vois pas : juste de quoi se présenter et demander à le suivre
+    if (!canSee(id)) return res.json({ user, locked: true, followers, following, follow, iFollow: false, inBand: false })
     const { day } = req.query
     if (day !== undefined && !isDay(day)) return bad(res, 'Date invalide')
 
@@ -2106,9 +2186,10 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       record: best ? { day: best.day, units: round1(best.units) } : null,
       wins,
       inBand: req.memberIds.includes(id),
-      followers: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?').get(id).n,
-      following: db.prepare('SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?').get(id).n,
-      iFollow: !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, id),
+      followers,
+      following,
+      follow,
+      iFollow: follow === 'yes',
       places: db.prepare(`
         SELECT d.place_id AS id, place_label(d.place_id) AS name, pl.private, pl.home_of IS NOT NULL AS home, pl.photo_key,
           COUNT(*) AS count, COUNT(DISTINCT d.day) AS nights, MAX(d.at) AS last_at
@@ -2160,7 +2241,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     (SELECT COUNT(rating) FROM drinks WHERE product_id = p.id) AS ratings`
   // Mes potes : moi + les membres de toutes mes bandes (pour les avis affichés sur un produit)
   const FRIENDS = `SELECT ? UNION SELECT m2.user_id FROM group_members m1 JOIN group_members m2 ON m2.group_id = m1.group_id WHERE m1.user_id = ?
-    UNION SELECT followee_id FROM follows WHERE follower_id = ?`
+    UNION SELECT followee_id FROM follows WHERE follower_id = ? AND pending = 0`
   const productOut = (r) => ({ ...r, fav: !!r.fav, units: round1(unitsOf(r)) })
   const getProduct = (id, userId) =>
     db.prepare(`SELECT ${PRODUCT_COLS} FROM products p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?`).get(userId, id)

@@ -5,7 +5,8 @@
 // Pour en ajouter un : une ligne ici (clé stable : elle est enregistrée en base).
 
 const fold = (s) => String(s ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
-const named = (re) => (d) => re.test(fold(d.name))
+// d.f = nom déjà normalisé (computeTitles le calcule une fois par conso, pas une fois par titre)
+const named = (re) => (d) => re.test(d.f)
 
 const CHOUFFE = named(/chouffe/)
 const PICON = named(/picon/)
@@ -35,18 +36,20 @@ export const TITLES = [
   { key: 'monaco', label: 'Petit joueur', how: '3 Monaco', n: 3, match: named(/monaco/) },
   { key: 'kasteel', label: 'F word', how: '5 Kasteel', n: 5, match: named(/kaste+l/) },
   { key: 'vodkarb', label: 'Étudiant', how: '5 vodka Red Bull', n: 5, match: named(/vodka.*(red ?bull|\brb\b)|(red ?bull).*vodka/) },
-  { key: 'rouge', label: 'Villageois', how: '3 verres de rouge', n: 3, match: (d) => d.cat === 'vin' && /rouge/.test(fold(d.name)) },
+  { key: 'rouge', label: 'Villageois', how: '3 verres de rouge', n: 3, match: (d) => d.cat === 'vin' && /rouge/.test(d.f) },
   { key: 'guinness', label: 'Chanceux', how: '4 Guinness', n: 4, match: GUINNESS },
   { key: 'topg', label: 'Top G', how: '10 Guinness', n: 10, match: GUINNESS },
   { key: 'trolls', label: 'Trolleur', how: '3 Cuvée des Trolls', n: 3, match: named(/troll/) },
   { key: 'long', label: 'Crusoé', how: '5 Long Island', n: 5, match: named(/long island|^long\b/) },
 ]
 
-/** Titres débloqués d'après toutes les consos d'une personne (et ses victoires) : Set de clés */
-export function computeTitles({ drinks = [], wins = 0 }) {
+/** Titres débloqués d'après toutes les consos d'une personne ({ name, cat, abv }) : Set de clés */
+export function computeTitles({ drinks = [] }) {
+  const list = drinks.map((d) => ({ cat: d.cat, abv: d.abv, f: fold(d.name) }))
   const got = new Set()
   for (const t of TITLES) {
-    const n = t.wins ? wins : drinks.reduce((s, d) => s + (t.match(d) ? 1 : 0), 0)
+    let n = 0
+    for (const d of list) if (t.match(d) && ++n >= t.n) break
     if (n >= t.n) got.add(t.key)
   }
   return got

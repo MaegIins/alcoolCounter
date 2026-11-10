@@ -1,7 +1,8 @@
 <script setup>
-// Mes notifs : likes, commentaires, réponses, nouveaux abonnés, succès débloqués. Ouvrir la page les marque comme lues
+// Mes notifs : likes, commentaires, réponses, nouveaux abonnés et demandes d'abonnement (profil privé), succès débloqués. Ouvrir la page les marque comme lues
 // (les nouvelles restent surlignées le temps de la visite).
 import { ref, onMounted } from 'vue'
+import { toast } from '../juice'
 import { api, catOf, timeAgo } from '../api'
 import { goBack, openPost, openUser } from '../nav'
 import { notifs } from '../notifs'
@@ -38,8 +39,25 @@ const KINDS = {
   reply: { icon: 'fa-comments', color: 'text-fort', text: 'a aussi commenté' },
   comment_like: { icon: 'fa-heart', color: 'text-neon', text: 'a liké ton commentaire' },
   follow: { icon: 'fa-user-plus', color: 'text-cocktail', text: 'te suit' },
+  follow_request: { icon: 'fa-user-clock', color: 'text-hi', text: 'veut te suivre' },
+  follow_accept: { icon: 'fa-user-check', color: 'text-cocktail', text: 'a accepté ta demande d’abonnement' },
   badge: { icon: 'fa-trophy', color: 'text-hi', text: '' },
   title: { icon: 'fa-tag', color: 'text-hi', text: '' },
+}
+// Demande d'abonnement : accepter (elle devient « te suit ») ou refuser (elle disparaît)
+const answering = ref(null)
+async function answer(n, ok) {
+  answering.value = n.id
+  try {
+    await api(`/me/follow-requests/${n.actor_id}`, { method: ok ? 'POST' : 'DELETE' })
+    if (ok) n.kind = 'follow'
+    else items.value = items.value.filter((x) => x.id !== n.id)
+  } catch (e) {
+    toast(e.message)
+    if (e.status === 404) items.value = items.value.filter((x) => x.id !== n.id) // déjà annulée
+  } finally {
+    answering.value = null
+  }
 }
 const kindOf = (n) => KINDS[n.kind] ?? { icon: 'fa-bell', color: 'text-muted', text: '' }
 const open = (n) => (n.kind === 'badge' || n.kind === 'title' ? openUser(n.actor_id, { tab: 'badges' }) : n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
@@ -53,7 +71,7 @@ const open = (n) => (n.kind === 'badge' || n.kind === 'title' ? openUser(n.actor
 
     <div v-if="!items" class="py-20 text-center text-muted">Chargement…</div>
     <p v-else-if="!items.length" class="py-16 text-center text-muted">
-      Rien pour l'instant. Les likes, commentaires, nouveaux abonnés et succès débloqués arriveront ici.
+      Rien pour l'instant. Les likes, commentaires, nouveaux abonnés, demandes d'abonnement et succès débloqués arriveront ici.
     </p>
     <ul v-else class="mt-3 divide-y divide-white/5">
       <li v-for="n in items" :key="n.id">
@@ -90,6 +108,10 @@ const open = (n) => (n.kind === 'badge' || n.kind === 'title' ? openUser(n.actor
           </span>
           <span v-if="!n.read" class="mt-2 h-2 w-2 shrink-0 rounded-full bg-hi" aria-label="Nouvelle" />
         </button>
+        <div v-if="n.kind === 'follow_request'" class="flex gap-2 pb-3 pl-14">
+          <button class="btn btn-hi px-4 py-1.5 text-sm font-bold" :disabled="answering === n.id" @click="answer(n, true)">Accepter</button>
+          <button class="btn btn-ghost px-4 py-1.5 text-sm font-semibold" :disabled="answering === n.id" @click="answer(n, false)">Refuser</button>
+        </div>
       </li>
     </ul>
     <button v-if="next" class="btn btn-ghost mt-4 w-full py-2.5 text-sm font-medium" :disabled="loading" @click="load(true)">

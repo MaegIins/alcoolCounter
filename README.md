@@ -154,6 +154,11 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   débloqués (`user_titles`, toast + notif comme les succès). Le titre affiché (`users.title`, choisi dans l'onglet
   Badges, `PUT /api/me/title`) apparaît sous le pseudo, dans le classement et au survol des avatars. Pour en ajouter
   un : une ligne dans `TITLES`.
+- **Profil privé** (Réglages, `users.private`) : ses consos, stats, badges, abonnés ne sont visibles que de soi, des
+  membres de ses bandes et de ses abonnés acceptés (`SEES()` / `canSee()` dans `server/app.js`, appliqué au profil, à la
+  page d'une conso, au fil « Abonnements », aux avis d'une boisson et à la page d'un lieu). Suivre un profil privé hors
+  de ses bandes envoie une demande (`follows.pending = 1`), acceptée ou refusée depuis les notifs ou les Réglages ;
+  repasser en public accepte les demandes en attente.
 - **Caféine** : mg par conso et par fiche (`caffeine`), estimée d'après le nom tant qu'on ne la donne pas
   (`guessCaffeine`, même règle côté serveur et client). « Ma journée » glisse de la pinte à la tasse ; les stats de
   l'accueil suivent. Journée où personne n'a bu d'alcool : le plus caféiné gagne.

@@ -4,7 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl, rankOf } from '../api'
 import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
-import { refreshRanks } from '../ranks'
+import { refreshRanks, rankFor } from '../ranks'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
@@ -64,12 +64,17 @@ async function deleteUser() {
 // --- Suivre ---------------------------------------------------------------------------------
 const followBusy = ref(false)
 const followList = ref(null) // 'followers' | 'following' : liste ouverte
+// Suivre / ne plus suivre ; profil privé : demander, ou annuler sa demande. Accepté → on recharge (tout devient visible).
 async function toggleFollow() {
   followBusy.value = true
   try {
-    const r = await api(`/users/${props.userId}/follow`, { method: data.value.iFollow ? 'DELETE' : 'PUT' })
-    data.value = { ...data.value, iFollow: r.iFollow, followers: data.value.followers + (r.iFollow ? 1 : -1) }
-    if (r.iFollow) toast(`Tu suis ${data.value.user.name}`)
+    const before = data.value.follow
+    const r = await api(`/users/${props.userId}/follow`, { method: before === 'none' ? 'PUT' : 'DELETE' })
+    const delta = (r.follow === 'yes') - (before === 'yes')
+    data.value = { ...data.value, follow: r.follow, iFollow: r.iFollow, followers: data.value.followers + delta }
+    if (r.follow === 'yes') toast(`Tu suis ${data.value.user.name}`)
+    else if (r.follow === 'pending') toast(`Demande envoyée à ${data.value.user.name}`)
+    if (data.value.locked && r.follow === 'yes') load()
   } catch (e) {
     toast(e.message)
   } finally {
@@ -88,7 +93,7 @@ async function loadDiary(reset = true) {
     diary.value = reset ? r.items : [...diary.value, ...r.items]
     diaryMore.value = r.more
   } catch (e) {
-    error.value = e.message
+    if (e.status !== 403) error.value = e.message // profil privé : la page le dit déjà
   } finally {
     diaryLoading.value = false
   }
@@ -135,10 +140,12 @@ const since = computed(() => {
 const catTotal = computed(() => Math.max(0.1, ALCO_CATS.reduce((s, c) => s + (data.value?.byCat[c.key] ?? 0), 0)))
 const nights = computed(() => [...(data.value?.recent ?? [])].reverse())
 // Palier selon le % de succès débloqués : la couleur de l'anneau autour de l'avatar
-const rank = computed(() => data.value && rankOf(data.value.badges.filter((b) => b.got).length, data.value.badges.length))
-const ringStyle = computed(() => ({
-  background: rank.value?.next ? rank.value.color : 'conic-gradient(from 210deg, #d4bc35, #b8432c, #d4bc35, #f3e7a0, #d4bc35)',
-}))
+const rank = computed(() => data.value?.badges && rankOf(data.value.badges.filter((b) => b.got).length, data.value.badges.length))
+// (profil privé verrouillé : pas ses badges, on prend son palier dans la liste de tout le monde)
+const ringStyle = computed(() => {
+  const r = rank.value || rankFor(props.userId)
+  return { background: !r || r.next ? r?.color ?? 'var(--color-line)' : 'conic-gradient(from 210deg, #d4bc35, #b8432c, #d4bc35, #f3e7a0, #d4bc35)' }
+})
 // Titres cachés : je choisis celui affiché sous mon pseudo parmi ceux débloqués (ou aucun)
 const titleBusy = ref(false)
 async function chooseTitle(key) {
@@ -217,10 +224,11 @@ const dayNum = (day) => Number(day.slice(8))
           {{ data.title }}
         </button>
         <p class="text-sm text-muted">
+          <span v-if="data.user.private" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs"><Icon name="lock" /> privé</span>
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
           Depuis {{ since }}<template v-if="data.wins"> · <Icon name="crown" class="text-hi" /> {{ data.wins }} journée{{ data.wins > 1 ? 's' : '' }} gagnée{{ data.wins > 1 ? 's' : '' }}</template>
         </p>
-        <div class="mt-5 flex divide-x divide-line">
+        <div v-if="!data.locked" class="mt-5 flex divide-x divide-line">
           <div v-for="s in [
             { l: 'Consos', v: data.count },
             { l: 'Cette année', v: data.thisYear },
@@ -233,19 +241,33 @@ const dayNum = (day) => Number(day.slice(8))
         </div>
         <!-- Abonnements : suivre quelqu'un, bande ou pas -->
         <div class="mt-4 flex items-center gap-4 text-sm text-muted">
-          <button class="hover:text-ink hover:underline" @click="followList = 'followers'"><b class="text-ink">{{ data.followers }}</b> abonné{{ data.followers > 1 ? 's' : '' }}</button>
-          <button class="hover:text-ink hover:underline" @click="followList = 'following'"><b class="text-ink">{{ data.following }}</b> abonnement{{ data.following > 1 ? 's' : '' }}</button>
+          <!-- Profil privé verrouillé : les compteurs, sans les listes -->
+          <component :is="data.locked ? 'span' : 'button'" :class="!data.locked && 'hover:text-ink hover:underline'" @click="!data.locked && (followList = 'followers')"><b class="text-ink">{{ data.followers }}</b> abonné{{ data.followers > 1 ? 's' : '' }}</component>
+          <component :is="data.locked ? 'span' : 'button'" :class="!data.locked && 'hover:text-ink hover:underline'" @click="!data.locked && (followList = 'following')"><b class="text-ink">{{ data.following }}</b> abonnement{{ data.following > 1 ? 's' : '' }}</component>
           <button
             v-if="!isMe"
             class="btn px-4 py-1.5 font-bold"
-            :class="data.iFollow ? 'btn-ghost' : 'btn-hi'"
+            :class="data.follow === 'none' ? 'btn-hi' : 'btn-ghost'"
             :disabled="followBusy"
             @click="toggleFollow"
           >
-            <Icon :name="data.iFollow ? 'check' : 'fa-user-plus'" /> {{ data.iFollow ? 'Suivi' : 'Suivre' }}
+            <template v-if="data.follow === 'yes'"><Icon name="check" /> Suivi</template>
+            <template v-else-if="data.follow === 'pending'"><Icon name="fa-hourglass-half" /> Demandé</template>
+            <template v-else-if="data.user.private"><Icon name="fa-user-plus" /> Demander à suivre</template>
+            <template v-else><Icon name="fa-user-plus" /> Suivre</template>
           </button>
         </div>
       </header>
+
+      <!-- Profil privé que je ne vois pas -->
+      <div v-if="data.locked" class="mt-10 flex flex-col items-center gap-2 border-t border-line pt-10 text-center">
+        <span class="flex h-14 w-14 items-center justify-center rounded-full border-2 border-line text-2xl text-muted"><Icon name="lock" /></span>
+        <p class="font-bold">Ce profil est privé</p>
+        <p class="max-w-xs text-sm text-muted">
+          {{ data.follow === 'pending' ? `Demande envoyée : tu verras ses consos quand ${data.user.name} l’aura acceptée.` : 'Abonne-toi pour voir ses consos, ses stats et ses badges.' }}
+        </p>
+      </div>
+      <template v-else>
 
       <!-- Onglets -->
       <nav class="-mx-4 mt-6 flex justify-center gap-4 overflow-x-auto border-b border-line px-4 sm:gap-6" role="tablist">
@@ -510,6 +532,7 @@ const dayNum = (day) => Number(day.slice(8))
           </div>
         </section>
       </div>
+      </template>
     </template>
 
     <ProductPicker

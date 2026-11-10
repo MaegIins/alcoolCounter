@@ -83,7 +83,7 @@ onBeforeUnmount(() => {
               <h3 class="kicker px-5 pt-4 pb-1">Personnes</h3>
               <button v-for="u in res.users" :key="u.id" class="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-white/5" @click="goUser(u.id)">
                 <Avatar :user="u" :color="colors[u.id]" :size="40" class="rounded-full" />
-                <span class="min-w-0 flex-1 truncate font-bold">{{ u.name }}</span>
+                <span class="min-w-0 flex-1 truncate font-bold">{{ u.name }}<Icon v-if="u.private" name="lock" class="ml-1.5 text-xs text-muted" /></span>
                 <span v-if="u.me" class="text-xs font-semibold text-hi">toi</span>
                 <span v-else-if="u.inBand" class="text-xs text-muted">dans ta bande</span>
               </button>

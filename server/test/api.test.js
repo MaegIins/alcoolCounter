@@ -969,6 +969,55 @@ test('follow : suivre hors bande, fil « abonnements », avis des gens suivis, c
   assert.equal((await s.call('GET', `/users/${c.id}/stats`, { token: a.token })).body.iFollow, false)
 })
 
+test('profil privé : invisible hors bande, demande d’abonnement acceptée ou refusée, visible en bande', async () => {
+  const a = await s.register('Alice')
+  const b = await s.register('Bob') // même bande qu'Alice
+  const c = await s.register('Chloé', '123456', { group: false }) // hors bande
+  const d = await s.register('Dan', '123456', { group: false })
+  const r = await s.drink(a.token, '2026-11-02', { name: 'Chouffe', rating: 8, review: 'Top', place: 'Le Bar' })
+  assert.equal((await s.call('PUT', '/me/private', { token: a.token, body: { private: true } })).body.user.private, true)
+  assert.equal((await s.call('GET', '/me', { token: a.token })).body.user.private, true)
+  // Hors bande : profil verrouillé, rien de ses consos
+  const st = (await s.call('GET', `/users/${a.id}/stats`, { token: c.token })).body
+  assert.deepEqual([st.locked, st.user.private, st.follow, st.count], [true, true, 'none', undefined])
+  for (const path of [`/users/${a.id}/drinks`, `/users/${a.id}/diary`, `/users/${a.id}/insights`, `/users/${a.id}/followers`]) {
+    assert.equal((await s.call('GET', path, { token: c.token })).status, 403, path)
+  }
+  assert.equal((await s.call('GET', `/drinks/${r.body.id}`, { token: c.token })).status, 404)
+  assert.equal((await s.call('GET', `/drinks/${r.body.id}/comments`, { token: c.token })).status, 404)
+  assert.equal((await s.call('PUT', `/drinks/${r.body.id}/like`, { token: c.token })).status, 404)
+  const place = (await s.call('GET', `/places/${r.body.place_id}`, { token: c.token })).body
+  assert.deepEqual([place.people.length, place.recent.length], [0, 0])
+  // Même bande : tout est visible, et le suivre ne demande rien
+  assert.equal((await s.call('GET', `/users/${a.id}/stats`, { token: b.token })).body.count, 1)
+  assert.equal((await s.call('GET', `/drinks/${r.body.id}`, { token: b.token })).status, 200)
+  assert.equal((await s.call('PUT', `/users/${a.id}/follow`, { token: b.token })).body.follow, 'yes')
+  // Hors bande : suivre = une demande (notif chez Alice), toujours rien de visible en attendant
+  assert.deepEqual((await s.call('PUT', `/users/${a.id}/follow`, { token: c.token })).body, { follow: 'pending', iFollow: false })
+  assert.equal((await s.call('GET', `/users/${a.id}/stats`, { token: c.token })).body.follow, 'pending')
+  assert.equal((await s.call('GET', '/feed?scope=follow', { token: c.token })).body.items.filter(drinksOnly).length, 0)
+  assert.deepEqual((await s.call('GET', '/me/follow-requests', { token: a.token })).body.map((u) => u.name), ['Chloé'])
+  assert.ok((await s.call('GET', '/notifications', { token: a.token })).body.items.some((n) => n.kind === 'follow_request' && n.actor_name === 'Chloé'))
+  assert.equal((await s.call('GET', `/users/${a.id}/stats`, { token: a.token })).body.followers, 1) // Bob seulement : la demande ne compte pas
+  // Acceptée : Chloé voit tout, et elle est prévenue
+  assert.equal((await s.call('POST', `/me/follow-requests/${c.id}`, { token: a.token })).status, 200)
+  assert.equal((await s.call('GET', `/users/${a.id}/stats`, { token: c.token })).body.count, 1)
+  assert.equal((await s.call('GET', '/feed?scope=follow', { token: c.token })).body.items.filter(drinksOnly).length, 1)
+  assert.ok((await s.call('GET', '/notifications', { token: c.token })).body.items.some((n) => n.kind === 'follow_accept'))
+  assert.ok(!(await s.call('GET', '/notifications', { token: a.token })).body.items.some((n) => n.kind === 'follow_request'))
+  // Refusée : rien ne change pour Dan ; annuler sa demande la retire
+  await s.call('PUT', `/users/${a.id}/follow`, { token: d.token })
+  assert.equal((await s.call('DELETE', `/me/follow-requests/${d.id}`, { token: a.token })).status, 200)
+  assert.equal((await s.call('GET', `/users/${a.id}/stats`, { token: d.token })).body.follow, 'none')
+  await s.call('PUT', `/users/${a.id}/follow`, { token: d.token })
+  await s.call('DELETE', `/users/${a.id}/follow`, { token: d.token })
+  assert.deepEqual((await s.call('GET', '/me/follow-requests', { token: a.token })).body, [])
+  // Repasser en public : les demandes en attente sont acceptées, tout redevient visible
+  await s.call('PUT', `/users/${a.id}/follow`, { token: d.token })
+  await s.call('PUT', '/me/private', { token: a.token, body: { private: false } })
+  assert.deepEqual([(await s.call('GET', `/users/${a.id}/stats`, { token: d.token })).body.follow, (await s.call('GET', `/users/${a.id}/stats`, { token: d.token })).body.locked], ['yes', undefined])
+})
+
 test('lieu d’une conso : à l’ajout, modifiable, suggestions de mes lieux', async () => {
   const a = await s.register('Alice')
   const r = await s.drink(a.token, '2026-11-02', { place: '  Le Bar du Coin ' })

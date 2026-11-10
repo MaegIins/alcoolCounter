@@ -1,7 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { api, resizeImage } from '../api'
-import { ask } from '../juice'
+import { ask, toast } from '../juice'
+import { bump } from '../nav'
 import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
@@ -41,6 +42,44 @@ async function removeAvatar() {
     avatarMsg.value = { ok: 'Photo supprimée' }
   } catch (e) {
     avatarMsg.value = { err: e.message }
+  }
+}
+
+// Profil privé : seuls mes bandes et mes abonnés acceptés voient mes consos ; suivre devient une demande
+const privBusy = ref(false)
+async function setPrivate(on) {
+  if (!on && requests.value.length) {
+    const ok = await ask({
+      title: 'Repasser en public ?',
+      message: `Tes ${requests.value.length} demande${requests.value.length > 1 ? 's' : ''} en attente ser${requests.value.length > 1 ? 'ont' : 'a'} acceptée${requests.value.length > 1 ? 's' : ''}.`,
+      confirm: 'Passer en public',
+    })
+    if (!ok) return
+  }
+  privBusy.value = true
+  try {
+    const { user } = await api('/me/private', { method: 'PUT', body: { private: on } })
+    emit('update', { ...props.me, private: user.private })
+    if (!on) requests.value = []
+    toast(on ? 'Profil privé' : 'Profil public')
+  } catch (e) {
+    toast(e.message)
+  } finally {
+    privBusy.value = false
+  }
+}
+// Demandes d'abonnement en attente (aussi dans les notifs)
+const requests = ref([])
+const loadRequests = () => api('/me/follow-requests').then((r) => (requests.value = r)).catch(() => {})
+watch(() => props.me.private, (p) => (p ? loadRequests() : (requests.value = [])), { immediate: true })
+async function answer(u, ok) {
+  try {
+    await api(`/me/follow-requests/${u.id}`, { method: ok ? 'POST' : 'DELETE' })
+    requests.value = requests.value.filter((x) => x.id !== u.id)
+    if (ok) toast(`${u.name} te suit`)
+    bump()
+  } catch (e) {
+    toast(e.message)
   }
 }
 
@@ -136,6 +175,37 @@ async function deleteAccount() {
       <p v-if="nameMsg.ok" class="px-5 pb-4 text-sm font-semibold text-hi">{{ nameMsg.ok }} <Icon name="check" /></p>
       <p v-if="nameMsg.err" class="bg-alert px-5 py-2.5 text-sm font-semibold text-white">{{ nameMsg.err }}</p>
     </form>
+
+    <section class="box">
+      <label class="flex cursor-pointer items-start gap-4 p-5">
+        <span class="min-w-0 flex-1">
+          <span class="block font-bold"><Icon name="lock" /> Profil privé</span>
+          <span class="mt-1 block text-sm text-muted">
+            Seuls tes bandes et tes abonnés voient tes consos, tes stats et tes badges. Pour te suivre, les autres
+            t'envoient une demande que tu acceptes ou non. Ton pseudo et ta photo restent visibles.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          class="mt-1 h-5 w-5 shrink-0 accent-[#d4bc35]"
+          :checked="me.private"
+          :disabled="privBusy"
+          @change="setPrivate($event.target.checked)"
+        />
+      </label>
+      <div v-if="requests.length" class="border-t border-white/5 px-5 py-4">
+        <div class="mb-2 text-sm font-semibold">Demandes d'abonnement · {{ requests.length }}</div>
+        <ul class="space-y-2">
+          <li v-for="u in requests" :key="u.id" class="flex items-center gap-3">
+            <Avatar :user="u" :size="32" class="rounded-full" />
+            <span class="min-w-0 flex-1 truncate font-semibold">{{ u.name }}</span>
+            <button class="btn btn-hi px-3 py-1 text-sm font-bold" @click="answer(u, true)">Accepter</button>
+            <button class="btn btn-ghost px-3 py-1 text-sm font-semibold" @click="answer(u, false)">Refuser</button>
+          </li>
+        </ul>
+      </div>
+    </section>
 
     <form class="box" @submit.prevent="savePin">
       <div class="px-5 pt-4 font-bold">Changer de PIN <span class="text-sm font-normal text-muted">· le nouveau : 6 à 8 chiffres</span></div>
