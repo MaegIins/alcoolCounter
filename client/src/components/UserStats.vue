@@ -1,8 +1,8 @@
 <script setup>
 // Onglet « Stats » d'un profil. Tout vient de GET /users/:id/insights (+ la fiche déjà chargée pour record/moyenne).
-// Barres et calendrier en HTML/CSS (pas de lib) ; bascule Verres standard / Consos (les sans-alcool n'ont que des consos).
+// Barres et calendrier en HTML/CSS (pas de lib) ; bascule Verres standard / Consos / Caféine (les sans-alcool n'ont que des consos).
 import { ref, computed, watch, nextTick } from 'vue'
-import { api, catOf, num, dayLabel } from '../api'
+import { api, catOf, num, dayLabel, CAFFEINE_DAY } from '../api'
 import { ui, openUser } from '../nav'
 import Avatar from './Avatar.vue'
 import Icon from './Icon.vue'
@@ -30,9 +30,17 @@ watch(() => [props.userId, ui.refresh], async () => {
   }
 }, { immediate: true })
 
-const unit = ref('units') // 'units' | 'count'
-const val = (o) => o[unit.value]
-const fmtVal = (o) => (unit.value === 'units' ? num(val(o)) : val(o))
+// 'units' | 'count' | 'caf' (mg) ; caféine d'office si la jauge de l'accueil est sur la tasse
+const unit = ref(ui.gauge === 'cafeine' ? 'caf' : 'units')
+const isCaf = computed(() => unit.value === 'caf')
+const hasCaf = computed(() => (d.value?.caffeine?.total ?? 0) > 0)
+watch(d, () => { if (isCaf.value && !hasCaf.value) unit.value = 'units' })
+const val = (o) => o[unit.value] ?? 0
+// mg, en grammes au-delà de 1 000
+const mg = (n) => (n >= 1000 ? `${num(Math.round(n / 100) / 10)} g` : `${Math.round(n)} mg`)
+const fmtVal = (o) => (unit.value === 'units' ? num(val(o)) : isCaf.value ? mg(val(o)) : val(o))
+// Couleur des barres : jaune pour l'alcool, crème d'expresso pour la caféine (classes écrites en entier pour Tailwind)
+const bar = computed(() => (isCaf.value ? 'bg-caf/80 group-hover:bg-caf' : 'bg-hi/80 group-hover:bg-hi'))
 const maxOf = (list) => Math.max(1e-9, ...list.map(val))
 const pct = (o, list) => `${Math.max(val(o) ? 3 : 0, (val(o) / maxOf(list)) * 100)}%`
 const plural = (n, w, ws = `${w}s`) => `${num(n)} ${Math.abs(n) >= 2 ? ws : w}`
@@ -77,25 +85,39 @@ const calendar = computed(() => {
 const level = (c) => {
   const v = val(c)
   if (!v) return 0
-  const steps = unit.value === 'units' ? [2, 5, 8] : [2, 4, 7]
+  const steps = { units: [2, 5, 8], count: [2, 4, 7], caf: [100, 250, CAFFEINE_DAY] }[unit.value]
   return 1 + steps.filter((s) => v >= s).length
 }
-const LEVEL_CLASS = ['bg-white/[.04]', 'bg-hi/25', 'bg-hi/50', 'bg-hi/75', 'bg-hi']
-const calDays = computed(() => d.value?.calendar.length ?? 0)
+const LEVELS = {
+  hi: ['bg-white/[.04]', 'bg-hi/25', 'bg-hi/50', 'bg-hi/75', 'bg-hi'],
+  caf: ['bg-white/[.04]', 'bg-caf/25', 'bg-caf/50', 'bg-caf/75', 'bg-caf'],
+}
+const LEVEL_CLASS = computed(() => LEVELS[isCaf.value ? 'caf' : 'hi'])
+const calDays = computed(() => (d.value?.calendar ?? []).filter((c) => !isCaf.value || c.caf).length)
 
 // ---- Ce mois-ci contre le mois dernier (même nombre de jours) ----
 const trendRows = computed(() => {
   const t = d.value?.trend
   if (!t) return []
-  return [
+  const rows = isCaf.value ? [
+    { label: 'Caféine', now: t.now.caf, before: t.before.caf, fmt: mg },
+    { label: 'Consos caféinées', now: t.now.cafCount, before: t.before.cafCount, fmt: (n) => n },
+    { label: 'Jours caféinés', now: t.now.cafDays, before: t.before.cafDays, fmt: (n) => n },
+  ] : [
     { label: 'Verres standard', now: t.now.units, before: t.before.units, fmt: num },
     { label: 'Consos', now: t.now.count, before: t.before.count, fmt: (n) => n },
     { label: 'Jours bus', now: t.now.days, before: t.before.days, fmt: (n) => n },
-  ].map((r) => ({ ...r, delta: r.before ? Math.round(((r.now - r.before) / r.before) * 100) : null }))
+  ]
+  return rows.map((r) => ({ ...r, delta: r.before ? Math.round(((r.now - r.before) / r.before) * 100) : null }))
 })
 
 // ---- Équivalences ----
 const fun = computed(() => {
+  const c = d.value?.caffeine
+  if (isCaf.value) {
+    if (!c?.total) return []
+    return [{ icon: 'fa-mug-saucer', big: plural(Math.round(c.total / 80), 'expresso'), text: `pour ${mg(c.total)} de caféine en tout` }]
+  }
   const v = d.value?.volume
   if (!v) return []
   const out = [
@@ -104,7 +126,7 @@ const fun = computed(() => {
   if (v.litres >= 15) out.push({ icon: 'fa-bath', big: `${num(Math.round((v.litres / 150) * 100))} %`, text: "d'une baignoire (150 L)" })
   if (v.pure) out.push({ icon: 'fa-flask', big: `${num(v.pure)} L`, text: `d'alcool pur, soit ${plural(Math.round((v.pure / 0.28) * 10) / 10, 'bouteille')} de vodka` })
   if (v.kcal) {
-    out.push({ icon: 'fa-burger', big: `${plural(Math.round(v.kcal / 550), 'burger')}`, text: `≈ ${v.kcal.toLocaleString('fr-FR')} kcal rien que pour l'alcool` })
+    out.push({ icon: 'fa-burger', big: `${plural(Math.round(v.kcal / 800), 'burger')}`, text: `≈ ${v.kcal.toLocaleString('fr-FR')} kcal rien que pour l'alcool` })
     out.push({ icon: 'fa-person-running', big: `${num(Math.round(v.kcal / 65))} km`, text: 'de course à pied pour les brûler' })
   }
   return out
@@ -153,16 +175,42 @@ const placeSplit = computed(() => {
 
     <template v-else>
       <div class="flex rounded-full bg-white/5 p-1 text-sm">
-        <button class="seg flex-1" :aria-pressed="unit === 'units'" @click="unit = 'units'">Verres standard</button>
+        <button class="seg flex-1" :aria-pressed="unit === 'units'" @click="unit = 'units'">{{ hasCaf ? 'Verres' : 'Verres standard' }}</button>
         <button class="seg flex-1" :aria-pressed="unit === 'count'" @click="unit = 'count'">Consos</button>
+        <button v-if="hasCaf" class="seg flex-1" :aria-pressed="isCaf" @click="unit = 'caf'"><Icon name="fa-mug-hot" /> Caféine</button>
       </div>
       <p class="-mt-6 text-center text-xs text-faint">
         <template v-if="unit === 'units'">Verre standard = 10 g d'alcool (une pinte à 5 % = 2). C'est ce qui compte pour la compet.</template>
+        <template v-else-if="isCaf">La caféine notée sur chaque conso (cafés, thés, énergisants, sodas…). Repère : {{ CAFFEINE_DAY }} mg par jour au plus, conseille l'EFSA.</template>
         <template v-else>Conso = une boisson notée, quelle qu'elle soit (une pinte, un shot ou un café = 1).</template>
       </p>
 
+      <!-- Records caféine -->
+      <section v-if="isCaf" class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div class="rounded-xl bg-white/5 px-3 py-3 text-center">
+          <div class="font-display text-2xl text-caf">{{ d.caffeine.best ? mg(d.caffeine.best.mg) : '–' }}</div>
+          <div class="text-xs font-semibold text-muted">meilleure journée</div>
+          <div class="text-[11px] text-faint">de caféine<template v-if="d.caffeine.best"> · {{ dayLabel(d.caffeine.best.day, true) }}</template></div>
+        </div>
+        <div class="rounded-xl bg-white/5 px-3 py-3 text-center">
+          <div class="font-display text-2xl text-caf">{{ mg(d.caffeine.perDay) }}</div>
+          <div class="text-xs font-semibold text-muted">par jour caféiné</div>
+          <div class="text-[11px] text-faint">en moyenne, ≈ {{ plural(Math.round(d.caffeine.perDay / 8) / 10, 'expresso') }}</div>
+        </div>
+        <div class="rounded-xl bg-white/5 px-3 py-3 text-center">
+          <div class="font-display text-2xl text-caf">{{ d.caffeine.over }}</div>
+          <div class="text-xs font-semibold text-muted">jours au-delà de {{ CAFFEINE_DAY }} mg</div>
+          <div class="text-[11px] text-faint">la dose max conseillée</div>
+        </div>
+        <div class="rounded-xl bg-white/5 px-3 py-3 text-center">
+          <div class="font-display text-2xl text-caf">{{ mg(d.caffeine.total) }}</div>
+          <div class="text-xs font-semibold text-muted">en tout</div>
+          <div class="text-[11px] text-faint">de caféine</div>
+        </div>
+      </section>
+
       <!-- Records -->
-      <section class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <section v-else class="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <div class="rounded-xl bg-white/5 px-3 py-3 text-center">
           <div class="font-display text-2xl text-hi">{{ profile.record ? num(profile.record.units) : '–' }}</div>
           <div class="text-xs font-semibold text-muted">meilleure journée</div>
@@ -252,7 +300,7 @@ const placeSplit = computed(() => {
         <div class="flex h-40 items-end gap-1">
           <div v-for="m in d.months" :key="m.month" class="group flex h-full flex-1 flex-col items-center justify-end" :data-tip="`${monthLabel(m.month)} : ${fmtVal(m)}`">
             <span class="mb-1 text-[10px] text-muted tabular-nums opacity-0 transition-opacity group-hover:opacity-100">{{ val(m) ? fmtVal(m) : '' }}</span>
-            <div class="w-full rounded-t bg-hi/80 transition-[height] group-hover:bg-hi" :style="{ height: pct(m, d.months) }" />
+            <div class="w-full rounded-t transition-[height]" :class="bar" :style="{ height: pct(m, d.months) }" />
           </div>
         </div>
         <div class="mt-1 flex gap-1">
@@ -261,7 +309,7 @@ const placeSplit = computed(() => {
       </section>
 
       <!-- Face à la bande -->
-      <section v-if="d.band">
+      <section v-if="d.band && !isCaf">
         <h2 class="kicker mb-3 flex items-baseline justify-between border-b border-line pb-2">
           Face à la bande
           <span class="max-w-[50%] truncate font-medium normal-case tracking-normal text-muted">{{ d.band.name }}</span>
@@ -318,7 +366,7 @@ const placeSplit = computed(() => {
         <div class="flex h-28 items-end gap-2">
           <div v-for="(w, i) in d.weekdays" :key="i" class="group flex h-full flex-1 flex-col items-center justify-end" :data-tip="`${WEEK_LONG[i]} : ${fmtVal(w)}`">
             <span class="mb-1 text-[10px] text-muted tabular-nums">{{ val(w) ? fmtVal(w) : '' }}</span>
-            <div class="w-full rounded-t bg-hi/80 group-hover:bg-hi" :style="{ height: pct(w, d.weekdays) }" />
+            <div class="w-full rounded-t" :class="bar" :style="{ height: pct(w, d.weekdays) }" />
           </div>
         </div>
         <div class="mt-1 flex gap-2">
@@ -334,13 +382,17 @@ const placeSplit = computed(() => {
         </h2>
         <div class="flex h-24 items-end gap-[2px]">
           <div v-for="(h, i) in d.hours" :key="i" class="group flex h-full flex-1 items-end" :data-tip="`${i}h : ${fmtVal(h)}`">
-            <div class="w-full rounded-t-sm bg-hi/70 group-hover:bg-hi" :style="{ height: pct(h, d.hours) }" />
+            <div class="w-full rounded-t-sm" :class="bar" :style="{ height: pct(h, d.hours) }" />
           </div>
         </div>
         <div class="mt-1 flex justify-between text-[10px] text-faint">
           <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
         </div>
-        <div v-if="d.rhythm.first != null" class="mt-4 grid grid-cols-2 gap-2 text-center">
+        <div v-if="isCaf && d.caffeine.first != null" class="mt-4 rounded-xl bg-white/5 py-3 text-center">
+          <div class="font-display text-2xl text-caf">{{ hhmm(d.caffeine.first) }}</div>
+          <div class="text-xs font-semibold text-muted"><Icon name="fa-mug-hot" /> premier café de la journée, en moyenne</div>
+        </div>
+        <div v-else-if="!isCaf && d.rhythm.first != null" class="mt-4 grid grid-cols-2 gap-2 text-center">
           <div class="rounded-xl bg-white/5 py-3">
             <div class="font-display text-2xl text-hi">{{ hhmm(d.rhythm.first) }}</div>
             <div class="text-xs font-semibold text-muted"><Icon name="fa-hourglass-start" /> premier verre, en moyenne</div>
@@ -353,7 +405,7 @@ const placeSplit = computed(() => {
       </section>
 
       <!-- Compagnons de verre -->
-      <section v-if="d.buddies.length">
+      <section v-if="d.buddies.length && !isCaf">
         <h2 class="kicker mb-1 border-b border-line pb-2">Compagnons de verre</h2>
         <ul class="divide-y divide-line">
           <li v-for="(b, i) in d.buddies" :key="b.id">
@@ -370,7 +422,7 @@ const placeSplit = computed(() => {
       </section>
 
       <!-- Le critique -->
-      <section v-if="critic">
+      <section v-if="critic && !isCaf">
         <h2 class="kicker mb-3 flex items-baseline justify-between border-b border-line pb-2">
           Le critique
           <span class="font-medium normal-case tracking-normal text-muted">{{ critic.count }} note{{ critic.count > 1 ? 's' : '' }}</span>
@@ -392,7 +444,7 @@ const placeSplit = computed(() => {
       </section>
 
       <!-- Explorateur ou fidèle -->
-      <section v-if="explorer">
+      <section v-if="explorer && !isCaf">
         <h2 class="kicker mb-3 flex items-baseline justify-between border-b border-line pb-2">
           Découvertes
           <span class="font-medium normal-case tracking-normal text-hi"><Icon :name="explorer.kind.icon" /> {{ explorer.kind.text }}</span>
@@ -412,7 +464,7 @@ const placeSplit = computed(() => {
       </section>
 
       <!-- Lieux -->
-      <section>
+      <section v-if="!isCaf">
         <h2 class="kicker mb-3 flex items-baseline justify-between border-b border-line pb-2">
           Lieux
           <span class="font-medium normal-case tracking-normal text-muted">{{ d.places.distinct }} lieu{{ d.places.distinct > 1 ? 'x' : '' }} différent{{ d.places.distinct > 1 ? 's' : '' }}</span>
@@ -432,18 +484,19 @@ const placeSplit = computed(() => {
         <h2 class="kicker mb-3 border-b border-line pb-2">En équivalences</h2>
         <ul class="grid gap-2 sm:grid-cols-2">
           <li v-for="f in fun" :key="f.icon" class="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3">
-            <Icon :name="f.icon" class="w-7 shrink-0 text-center text-2xl text-hi" />
+            <Icon :name="f.icon" class="w-7 shrink-0 text-center text-2xl" :class="isCaf ? 'text-caf' : 'text-hi'" />
             <span class="min-w-0">
               <span class="block font-display text-xl leading-tight">{{ f.big }}</span>
               <span class="text-sm text-muted">{{ f.text }}</span>
             </span>
           </li>
         </ul>
-        <p class="mt-1 text-xs text-faint">Ordres de grandeur pour rire : 70 kcal par verre standard, un burger ≈ 550 kcal, ≈ 65 kcal par km.</p>
+        <p v-if="isCaf" class="mt-1 text-xs text-faint">Ordre de grandeur : un expresso ≈ 80 mg.</p>
+        <p v-else class="mt-1 text-xs text-faint">Ordres de grandeur pour rire : 70 kcal par verre standard, un burger de resto ≈ 800 kcal, ≈ 65 kcal par km.</p>
       </section>
 
       <!-- Eau et clopes -->
-      <section v-if="d.extras.eau || d.extras.clope">
+      <section v-if="(d.extras.eau || d.extras.clope) && !isCaf">
         <h2 class="kicker mb-3 border-b border-line pb-2">Eau et clopes</h2>
         <div class="grid grid-cols-2 gap-2 text-center">
           <div class="rounded-xl bg-white/5 py-3">

@@ -9,7 +9,7 @@ export const CHANGELOG = [
     title: 'Caféine, shots et titres cachés',
     items: [
       'Nouvelle catégorie Shot, à part des alcools forts.',
-      'La caféine est comptée (cafés, thés, énergisants, sodas…) : fais glisser la pinte de « Ma journée » pour voir ta tasse. Les stats de l’accueil suivent.',
+      'La caféine est comptée (cafés, thés, énergisants, sodas…) : fais glisser la pinte de « Ma journée » pour voir ta tasse. Les stats de l’accueil suivent, et l’onglet Stats des profils a un mode Caféine (record du jour, moyenne, heure du premier café…).',
       'Journée sans alcool : c’est le plus caféiné qui gagne. Ceux qui n’ont bu que de la caféine sont classés sous les autres.',
       'Titres cachés : certaines boissons, bues assez souvent, débloquent un titre. À toi de trouver lesquelles. Choisis celui affiché sous ton pseudo dans l’onglet Badges. Les gros consommateurs de caféine ont aussi le leur.',
       'Une rubrique de succès Caféine : grosses doses du jour, série de 7 jours, total en grammes, café avant l’aube… et un nouveau succès secret.',

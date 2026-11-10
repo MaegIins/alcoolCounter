@@ -1940,7 +1940,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   app.get('/api/users/:id(\\d+)/insights', auth, groupOrSolo, visibleUser, (req, res) => {
     const id = Number(req.params.id)
     if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) return bad(res, 'Joueur introuvable', 404)
-    const rows = db.prepare('SELECT day, at, name, cat, cl, abv, product_id, rating, place_id FROM drinks WHERE user_id = ? ORDER BY at').all(id)
+    const rows = db.prepare('SELECT day, at, name, cat, cl, abv, COALESCE(caffeine, 0) AS caffeine, product_id, rating, place_id FROM drinks WHERE user_id = ? ORDER BY at').all(id)
     const hm = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     const minOf = (at) => { const [h, m] = hm.format(at).split(':').map(Number); return (h % 24) * 60 + m }
     // Aujourd'hui (la journée court jusqu'à 6h)
@@ -1948,7 +1948,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const DAY = 864e5
     const shift = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10)
     const r1 = (n) => round1(n)
-    const box = () => ({ units: 0, count: 0 })
+    const box = () => ({ units: 0, count: 0, caf: 0 }) // caf = caféine (mg)
 
     const [ty, tm] = todayDay.split('-').map(Number)
     const months = Array.from({ length: 12 }, (_, i) => ({ month: new Date(Date.UTC(ty, tm - 12 + i, 1)).toISOString().slice(0, 7), ...box() }))
@@ -1956,26 +1956,30 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const cats = Object.fromEntries(CATS.map((c) => [c, box()]))
     const weekdays = Array.from({ length: 7 }, box) // lundi = 0
     const hours = Array.from({ length: 24 }, box)
-    const byDay = new Map() // jour → { units, count, alco, first, last } (minutes depuis 6h)
+    const byDay = new Map() // jour → { units, count, caf, alco, first, last, cafN, cafFirst } (minutes depuis 6h)
     const yearAgo = shift(todayDay, -364)
     const kinds = new Map() // boisson (fiche ou nom) → premier jour
     let cl = 0, pure = 0
     for (const r of rows) {
       const u = unitsOf(r)
-      const add = (o) => { o.units += u; o.count++ }
+      const add = (o) => { o.units += u; o.count++; o.caf += r.caffeine }
       const mi = monthIdx.get(r.day.slice(0, 7))
       if (mi !== undefined) add(months[mi])
       if (cats[r.cat]) add(cats[r.cat])
       add(weekdays[(new Date(`${r.day}T12:00:00Z`).getUTCDay() + 6) % 7])
       const min = minOf(r.at)
       add(hours[Math.floor(min / 60)])
-      const d = byDay.get(r.day) ?? { units: 0, count: 0, alco: 0, first: null, last: null }
+      const d = byDay.get(r.day) ?? { units: 0, count: 0, caf: 0, alco: 0, first: null, last: null, cafN: 0, cafFirst: null }
       add(d)
+      const m6 = (min - 360 + 1440) % 1440 // minutes depuis 6h : 1h du matin vient après 23h
       if (r.abv > 0) {
         d.alco++
-        const m6 = (min - 360 + 1440) % 1440 // minutes depuis 6h : 1h du matin vient après 23h
         d.first = d.first == null ? m6 : Math.min(d.first, m6)
         d.last = d.last == null ? m6 : Math.max(d.last, m6)
+      }
+      if (r.caffeine > 0) {
+        d.cafN++
+        d.cafFirst = d.cafFirst == null ? m6 : Math.min(d.cafFirst, m6)
       }
       byDay.set(r.day, d)
       cl += r.cl
@@ -1985,7 +1989,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     }
 
     // Calendrier : les 365 derniers jours bus
-    const calendar = [...byDay].filter(([d]) => d >= yearAgo).map(([day, d]) => ({ day, units: r1(d.units), count: d.count }))
+    const calendar = [...byDay].filter(([d]) => d >= yearAgo).map(([day, d]) => ({ day, units: r1(d.units), count: d.count, caf: Math.round(d.caf) }))
 
     // Séries (jours d'alcool consécutifs) et pauses (jours sans, entre le premier verre et aujourd'hui)
     const alcoDays = [...byDay].filter(([, d]) => d.alco).map(([day]) => day).sort()
@@ -2005,15 +2009,31 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     }
     const curRun = alcoDays.at(-1) === todayDay || alcoDays.at(-1) === shift(todayDay, -1) ? run : 0
 
+    // Caféine : record du jour, moyenne par jour caféiné, jours au-delà de 400 mg, heure moyenne du premier café
+    const cafDays = [...byDay].filter(([, d]) => d.cafN)
+    let cafBest = null
+    for (const [day, d] of cafDays) if (!cafBest || d.caf > cafBest.mg || (d.caf === cafBest.mg && day > cafBest.day)) cafBest = { day, mg: Math.round(d.caf) }
+    const cafTotal = cafDays.reduce((s, [, d]) => s + d.caf, 0)
+    const caffeine = {
+      total: Math.round(cafTotal),
+      best: cafBest,
+      perDay: cafDays.length ? Math.round(cafTotal / cafDays.length) : 0,
+      over: cafDays.filter(([, d]) => d.caf > 400).length, // au-delà de la dose conseillée (EFSA)
+      first: cafDays.length ? Math.round(cafDays.reduce((s, [, d]) => s + d.cafFirst, 0) / cafDays.length + 360) % 1440 : null,
+    }
+
     // Ce mois-ci (jusqu'à aujourd'hui) contre le même nombre de jours le mois dernier
     const dom = Number(todayDay.slice(8))
     const prevMonth = new Date(Date.UTC(ty, tm - 2, 1)).toISOString().slice(0, 7)
     const period = (prefix) => {
-      const o = { units: 0, count: 0, days: 0 }
+      const o = { units: 0, count: 0, days: 0, caf: 0, cafCount: 0, cafDays: 0 }
       for (const [day, d] of byDay) {
-        if (day.startsWith(prefix) && Number(day.slice(8)) <= dom) { o.units += d.units; o.count += d.count; if (d.alco) o.days++ }
+        if (day.startsWith(prefix) && Number(day.slice(8)) <= dom) {
+          o.units += d.units; o.count += d.count; if (d.alco) o.days++
+          o.caf += d.caf; o.cafCount += d.cafN; if (d.cafN) o.cafDays++
+        }
       }
-      return { ...o, units: r1(o.units) }
+      return { ...o, units: r1(o.units), caf: Math.round(o.caf) }
     }
     const trend = { now: period(todayDay.slice(0, 7)), before: period(prevMonth), dom }
 
@@ -2117,12 +2137,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
     res.json({
       total: rows.length,
-      months: months.map((m) => ({ ...m, units: r1(m.units) })),
-      cats: CATS.map((c) => ({ cat: c, units: r1(cats[c].units), count: cats[c].count })).filter((c) => c.count),
-      weekdays: weekdays.map((w) => ({ ...w, units: r1(w.units) })),
-      hours: hours.map((h) => ({ ...h, units: r1(h.units) })),
+      months: months.map((m) => ({ ...m, units: r1(m.units), caf: Math.round(m.caf) })),
+      cats: CATS.map((c) => ({ cat: c, units: r1(cats[c].units), count: cats[c].count, caf: Math.round(cats[c].caf) })).filter((c) => c.count),
+      weekdays: weekdays.map((w) => ({ ...w, units: r1(w.units), caf: Math.round(w.caf) })),
+      hours: hours.map((h) => ({ ...h, units: r1(h.units), caf: Math.round(h.caf) })),
       calendar, today: todayDay,
-      streak, curStreak: curRun, pause,
+      streak, curStreak: curRun, pause, caffeine,
       trend,
       volume: { litres: r1(cl / 100), pure: Math.round((pure / 100) * 100) / 100, kcal: Math.round(rows.reduce((s, r) => s + unitsOf(r), 0) * 70) },
       critic, explore, places, rhythm, extras, buddies, band,

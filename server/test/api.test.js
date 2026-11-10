@@ -295,16 +295,16 @@ describe('onglet stats d’un profil', () => {
     const b = await s.register('Bob', '123456', { group: false }) // hors bande : le profil reste public
     await s.drink(a.token, '2026-11-01', {}, 2) // dimanche
     await s.drink(a.token, '2026-11-02', SHOT) // lundi
-    await s.drink(a.token, '2026-11-03', { name: 'Café', cat: 'chaud', cl: 10, abv: 0 }) // sans alcool : pas dans la série
+    await s.drink(a.token, '2026-11-03', { name: 'Café', cat: 'chaud', cl: 10, abv: 0, caffeine: 90 }) // sans alcool : pas dans la série
     await s.drink(a.token, '2026-10-28', VIN) // mercredi
     await s.drink(a.token, '2026-08-10', VIN)
     const r = await s.call('GET', `/users/${a.id}/insights`, { token: b.token })
     assert.equal(r.status, 200)
     assert.equal(r.body.total, 6)
     assert.equal(r.body.months.length, 12)
-    assert.deepEqual(r.body.months.at(-1), { month: '2026-11', units: 5.3, count: 4 })
-    assert.deepEqual(r.body.months.at(-2), { month: '2026-10', units: 1.2, count: 1 })
-    assert.deepEqual(r.body.months.at(-4), { month: '2026-08', units: 1.2, count: 1 })
+    assert.deepEqual(r.body.months.at(-1), { month: '2026-11', units: 5.3, count: 4, caf: 90 })
+    assert.deepEqual(r.body.months.at(-2), { month: '2026-10', units: 1.2, count: 1, caf: 0 })
+    assert.deepEqual(r.body.months.at(-4), { month: '2026-08', units: 1.2, count: 1, caf: 0 })
     assert.deepEqual(r.body.cats.map((c) => [c.cat, c.count]), [['biere', 2], ['vin', 2], ['fort', 1], ['chaud', 1]])
     assert.equal(r.body.weekdays[6].count, 2) // dimanche
     assert.equal(r.body.weekdays[0].count, 2) // lundi (dont le 10 août)
@@ -312,8 +312,11 @@ describe('onglet stats d’un profil', () => {
     assert.equal(r.body.streak, 2) // 1er et 2 ; le café du 3 ne compte pas
     assert.deepEqual(r.body.pause, { days: 78, from: '2026-08-11', current: false }) // du 10 août au 28 octobre
     assert.equal(r.body.curStreak, 2) // dernier verre hier : la série continue
-    assert.deepEqual(r.body.trend.now, { units: 5.3, count: 4, days: 2 })
-    assert.deepEqual(r.body.trend.before, { units: 0, count: 0, days: 0 })
+    assert.deepEqual(r.body.trend.now, { units: 5.3, count: 4, days: 2, caf: 90, cafCount: 1, cafDays: 1 })
+    assert.deepEqual(r.body.trend.before, { units: 0, count: 0, days: 0, caf: 0, cafCount: 0, cafDays: 0 })
+    // Caféine : le seul café (le 3) fait le record et la moyenne ; premier café à midi (horloge de test)
+    assert.deepEqual(r.body.caffeine, { total: 90, best: { day: '2026-11-03', mg: 90 }, perDay: 90, over: 0, first: 720 })
+    assert.equal(r.body.cats.find((c) => c.cat === 'chaud').caf, 90)
     assert.equal(r.body.volume.litres, 1.4)
     assert.equal(r.body.calendar.length, 5)
     assert.equal(r.body.explore.distinct, 4)
