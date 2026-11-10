@@ -43,16 +43,21 @@ export const TITLES = [
   { key: 'long', label: 'Crusoé', how: '5 Long Island', n: 5, match: named(/long island|^long\b/) },
   // Pas des boissons : les clopes et les verres d'eau notés (compteurs à part, hors score)
   { key: 'cancereux', label: 'Cancéreux', how: '300 clopes', n: 300, extra: 'clope' },
+  // Journées à grosse dose de caféine (mg notés sur les consos du jour)
+  { key: 'surbooste', label: 'Surboosté', how: '3 journées à 600 mg de caféine', n: 3, cafDay: 600 },
   { key: 'ballondeau', label: 'Ballon d’eau', how: '300 verres d’eau', n: 300, extra: 'eau' },
 ]
 
-/** Titres débloqués d'après les consos d'une personne ({ name, cat, abv }) et ses clopes / verres d'eau : Set de clés */
+/** Titres débloqués d'après les consos d'une personne ({ name, cat, abv, day, caffeine }) et ses clopes / verres d'eau : Set de clés */
 export function computeTitles({ drinks = [], extras = {} }) {
   const list = drinks.map((d) => ({ cat: d.cat, abv: d.abv, f: fold(d.name) }))
+  const cafByDay = new Map()
+  for (const d of drinks) if (d.caffeine > 0) cafByDay.set(d.day, (cafByDay.get(d.day) ?? 0) + d.caffeine)
   const got = new Set()
   for (const t of TITLES) {
     let n = t.extra ? extras[t.extra] ?? 0 : 0
-    if (!t.extra) for (const d of list) if (t.match(d) && ++n >= t.n) break
+    if (t.cafDay) for (const mg of cafByDay.values()) n += mg >= t.cafDay
+    else if (!t.extra) for (const d of list) if (t.match(d) && ++n >= t.n) break
     if (n >= t.n) got.add(t.key)
   }
   return got

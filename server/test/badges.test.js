@@ -144,3 +144,18 @@ test('conso notée après coup : pas de succès liés à l’heure (l’heure es
   assert.ok(!isLate(pinte('2026-11-07', '2026-11-08T02:00:00+01:00')))
   assert.ok(computeBadges({ drinks: [pinte('2026-11-07', '2026-11-07T15:00:00+01:00')] }).has('apero'))
 })
+
+test('caféine : doses du jour, total, série, horaires, café-clope', () => {
+  const cafe = (day, at, mg = 100, name = 'Expresso') => ({ day, at: T(at), name, cat: 'chaud', cl: 3, abv: 0, caffeine: mg })
+  const b = computeBadges({ drinks: [cafe('2026-11-02', '2026-11-02T09:00:00+01:00', 250), cafe('2026-11-02', '2026-11-02T15:00:00+01:00', 200, 'Monster')] })
+  assert.ok(b.has('surpile') && !b.has('palpitations') && !b.has('levetot'))
+  assert.ok(computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T05:30:00+01:00')] }).has('levetot'))
+  assert.ok(computeBadges({ drinks: [cafe('2026-11-02', '2026-11-03T02:00:00+01:00')] }).has('nuitblanche'))
+  const week = Array.from({ length: 7 }, (_, i) => cafe(`2026-11-0${i + 1}`, `2026-11-0${i + 1}T10:00:00+01:00`, 1000))
+  const w = computeBadges({ drinks: week })
+  assert.ok(w.has('accro') && !w.has('centrale') && w.has('palpitations'))
+  assert.ok(computeBadges({ drinks: [...week, ...week, ...week] }).has('centrale'))
+  const c = cafe('2026-11-02', '2026-11-02T10:00:00+01:00')
+  assert.ok(computeBadges({ drinks: [c], extras: [{ day: '2026-11-02', at: T('2026-11-02T10:04:00+01:00'), kind: 'clope' }] }).has('cafeclope'))
+  assert.ok(!computeBadges({ drinks: [c], extras: [{ day: '2026-11-02', at: T('2026-11-02T10:06:00+01:00'), kind: 'clope' }] }).has('cafeclope'))
+})

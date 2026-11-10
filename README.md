@@ -142,7 +142,7 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   Le détail par catégorie se lit en **consos** (toutes les catégories, sans alcool compris) ou en **verres standard**.
   **Victoires** (♛) = journées gagnées ; **suspect** au-delà de 30 verres standard. Limites : 200 cl par verre,
   100 verres par jour.
-- **Succès** : 82 badges en 15 rubriques, calculés depuis l'historique (`server/badges.js`, `computeBadgeState` :
+- **Succès** : 91 badges en 16 rubriques, calculés depuis l'historique (`server/badges.js`, `computeBadgeState` :
   obtenus + progression des badges chiffrés), dont 5 secrets (« ??? » tant qu'on ne les a pas, rien n'est dévoilé
   par l'API). Débloqués : toast, notif (`user_badges` retient ceux déjà vus ; au premier lancement, les existants
   sont enregistrés sans notif) et carte dans le fil d'activité. Onglet Badges : rareté (% des joueurs qui l'ont),

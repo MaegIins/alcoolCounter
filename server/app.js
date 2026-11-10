@@ -740,7 +740,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Badges d'une personne ; `newBadges(userId, fn)` donne ceux débloqués par fn()
   const historyOf = (userId) => ({
     drinks: db.prepare(`
-      SELECT d.day, d.at, d.name, d.cat, d.cl, d.abv, d.rating, d.review, d.photo_key IS NOT NULL AS photo, d.place_id,
+      SELECT d.day, d.at, d.name, d.cat, d.cl, d.abv, d.caffeine, d.rating, d.review, d.photo_key IS NOT NULL AS photo, d.place_id,
         pl.home_of IS NOT NULL AS home
       FROM drinks d LEFT JOIN places pl ON pl.id = d.place_id WHERE d.user_id = ?
     `).all(userId),
@@ -846,7 +846,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // hist : son historique s'il est déjà chargé (syncBadges : { drinks, extras }), sinon relu
   const syncTitles = (userId, hist, { read = false, silent = false } = {}) => {
     const got = computeTitles({
-      drinks: hist?.drinks ?? db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId),
+      drinks: hist?.drinks ?? db.prepare('SELECT name, cat, abv, day, caffeine FROM drinks WHERE user_id = ?').all(userId),
       // Clopes et verres d'eau : { clope: n, eau: n }
       extras: hist ? hist.extras.reduce((m, x) => ((m[x.kind] = (m[x.kind] ?? 0) + 1), m), {})
         : Object.fromEntries(db.prepare('SELECT kind, COUNT(*) AS n FROM extras WHERE user_id = ? GROUP BY kind').all(userId).map((r) => [r.kind, r.n])),

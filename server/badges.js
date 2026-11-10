@@ -12,6 +12,7 @@ export const GROUPS = [
   { key: 'vin', label: 'Vin et bulles' },
   { key: 'fort', label: 'Forts et cocktails' },
   { key: 'sans', label: 'Sans alcool' },
+  { key: 'cafeine', label: 'Caféine' },
   { key: 'lieux', label: 'Lieux' },
   { key: 'critique', label: 'Critique' },
   { key: 'extras', label: 'Eau et clopes' },
@@ -78,11 +79,20 @@ export const BADGES = [
   { key: 'pirate', group: 'fort', icon: '🏴‍☠️', label: 'Pirate', desc: '10 rhums (rhum, ti’punch, mojito…)' },
   { key: 'sudiste', group: 'fort', icon: '🌞', label: 'Sudiste', desc: '10 pastis' },
   // Sans alcool
-  { key: 'cafeine', group: 'sans', icon: '☕', label: 'Caféiné', desc: '50 cafés ou thés' },
-  { key: 'survolte', group: 'sans', icon: '⚡', label: 'Survolté', desc: '25 énergisants' },
-  { key: 'insomnie', group: 'sans', icon: '🫨', label: 'Insomnie', desc: '3 énergisants dans la même journée' },
   { key: 'capitaine', group: 'sans', icon: '🚗', label: 'Capitaine de soirée', desc: 'Une journée à 3 boissons ou plus, toutes sans alcool' },
   { key: 'sansbiere', group: 'sans', icon: '🫧', label: 'Zéro degré', desc: 'Une bière sans alcool' },
+  // Caféine (en mg : celle notée sur chaque conso, cafés, thés, énergisants, sodas…)
+  { key: 'cafeine', group: 'cafeine', icon: '☕', label: 'Caféiné', desc: '50 cafés ou thés' },
+  { key: 'survolte', group: 'cafeine', icon: '⚡', label: 'Survolté', desc: '25 énergisants' },
+  { key: 'insomnie', group: 'cafeine', icon: '🫨', label: 'Insomnie', desc: '3 énergisants dans la même journée' },
+  { key: 'barista', group: 'cafeine', icon: '🫘', label: 'Barista', desc: '10 boissons caféinées différentes' },
+  { key: 'surpile', group: 'cafeine', icon: '🔋', label: 'Sur pile', desc: '400 mg de caféine dans la même journée (la dose conseillée max.)' },
+  { key: 'palpitations', group: 'cafeine', icon: '💓', label: 'Palpitations', desc: '600 mg de caféine dans la même journée' },
+  { key: 'accro', group: 'cafeine', icon: '🔁', label: 'Accro', desc: 'De la caféine 7 jours de suite' },
+  { key: 'centrale', group: 'cafeine', icon: '⚛️', label: 'Centrale', desc: '10 g de caféine au total' },
+  { key: 'reacteur', group: 'cafeine', icon: '☢️', label: 'Réacteur', desc: '50 g de caféine au total' },
+  { key: 'levetot', group: 'cafeine', icon: '🐓', label: 'Lève-tôt', desc: 'De la caféine entre 5h et 7h du matin' },
+  { key: 'nuitblanche', group: 'cafeine', icon: '🌙', label: 'Nuit blanche', desc: 'De la caféine entre 1h et 5h du matin' },
   // Lieux
   { key: 'sortie', group: 'lieux', icon: '📍', label: 'De sortie', desc: '5 lieux différents' },
   { key: 'nomade', group: 'lieux', icon: '🧳', label: 'Nomade', desc: '15 lieux différents' },
@@ -117,6 +127,7 @@ export const BADGES = [
   { key: 'vendredi13', group: 'secret', icon: '🐈‍⬛', label: 'Vendredi 13', desc: 'Un verre un vendredi 13', secret: true },
   { key: 'pilepoil', group: 'secret', icon: '🎯', label: 'Pile-poil', desc: 'Une journée à exactement 10 verres standard', secret: true },
   { key: 'irish', group: 'secret', icon: '☘️', label: 'Irish coffee', desc: 'Un café et un alcool fort (ou un shot) à moins de 10 minutes d’écart', secret: true },
+  { key: 'cafeclope', group: 'secret', icon: '🚬', label: 'Café-clope', desc: 'Un café et une clope à moins de 5 minutes d’écart', secret: true },
   { key: 'fidele', group: 'secret', icon: '💍', label: 'Monogame', desc: '50 fois la même boisson', secret: true },
 ]
 
@@ -148,7 +159,7 @@ const PASTIS = /pastis|ricard|\b51\b|pernod/i
 
 /**
  * @param {{
- *   drinks: {day, at, name, cat, cl, abv, rating?, review?, photo?, place_id?, home?}[],
+ *   drinks: {day, at, name, cat, cl, abv, caffeine?, rating?, review?, photo?, place_id?, home?}[],
  *   extras?: {day, at, kind}[], wins?: number, tz?: string,
  *   social?: { comments?: number, likes?: number, followers?: number },
  * }} h  drinks = toutes les consos (avec ou sans alcool)
@@ -283,6 +294,30 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   const energy = all.filter((d) => d.cat === 'energy')
   goal('survolte', energy.length, 25)
   goal('insomnie', maxPerDay(energy), 3)
+  // Caféine
+  const caf = all.filter((d) => d.caffeine > 0)
+  goal('barista', distinct(caf), 10)
+  const cafByDay = new Map()
+  for (const d of caf) cafByDay.set(d.day, (cafByDay.get(d.day) ?? 0) + d.caffeine)
+  const cafBest = Math.max(0, ...cafByDay.values())
+  goal('surpile', cafBest, 400)
+  goal('palpitations', cafBest, 600)
+  const cafDays = [...cafByDay.keys()].sort()
+  let cafRun = 0, cafStreak = 0
+  for (let i = 0; i < cafDays.length; i++) {
+    cafRun = i && dayNum(cafDays[i]) - dayNum(cafDays[i - 1]) === 1 ? cafRun + 1 : 1
+    cafStreak = Math.max(cafStreak, cafRun)
+  }
+  goal('accro', cafStreak, 7)
+  const cafTotal = caf.reduce((s, d) => s + d.caffeine, 0) / 1000 // en grammes
+  goal('centrale', cafTotal, 10)
+  goal('reacteur', cafTotal, 50)
+  for (const d of caf) {
+    if (isLate(d, tz)) continue
+    const h = hourIn(d.at, tz)
+    add('levetot', h >= 5 && h < 7)
+    add('nuitblanche', h >= 1 && h < 5)
+  }
   const softDays = new Map()
   for (const d of all) softDays.set(d.day, (softDays.get(d.day) ?? 0) + 1)
   add('capitaine', [...softDays].some(([day, n]) => n >= 3 && !byDay.has(day)))
@@ -324,6 +359,8 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   // Secrets (pas de progression : ça les trahirait)
   const cafes = all.filter((d) => d.cat === 'chaud' && !isLate(d, tz))
   add('irish', timed.filter((d) => d.cat === 'fort' || d.cat === 'shot').some((f) => cafes.some((c) => Math.abs(c.at - f.at) <= 10 * 60e3)))
+  const smokeAts = smokes.map((e) => e.at)
+  add('cafeclope', cafes.some((c) => smokeAts.some((at) => Math.abs(c.at - at) <= 5 * 60e3)))
   const same = new Map()
   for (const d of drinks) same.set(d.name.toLowerCase(), (same.get(d.name.toLowerCase()) ?? 0) + 1)
   add('fidele', [...same.values()].some((n) => n >= 50))

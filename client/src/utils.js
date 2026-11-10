@@ -172,13 +172,13 @@ export function parseUrl(pathname, search = '') {
 // (Les titres, eux, sont les titres cachés : voir server/titles.js.)
 export const RANKS = [
   { min: 0, color: '#6e6a62' },
-  { min: 10, color: '#978e76' },
-  { min: 20, color: '#4f8f8a' },
-  { min: 35, color: '#739b4f' },
-  { min: 50, color: '#6f93ad' },
-  { min: 65, color: '#9277a8' },
-  { min: 80, color: '#b8432c' },
-  { min: 100, color: '#d4bc35' },
+  { min: 6, color: '#978e76' },
+  { min: 13, color: '#4f8f8a' },
+  { min: 22, color: '#739b4f' },
+  { min: 33, color: '#6f93ad' },
+  { min: 45, color: '#9277a8' },
+  { min: 60, color: '#b8432c' },
+  { min: 80, color: '#d4bc35' },
 ]
 /** Palier d'un profil : { ...palier, i, pct, got, total, next } */
 export function rankOf(got, total) {

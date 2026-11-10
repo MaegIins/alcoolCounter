@@ -127,8 +127,9 @@ test('URL de chaque écran, aller-retour', async () => {
 test('rankOf : palier (couleur de l’anneau) selon le % de succès', () => {
   assert.equal(rankOf(0, 82).i, 0)
   assert.equal(rankOf(0, 0).i, 0)
-  assert.equal(rankOf(37, 82).i, 3) // 45 %
-  assert.equal(rankOf(41, 82).i, 4) // 50 %
+  assert.equal(rankOf(21, 91).i, 3) // 23 %
+  assert.equal(rankOf(31, 91).i, 4) // 34 %
+  assert.equal(rankOf(73, 91).i, 7) // 80 % : l'or sans tout avoir
   const top = rankOf(82, 82)
   assert.deepEqual([top.i, top.next], [RANKS.length - 1, null])
   assert.ok(RANKS.every((x, i) => !i || x.min > RANKS[i - 1].min))

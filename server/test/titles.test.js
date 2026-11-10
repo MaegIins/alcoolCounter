@@ -7,7 +7,7 @@ const many = (n, d) => Array.from({ length: n }, () => ({ cat: 'biere', abv: 8, 
 
 test('titres : clés uniques, seuils positifs', () => {
   assert.equal(new Set(TITLES.map((t) => t.key)).size, TITLES.length)
-  assert.ok(TITLES.every((t) => t.n >= 1 && t.label && t.how && (t.extra || typeof t.match === 'function')))
+  assert.ok(TITLES.every((t) => t.n >= 1 && t.label && t.how && (t.extra || t.cafDay || typeof t.match === 'function')))
 })
 
 test('titres : N fois la bonne boisson (sans accents ni casse), pas avant', () => {
@@ -59,4 +59,10 @@ test('titres en vrai : débloqués à la conso (toast + notif), affichés d’of
   } finally {
     await s.stop()
   }
+})
+
+test('titre Surboosté : 3 journées à 600 mg de caféine', () => {
+  const day = (d, mg) => [{ name: 'Monster', cat: 'energy', abv: 0, day: d, caffeine: mg / 2 }, { name: 'Café', cat: 'chaud', abv: 0, day: d, caffeine: mg / 2 }]
+  assert.ok(computeTitles({ drinks: [...day('2026-11-01', 600), ...day('2026-11-02', 700), ...day('2026-11-03', 650)] }).has('surbooste'))
+  assert.ok(!computeTitles({ drinks: [...day('2026-11-01', 600), ...day('2026-11-02', 700), ...day('2026-11-03', 590)] }).has('surbooste'))
 })
