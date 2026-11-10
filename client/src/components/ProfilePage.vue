@@ -2,7 +2,8 @@
 import { ref, watch } from 'vue'
 import { api, resizeImage } from '../api'
 import { ask, toast } from '../juice'
-import { bump } from '../nav'
+import { bump, go } from '../nav'
+import { hasNews } from '../changelog'
 import Avatar from './Avatar.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import Icon from './Icon.vue'
@@ -139,6 +140,16 @@ async function deleteAccount() {
       <h3 class="mb-3 text-lg font-bold">Mes bandes</h3>
       <GroupsPanel :groups="groups" :me="me" @changed="emit('groups')" />
     </section>
+
+    <button class="box lift flex w-full items-center gap-3 p-5 text-left" @click="go('nouveautes')">
+      <Icon name="fa-wand-magic-sparkles" class="text-hi" :size="20" />
+      <span class="min-w-0 flex-1">
+        <span class="block font-bold">Nouveautés</span>
+        <span class="block text-sm text-muted">Ce qui a changé dans l’appli</span>
+      </span>
+      <span v-if="hasNews()" class="rounded-full bg-hi px-2 py-0.5 text-xs font-bold text-paper uppercase">nouveau</span>
+      <Icon name="more" class="text-muted" />
+    </button>
 
     <InstallCard />
     <PushCard :me="me" />

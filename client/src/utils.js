@@ -145,7 +145,7 @@ export const sanitizeDigits = (value, max) => {
 }
 
 // --- URL de chaque écran (voir nav.js) ------------------------------------------------
-const PATHS = { home: '/', feed: '/activite', carte: '/carte', settings: '/reglages', notifs: '/notifs' }
+const PATHS = { home: '/', feed: '/activite', carte: '/carte', settings: '/reglages', notifs: '/notifs', nouveautes: '/nouveautes' }
 
 /** État → URL */
 export function urlOf({ view, userId, productId, placeId, postId, tab }) {

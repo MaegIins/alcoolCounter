@@ -5,6 +5,7 @@ import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, tod
 import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
 import { refreshRanks, rankFor } from '../ranks'
+import { hasNews } from '../changelog'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
@@ -192,7 +193,7 @@ const dayNum = (day) => Number(day.slice(8))
       </button>
       <span v-else />
       <button v-if="isMe" class="flex items-center gap-1.5 text-sm font-medium text-muted hover:text-ink" @click="go('settings')">
-        <Icon name="gear" :size="18" /> Réglages
+        <span class="relative"><Icon name="gear" :size="18" /><span v-if="hasNews()" class="absolute -top-0.5 -right-1 h-2 w-2 rounded-full bg-hi" aria-label="Nouveautés" /></span> Réglages
       </button>
       <button v-else-if="me.is_admin && data" class="flex items-center gap-1.5 text-sm font-medium text-muted hover:text-alert" @click="deleteUser">
         <Icon name="trash" :size="16" /> Supprimer le compte

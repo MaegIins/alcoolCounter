@@ -119,6 +119,8 @@ test('URL de chaque écran, aller-retour', async () => {
   }
   assert.equal(parseUrl('/n-importe-quoi').view, 'home')
   assert.equal(parseUrl('/carte/').view, 'carte')
+  assert.equal(parseUrl('/nouveautes').view, 'nouveautes')
+  assert.equal(urlOf({ view: 'nouveautes' }), '/nouveautes')
   assert.equal(parseUrl('/profil/abc').view, 'home')
 })
 

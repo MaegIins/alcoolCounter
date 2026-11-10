@@ -154,6 +154,10 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   débloqués (`user_titles`, toast + notif comme les succès). Le titre affiché (`users.title`, choisi dans l'onglet
   Badges, `PUT /api/me/title`) apparaît sous le pseudo, dans le classement et au survol des avatars. Pour en ajouter
   un : une ligne dans `TITLES`.
+- **Nouveautés** (Réglages › Nouveautés, `/nouveautes`) : le changelog pour les joueurs, dans `client/src/changelog.js`.
+  À chaque mise en ligne visible, ajouter une entrée en haut (date du jour) : elle s'affiche dans une modale « Quoi de neuf ? »
+  à l'arrivée (`NewsModal.vue`, pas à l'inscription), et un point « nouveau » s'allume sur le bouton
+  Réglages du profil tant qu'elle n'a pas été lue sur l'appareil.
 - **Profil privé** (Réglages, `users.private`) : ses consos, stats, badges, abonnés ne sont visibles que de soi, des
   membres de ses bandes et de ses abonnés acceptés (`SEES()` / `canSee()` dans `server/app.js`, appliqué au profil, à la
   page d'une conso, au fil « Abonnements », aux avis d'une boisson et à la page d'un lieu). Suivre un profil privé hors

@@ -21,9 +21,12 @@ import ProductPage from './components/ProductPage.vue'
 import PlacePage from './components/PlacePage.vue'
 import PostPage from './components/PostPage.vue'
 import NotifsPage from './components/NotifsPage.vue'
+import ChangelogPage from './components/ChangelogPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
 import WelcomeModal from './components/WelcomeModal.vue'
+import NewsModal from './components/NewsModal.vue'
+import { hasNews, markSeen } from './changelog'
 import Grime from './components/Grime.vue'
 import Icon from './components/Icon.vue'
 import SearchSheet from './components/SearchSheet.vue'
@@ -87,6 +90,8 @@ watch(() => [ui.view, ui.refresh], () => me.value && ui.view !== 'notifs' && ref
 
 // Modale d'arrivée : juste après l'inscription, une fois
 const welcome = ref(false)
+// Nouveautés pas encore vues sur cet appareil : montrées à l'arrivée (pas à l'inscription : tout est nouveau)
+const news = ref(false)
 
 async function onLogged(user, { registered = false } = {}) {
   me.value = user
@@ -97,7 +102,10 @@ async function onLogged(user, { registered = false } = {}) {
     toast(`Tu as rejoint « ${g.name} »`, { kind: 'big' })
   }).catch(() => {})
   await loadGroups()
-  if (registered) welcome.value = true
+  if (registered) {
+    welcome.value = true
+    markSeen()
+  } else if (hasNews() && !quickAdd && ui.view !== 'nouveautes') news.value = true
   if (quickAdd && !registered) openLog({ day: day.value })
   quickAdd = false
 }
@@ -141,7 +149,7 @@ const TABS = [
 ]
 // Sur PC : plus large ; l'accueil passe sur deux colonnes (trois sur très grand écran)
 const width = computed(() => (me.value ? 'lg:max-w-7xl' : 'lg:max-w-lg')) // même largeur partout une fois connecté
-const active = (k) => (k === 'me' ? (ui.view === 'user' && ui.userId === me.value?.id) || ui.view === 'settings' : ui.view === k)
+const active = (k) => (k === 'me' ? (ui.view === 'user' && ui.userId === me.value?.id) || ui.view === 'settings' || ui.view === 'nouveautes' : ui.view === k)
 function tap(k) {
   groupMenu.value = false
   if (k === 'plus') return openLog(ui.view === 'home' ? { day: day.value } : {}) // sur Ma soirée : la soirée affichée
@@ -275,6 +283,7 @@ async function logout() {
         <!-- La carte est commune à tout le monde, bande ou pas -->
         <CartePage v-else-if="ui.view === 'carte'" key="carte" :me="me" @saved="bump" @back="go('home')" />
         <NotifsPage v-else-if="ui.view === 'notifs'" key="notifs" :colors="colors" :me="me" />
+        <ChangelogPage v-else-if="ui.view === 'nouveautes'" key="nouveautes" />
         <PostPage v-else-if="ui.view === 'post'" :key="'c' + ui.postId" :post-id="ui.postId" :me="me" :colors="colors" />
         <PlacePage v-else-if="ui.view === 'place'" :key="'l' + ui.placeId" :place-id="ui.placeId" :me="me" :colors="colors" />
         <ProductPage v-else-if="ui.view === 'product'" :key="'p' + ui.productId" :product-id="ui.productId" :me="me" :colors="colors" />
@@ -344,6 +353,7 @@ async function logout() {
     </Transition>
     <SearchSheet v-if="searching && me" :colors="colors" @close="searching = false" />
     <WelcomeModal v-if="me && welcome" :groups="groups" @changed="loadGroups" @close="welcome = false" />
+    <NewsModal v-else-if="me && news" @close="news = false" />
     <ConfirmDialog />
 
     <!-- Toasts -->
