@@ -63,7 +63,7 @@ async function saveEdit() {
   try {
     replace(await api(`/products/${d.id}`, {
       method: 'PATCH',
-      body: { name: d.name.trim(), cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), ...(d.photo !== undefined ? { photo: d.photo } : {}) },
+      body: { name: d.name.trim(), cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), caffeine: d.caffeine, ...(d.photo !== undefined ? { photo: d.photo } : {}) },
     }))
     editing.value = null
     toast(`${d.name} modifié`)
@@ -127,7 +127,7 @@ async function logNow(p, cl, x, y) {
   sizePick.value = null
   const units = Math.round(unitsOf({ cl, abv: p.abv }) * 10) / 10
   try {
-    const row = await api('/drinks', { method: 'POST', body: { day: today(), name: p.name, cat: p.cat, cl, abv: p.abv } })
+    const row = await api('/drinks', { method: 'POST', body: { day: today(), product_id: p.id, cl } })
     emit('saved')
     burst(x, y, { text: units ? `+${num(units)}` : '', icon: units ? '' : catOf(p.cat).fa, color: catOf(p.cat).hex })
     vibrate(30)
@@ -174,7 +174,7 @@ async function create() {
     const p = await api('/products', {
       method: 'POST',
       body: {
-        name: draft.value.name.trim(), cat: draft.value.cat, cl: Number(draft.value.cl), abv: Number(draft.value.abv),
+        name: draft.value.name.trim(), cat: draft.value.cat, cl: Number(draft.value.cl), abv: Number(draft.value.abv), caffeine: draft.value.caffeine,
         ...(draft.value.photo ? { photo: draft.value.photo } : {}),
         ...draft.value.info,
       },
@@ -319,7 +319,7 @@ async function create() {
             class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-white/10 hover:text-ink"
             :aria-label="`Modifier ${p.name}`"
             title="Modifier"
-            @click="editing = { id: p.id, name: p.name, cat: p.cat, cl: p.default_cl ?? p.cl, abv: p.abv }"
+            @click="editing = { id: p.id, name: p.name, cat: p.cat, cl: p.default_cl ?? p.cl, abv: p.abv, caffeine: p.caffeine }"
           >
             <Icon name="edit" />
           </button>

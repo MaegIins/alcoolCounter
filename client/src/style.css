@@ -53,6 +53,7 @@
   --color-biere: #d4ac3a;
   --color-vin: #a33447;
   --color-fort: #6f93ad;
+  --color-shot: #c4703a;
   --color-cocktail: #739b4f;
   --color-autre: #9277a8;
   --color-alert: #c43c2a;
@@ -60,6 +61,7 @@
   --color-energy: #9fb33a;
   --color-soft: #4f8f8a;
   --color-chaud: #8a6448;
+  --color-caf: #c79a6b; /* caféine : crème d'expresso, lisible sur le fond sombre */
   /* Utilisés par le fil, le profil, les fiches */
   --color-raised: #26231a; /* puces, survols */
   --color-faint: #6b6452; /* texte très discret */
@@ -135,6 +137,10 @@ body {
 @utility neon {
   color: var(--color-hi);
   text-shadow: 0 0 10px rgb(212 188 53 / 0.25);
+}
+@utility neon-caf {
+  color: var(--color-caf);
+  text-shadow: 0 0 10px rgb(199 154 107 / 0.25);
 }
 @utility neon-pink {
   color: var(--color-neon);
@@ -233,6 +239,21 @@ input[type='number'] { -moz-appearance: textfield; }
   15% { opacity: 0.7; }
   100% { transform: translateY(calc(-1 * var(--h, 60px))); opacity: 0; }
 }
+/* Infobulle data-tip (tips.js) : survol à la souris, toucher au doigt */
+.tip-bubble {
+  position: fixed; left: 0; top: 0; z-index: 60; max-width: min(260px, calc(100vw - 16px));
+  padding: 0.35rem 0.6rem; border-radius: 0.6rem; border: 1px solid rgb(255 255 255 / 0.1);
+  background: var(--color-panel); color: var(--color-ink); font-size: 0.8125rem; line-height: 1.3;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.6); pointer-events: none; opacity: 0; transition: opacity 0.12s;
+}
+.tip-on { filter: brightness(1.35); }
+/* Vapeur au-dessus de la tasse */
+.steam { animation: steam 3s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes steam {
+  0% { transform: translateY(4px) scaleY(0.8); opacity: 0; }
+  30% { opacity: 0.55; }
+  100% { transform: translateY(-8px) scaleY(1.1); opacity: 0; }
+}
 /* Néon qui grésille de temps en temps */
 .flicker { animation: flicker 6s infinite; }
 @keyframes flicker {
@@ -280,5 +301,5 @@ input[type='number'] { -moz-appearance: textfield; }
 .sheet-enter-from .sheet-panel, .sheet-leave-to .sheet-panel { transform: translateY(100%); }
 
 @media (prefers-reduced-motion: reduce) {
-  .wobble, .rise, .flicker, .bounce, .pop { animation: none; }
+  .wobble, .rise, .steam, .flicker, .bounce, .pop { animation: none; }
 }

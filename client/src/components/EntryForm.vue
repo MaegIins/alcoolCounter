@@ -4,7 +4,7 @@
 // Chaque conso a son volume et son degré : le score est calculé sur l'alcool pur.
 import { ref, computed, watch } from 'vue'
 import {
-  api, SUSPECT_UNITS, catOf, unitsOf, round1,
+  api, SUSPECT_UNITS, CAFFEINE_DAY, catOf, unitsOf, round1,
   num, fmtDrink, prettyDay, today, addDays, photoUrl,
 } from '../api'
 import AnimatedNumber from './AnimatedNumber.vue'
@@ -32,6 +32,53 @@ const grams = computed(() => Math.round(units.value * 10))
 const isToday = computed(() => day.value === today())
 // Verre qui se remplit : plein à 10 verres standard, déborde (mousse rose) au-delà
 const fill = computed(() => Math.min(1, units.value / 10))
+// Caféine de la journée (cafés, thés, énergisants, sodas…) : la tasse est pleine au repère de 400 mg
+const caffeine = computed(() => drinks.value.reduce((s, d) => s + (d.caffeine || 0), 0))
+const cafFill = computed(() => Math.min(1, caffeine.value / CAFFEINE_DAY))
+const cafDrinks = computed(() => drinks.value.filter((d) => d.caffeine > 0))
+const espressos = computed(() => round1(caffeine.value / 80))
+
+// Compteur en deux volets : l'alcool (la pinte) et la caféine (la tasse). On passe de l'un à l'autre en glissant
+// (doigt ou souris) ou avec les onglets dessous. Le choix est partagé avec les stats de l'accueil (ui.gauge).
+const GAUGES = [{ key: 'alcool', label: 'Alcool', icon: 'fa-beer-mug-empty' }, { key: 'cafeine', label: 'Caféine', icon: 'fa-mug-hot' }]
+const slide = computed(() => (ui.gauge === 'cafeine' ? 1 : 0))
+const goSlide = (i) => (ui.gauge = GAUGES[Math.max(0, Math.min(1, i))].key)
+const track = ref(null)
+const drag = ref(0) // décalage en px pendant le glisser
+let start = null // { x, y, id, on } : on = le geste est horizontal, c'est un glisser
+function down(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  start = { x: e.clientX, y: e.clientY, id: e.pointerId, on: false }
+}
+function move(e) {
+  if (!start || e.pointerId !== start.id) return
+  const dx = e.clientX - start.x
+  const dy = e.clientY - start.y
+  if (!start.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) return (start = null) // on fait défiler la page
+    if (Math.abs(dx) < 8) return
+    start.on = true
+    track.value?.setPointerCapture?.(e.pointerId)
+  }
+  // Résistance au bord (pas de volet avant la pinte ni après la tasse)
+  drag.value = (slide.value === 0 && dx > 0) || (slide.value === 1 && dx < 0) ? dx / 4 : dx
+}
+function up(e) {
+  if (!start || e.pointerId !== start.id) return
+  const w = track.value?.clientWidth || 300
+  if (start.on && Math.abs(drag.value) > w * 0.18) goSlide(slide.value + (drag.value < 0 ? 1 : -1))
+  start = null
+  drag.value = 0
+}
+// Molette / pavé tactile : un geste horizontal franc change de volet
+let wheelAt = 0
+function wheel(e) {
+  if (Math.abs(e.deltaX) < 30 || Math.abs(e.deltaX) < Math.abs(e.deltaY) * 1.5) return
+  e.preventDefault()
+  if (Date.now() - wheelAt < 600) return
+  wheelAt = Date.now()
+  goSlide(slide.value + (e.deltaX > 0 ? 1 : -1))
+}
 const waters = computed(() => extras.value.filter((x) => x.kind === 'eau').length)
 const smokes = computed(() => extras.value.filter((x) => x.kind === 'clope').length)
 // L'addition : verres, eau et clopes mélangés, du plus récent au plus ancien
@@ -79,6 +126,10 @@ function react(before, after) {
   if (!fresh.length) return
   wobble.value = false
   requestAnimationFrame(() => (wobble.value = true))
+  // Le compteur montre ce qui vient d'être bu : un café → la tasse, un verre d'alcool → la pinte
+  const last = fresh[0]
+  if (unitsOf(last) > 0) goSlide(0)
+  else if (last.caffeine > 0) goSlide(1)
   const sum = (list) => round1(list.reduce((t, x) => t + unitsOf(x), 0))
   const step = milestoneBetween(sum(before), sum(after))
   if (step) setTimeout(() => toast(step.text, { kind: 'big' }), 700)
@@ -155,6 +206,7 @@ async function removeExtra(row) {
 }
 
 const time = (ms) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const slideStyle = computed(() => ({ transform: `translateX(calc(${-slide.value * 100}% + ${drag.value}px))` }))
 const sinceLast = computed(() => {
   if (!isToday.value || !drinks.value.length) return ''
   const min = Math.round((Date.now() - drinks.value[0].at) / 60e3)
@@ -180,34 +232,98 @@ const sinceLast = computed(() => {
       </div>
     </div>
 
-    <!-- Compteur -->
-    <div class="flex items-center gap-6 px-1">
-      <svg viewBox="0 0 60 84" class="h-28 w-20 shrink-0 overflow-visible" :class="wobble && 'wobble'" aria-hidden="true" @animationend="wobble = false">
-        <defs>
-          <clipPath id="glass"><path d="M8 6h44l-5 72a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" /></clipPath>
-          <linearGradient id="beer" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stop-color="#e3cc4a" /><stop offset="1" stop-color="#a88a1c" />
-          </linearGradient>
-        </defs>
-        <g clip-path="url(#glass)">
-          <rect x="0" :y="82 - 76 * fill" width="60" :height="76 * fill" fill="url(#beer)" class="transition-all duration-500" />
-          <rect v-if="fill > 0" x="0" :y="82 - 76 * fill - 6" width="60" height="7" :fill="units > SUSPECT_UNITS ? '#b8432c' : '#efe6c4'" class="transition-all duration-500" />
-          <circle
-            v-for="(b, i) in fill > 0.15 ? [[20, 1.8], [34, 1.3], [42, 2], [27, 1.5], [38, 1.2]] : []"
-            :key="i" :cx="b[0]" cy="80" :r="b[1]" fill="#efe6c4" class="rise"
-            :style="{ animationDelay: `${i * 0.5}s`, '--h': `${70 * fill}px` }"
-          />
-        </g>
-        <path d="M8 6h44l-5 72a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" fill="none" stroke="#e4dcc3" stroke-opacity=".6" stroke-width="2" />
-      </svg>
-      <div class="min-w-0 flex-1">
-        <div class="flex items-baseline gap-3">
-          <span class="font-display text-6xl leading-none tabular-nums" :class="units > SUSPECT_UNITS ? 'neon-pink' : 'neon'"><AnimatedNumber :value="units" /></span>
-          <span v-if="units > SUSPECT_UNITS" class="rounded-full bg-neon px-2 py-0.5 text-xs font-bold text-paper uppercase">suspect</span>
+    <!-- Compteur : on glisse de la pinte (alcool) à la tasse (caféine) -->
+    <div>
+      <div
+        ref="track"
+        class="flex touch-pan-y overflow-hidden select-none"
+        :class="drag ? 'cursor-grabbing' : 'cursor-grab'"
+        aria-roledescription="carrousel"
+        @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel="wheel"
+        @dragstart.prevent
+      >
+        <div class="flex w-full shrink-0 items-center gap-6 px-1" :class="!drag && 'transition-transform duration-300 ease-out'" :style="slideStyle" :aria-hidden="slide !== 0" aria-label="Alcool">
+          <svg viewBox="0 0 60 84" class="h-28 w-20 shrink-0 overflow-visible" :class="wobble && 'wobble'" aria-hidden="true" @animationend="wobble = false">
+            <defs>
+              <clipPath id="glass"><path d="M8 6h44l-5 72a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" /></clipPath>
+              <linearGradient id="beer" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#e3cc4a" /><stop offset="1" stop-color="#a88a1c" />
+              </linearGradient>
+            </defs>
+            <g clip-path="url(#glass)">
+              <rect x="0" :y="82 - 76 * fill" width="60" :height="76 * fill" fill="url(#beer)" class="transition-all duration-500" />
+              <rect v-if="fill > 0" x="0" :y="82 - 76 * fill - 6" width="60" height="7" :fill="units > SUSPECT_UNITS ? '#b8432c' : '#efe6c4'" class="transition-all duration-500" />
+              <circle
+                v-for="(b, i) in fill > 0.15 ? [[20, 1.8], [34, 1.3], [42, 2], [27, 1.5], [38, 1.2]] : []"
+                :key="i" :cx="b[0]" cy="80" :r="b[1]" fill="#efe6c4" class="rise"
+                :style="{ animationDelay: `${i * 0.5}s`, '--h': `${70 * fill}px` }"
+              />
+            </g>
+            <path d="M8 6h44l-5 72a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" fill="none" stroke="#e4dcc3" stroke-opacity=".6" stroke-width="2" />
+          </svg>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-baseline gap-3">
+              <span class="font-display text-6xl leading-none tabular-nums" :class="units > SUSPECT_UNITS ? 'neon-pink' : 'neon'"><AnimatedNumber :value="units" /></span>
+              <span v-if="units > SUSPECT_UNITS" class="rounded-full bg-neon px-2 py-0.5 text-xs font-bold text-paper uppercase">suspect</span>
+            </div>
+            <div class="mt-1 text-lg font-semibold">verre{{ units >= 2 ? 's' : '' }} standard</div>
+            <div class="text-sm text-muted">
+              {{ grams }} g d'alcool<template v-if="waters || smokes"> · <Icon name="water" class="text-fort" /> {{ waters }} <Icon name="smoke" /> {{ smokes }}</template> · {{ drinks.length }} conso{{ drinks.length > 1 ? 's' : '' }}<template v-if="sinceLast"> · dernier {{ sinceLast }}</template>
+            </div>
+          </div>
         </div>
-        <div class="mt-1 text-lg font-semibold">verre{{ units >= 2 ? 's' : '' }} standard</div>
-        <div class="text-sm text-muted">
-          {{ grams }} g d'alcool<template v-if="waters || smokes"> · <Icon name="water" class="text-fort" /> {{ waters }} <Icon name="smoke" /> {{ smokes }}</template> · {{ drinks.length }} conso{{ drinks.length > 1 ? 's' : '' }}<template v-if="sinceLast"> · dernier {{ sinceLast }}</template>
+
+        <div class="flex w-full shrink-0 items-center gap-6 px-1" :class="!drag && 'transition-transform duration-300 ease-out'" :style="slideStyle" :aria-hidden="slide !== 1" aria-label="Caféine">
+          <svg viewBox="0 0 72 84" class="h-28 w-24 shrink-0 overflow-visible" :class="wobble && slide === 1 && 'wobble'" aria-hidden="true" @animationend="wobble = false">
+            <defs>
+              <clipPath id="cup"><path d="M10 26h48l-4 44a10 10 0 0 1-10 9H24a10 10 0 0 1-10-9z" /></clipPath>
+              <linearGradient id="coffee" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#6b4226" /><stop offset="1" stop-color="#2e1a0e" />
+              </linearGradient>
+            </defs>
+            <!-- Vapeur : plus la tasse est pleine, plus ça fume -->
+            <path
+              v-for="(x, i) in caffeine > 0 ? [24, 34, 44].slice(0, 1 + Math.floor(cafFill * 2.99)) : []"
+              :key="i"
+              :d="`M${x} 20c-4-4 4-7 0-11s4-6 0-9`"
+              fill="none" stroke="#e4dcc3" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"
+              class="steam" :style="{ animationDelay: `${i * 0.8}s` }"
+            />
+            <g clip-path="url(#cup)">
+              <rect x="0" :y="79 - 53 * cafFill" width="84" :height="53 * cafFill" fill="url(#coffee)" class="transition-all duration-500" />
+              <rect v-if="cafFill > 0" x="0" :y="79 - 53 * cafFill - 3" width="84" height="4" :fill="caffeine > CAFFEINE_DAY ? '#b8432c' : '#c79a6b'" class="transition-all duration-500" />
+            </g>
+            <path d="M10 26h48l-4 44a10 10 0 0 1-10 9H24a10 10 0 0 1-10-9z" fill="none" stroke="#e4dcc3" stroke-opacity=".6" stroke-width="2" />
+            <path d="M57 36h5a8 8 0 0 1 0 16h-7" fill="none" stroke="#e4dcc3" stroke-opacity=".6" stroke-width="2" />
+            <ellipse cx="34" cy="81" rx="30" ry="2.5" fill="none" stroke="#e4dcc3" stroke-opacity=".35" stroke-width="2" />
+          </svg>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-baseline gap-3">
+              <span class="font-display text-6xl leading-none tabular-nums" :class="caffeine > CAFFEINE_DAY ? 'neon-pink' : 'neon-caf'"><AnimatedNumber :value="caffeine" int /></span>
+              <span v-if="caffeine > CAFFEINE_DAY" class="rounded-full bg-neon px-2 py-0.5 text-xs font-bold text-paper uppercase">tremblote</span>
+            </div>
+            <div class="mt-1 text-lg font-semibold">mg de caféine</div>
+            <div class="text-sm text-muted">
+              <template v-if="caffeine">≈ {{ num(espressos) }} expresso{{ espressos >= 2 ? 's' : '' }} · </template>{{ cafDrinks.length }} boisson{{ cafDrinks.length > 1 ? 's' : '' }} caféinée{{ cafDrinks.length > 1 ? 's' : '' }} · repère {{ CAFFEINE_DAY }} mg/jour
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 flex justify-center" role="tablist" aria-label="Compteur">
+        <div class="flex rounded-full bg-white/5 p-1">
+          <button
+            v-for="(g, gi) in GAUGES"
+            :key="g.key"
+            role="tab"
+            class="seg flex items-center gap-1.5"
+            :aria-selected="slide === gi"
+            :aria-pressed="slide === gi"
+            @click="goSlide(gi)"
+            @keydown.left.prevent="goSlide(0)"
+            @keydown.right.prevent="goSlide(1)"
+          >
+            <Icon :name="g.icon" /> {{ g.label }}
+          </button>
         </div>
       </div>
     </div>
@@ -263,7 +379,10 @@ const sinceLast = computed(() => {
                 <span v-if="d.review" class="mt-0.5 block truncate text-sm text-ink/70 italic">« {{ d.review }} »</span>
                 <span v-else-if="!d.rating" class="mt-0.5 block text-xs font-semibold text-hi/80"><Icon name="star" /> Noter</span>
               </span>
-              <span class="shrink-0 font-semibold tabular-nums" :style="{ color: catOf(d.cat).hex }">{{ d.units ? `+${num(d.units)}` : '0' }}</span>
+              <span class="shrink-0 text-right leading-tight font-semibold tabular-nums">
+                <span v-if="d.units || !d.caffeine" class="block" :style="{ color: catOf(d.cat).hex }">{{ d.units ? `+${num(d.units)}` : '0' }}</span>
+                <span v-if="d.caffeine" class="block text-xs text-caf">{{ d.caffeine }} mg</span>
+              </span>
             </button>
             <button class="h-9 w-9 shrink-0 rounded-full text-muted hover:bg-alert hover:text-white" :aria-label="`Supprimer ${d.name}`" @click="remove(d)" ><Icon name="close" /></button>
           </template>

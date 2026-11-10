@@ -295,7 +295,7 @@ async function logout() {
           <p class="text-sm text-muted lg:max-w-3xl">
             Score en verres standard : 10 g d'alcool pur, calculé sur le volume et le degré de chaque verre
             (une pinte de triple compte presque double d'une pinte de blonde). La journée court jusqu'à 6h du matin : la nuit compte pour la veille.
-            L'eau, les clopes et le sans alcool (Monster, sodas…) sont comptés à part.
+            L'eau, les clopes et le sans alcool (Monster, sodas…) sont comptés à part. Si personne n'a bu d'alcool, c'est le plus caféiné qui gagne.
           </p>
         </div>
       </Transition>

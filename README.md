@@ -147,10 +147,17 @@ En prod, le serveur renvoie `index.html` pour toute adresse hors `/api`.
   par l'API). Débloqués : toast, notif (`user_badges` retient ceux déjà vus ; au premier lancement, les existants
   sont enregistrés sans notif) et carte dans le fil d'activité. Onglet Badges : rareté (% des joueurs qui l'ont),
   progression, tri par rubrique ou par rareté. Victoires comptées dans la meilleure bande de la personne.
-- **Paliers** selon le % de succès (`RANKS` dans `client/src/utils.js`) : Bleu, Touriste, Régulier, Pilier de comptoir,
-  Vieux briscard, Taulier, Patron du rade, Propriétaire des murs. Anneau de couleur autour des avatars partout
-  (`GET /api/ranks`, `client/src/ranks.js`), titre et échelle sur le profil.
-- **Catégories** : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
+- **Paliers** selon le % de succès (`RANKS` dans `client/src/utils.js`) : juste une couleur, l'anneau autour des avatars
+  partout (`GET /api/ranks`, `client/src/ranks.js`).
+- **Titres cachés** (`server/titles.js`) : N fois une boisson précise (10 Chouffe = « Mature pour son âge »…), reconnue à
+  son nom (sans accents ni casse) ou à sa catégorie / son degré. La liste n'est jamais envoyée : on ne voit que ceux
+  débloqués (`user_titles`, toast + notif comme les succès). Le titre affiché (`users.title`, choisi dans l'onglet
+  Badges, `PUT /api/me/title`) apparaît sous le pseudo, dans le classement et au survol des avatars. Pour en ajouter
+  un : une ligne dans `TITLES`.
+- **Caféine** : mg par conso et par fiche (`caffeine`), estimée d'après le nom tant qu'on ne la donne pas
+  (`guessCaffeine`, même règle côté serveur et client). « Ma journée » glisse de la pinte à la tasse ; les stats de
+  l'accueil suivent. Journée où personne n'a bu d'alcool : le plus caféiné gagne.
+- **Catégories** (dont Shot) : `CATS` dans `server/app.js` (`ALCO` / `SOFT`) **et** `client/src/utils.js` (+ couleur dans `style.css`).
   Formats dans `FORMATS`.
 - **Le plan des lieux** (La carte › Lieux, sous la liste ; bouton plein écran) : Leaflet + tuiles OpenStreetMap assombries. Seuls les lieux
   que tu as le droit de voir et qui ont une position (le serveur ne renvoie jamais la position d'un « Chez X » d'un

@@ -7,7 +7,7 @@
 //   /boisson/34       Page d'une boisson
 //   /lieu/5           Page d'un lieu
 //   /conso/78         Page d'une conso (avis, photo, likes, commentaires)
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { urlOf, parseUrl } from './utils.js'
 
 export const ui = reactive({
@@ -20,7 +20,10 @@ export const ui = reactive({
   back: false, // ouvert depuis un autre écran de l'appli : « ← Retour » possible
   log: null, // fenêtre « + » : null = fermée ; {} ; { product } ; { drink } ; { edit: conso }
   refresh: 0, // incrémenté après chaque changement de données : les écrans rechargent
+  // Compteur de l'accueil : 'alcool' (la pinte) ou 'cafeine' (la tasse) ; les stats de l'accueil suivent. Retenu sur l'appareil.
+  gauge: (() => { try { return localStorage.getItem('counter-gauge') === 'cafeine' ? 'cafeine' : 'alcool' } catch { return 'alcool' } })(),
 })
+watch(() => ui.gauge, (g) => { try { localStorage.setItem('counter-gauge', g) } catch {} })
 
 const state = () => ({ view: ui.view, userId: ui.userId, productId: ui.productId, placeId: ui.placeId, postId: ui.postId, tab: ui.tab, back: ui.back })
 function show(next, { replace = false, back = false } = {}) {

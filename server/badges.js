@@ -71,8 +71,8 @@ export const BADGES = [
   { key: 'bouteille', group: 'vin', icon: '🫗', label: 'La bouteille', desc: '6 verres de vin dans la même journée' },
   { key: 'bulles', group: 'vin', icon: '🥂', label: 'Bulles', desc: 'Champagne, crémant ou prosecco' },
   // Forts et cocktails
-  { key: 'gosier', group: 'fort', icon: '🥃', label: 'Shots', desc: '3 alcools forts dans la même journée' },
-  { key: 'distillerie', group: 'fort', icon: '⚗️', label: 'Distillerie', desc: '50 alcools forts' },
+  { key: 'gosier', group: 'fort', icon: '🥃', label: 'Shots', desc: '3 shots ou alcools forts dans la même journée' },
+  { key: 'distillerie', group: 'fort', icon: '⚗️', label: 'Distillerie', desc: '50 alcools forts ou shots' },
   { key: 'mixologue', group: 'fort', icon: '🍹', label: 'Mixologue', desc: '10 cocktails différents' },
   { key: 'happyhour', group: 'fort', icon: '🍸', label: 'Happy hour', desc: '5 cocktails dans la même journée' },
   { key: 'pirate', group: 'fort', icon: '🏴‍☠️', label: 'Pirate', desc: '10 rhums (rhum, ti’punch, mojito…)' },
@@ -116,7 +116,7 @@ export const BADGES = [
   { key: 'minuit', group: 'secret', icon: '🕛', label: 'Douze coups', desc: 'Un verre noté pile à minuit', secret: true },
   { key: 'vendredi13', group: 'secret', icon: '🐈‍⬛', label: 'Vendredi 13', desc: 'Un verre un vendredi 13', secret: true },
   { key: 'pilepoil', group: 'secret', icon: '🎯', label: 'Pile-poil', desc: 'Une journée à exactement 10 verres standard', secret: true },
-  { key: 'irish', group: 'secret', icon: '☘️', label: 'Irish coffee', desc: 'Un café et un alcool fort à moins de 10 minutes d’écart', secret: true },
+  { key: 'irish', group: 'secret', icon: '☘️', label: 'Irish coffee', desc: 'Un café et un alcool fort (ou un shot) à moins de 10 minutes d’écart', secret: true },
   { key: 'fidele', group: 'secret', icon: '💍', label: 'Monogame', desc: '50 fois la même boisson', secret: true },
 ]
 
@@ -209,7 +209,7 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
     const u = list.reduce((s, d) => s + units(d), 0)
     const n = (cat) => list.filter((d) => d.cat === cat).length
     best.cats = Math.max(best.cats, new Set(list.map((d) => d.cat)).size)
-    best.fort = Math.max(best.fort, n('fort'))
+    best.fort = Math.max(best.fort, n('fort') + n('shot'))
     best.cocktail = Math.max(best.cocktail, n('cocktail'))
     best.vin = Math.max(best.vin, n('vin'))
     best.units = Math.max(best.units, u)
@@ -274,7 +274,7 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
   goal('cave', of('vin').length, 50)
   add('bulles', drinks.some((d) => BULLES.test(d.name)))
   // Forts et cocktails
-  goal('distillerie', of('fort').length, 50)
+  goal('distillerie', of('fort').length + of('shot').length, 50)
   goal('mixologue', distinct(of('cocktail')), 10)
   goal('pirate', drinks.filter((d) => RHUM.test(d.name)).length, 10)
   goal('sudiste', drinks.filter((d) => PASTIS.test(d.name)).length, 10)
@@ -323,7 +323,7 @@ export function computeBadgeState({ drinks: all, extras = [], wins = 0, tz = 'Eu
 
   // Secrets (pas de progression : ça les trahirait)
   const cafes = all.filter((d) => d.cat === 'chaud' && !isLate(d, tz))
-  add('irish', timed.filter((d) => d.cat === 'fort').some((f) => cafes.some((c) => Math.abs(c.at - f.at) <= 10 * 60e3)))
+  add('irish', timed.filter((d) => d.cat === 'fort' || d.cat === 'shot').some((f) => cafes.some((c) => Math.abs(c.at - f.at) <= 10 * 60e3)))
   const same = new Map()
   for (const d of drinks) same.set(d.name.toLowerCase(), (same.get(d.name.toLowerCase()) ?? 0) + 1)
   add('fidele', [...same.values()].some((n) => n >= 50))

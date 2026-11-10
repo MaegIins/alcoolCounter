@@ -6,10 +6,12 @@ import '@fortawesome/fontawesome-free/css/regular.min.css'
 import './style.css'
 import App from './App.vue'
 import { vDigits } from './api'
+import { initTips } from './tips'
 
 import './install' // capte la proposition d'installation dès le chargement
 
 createApp(App).directive('digits', vDigits).mount('#app')
+initTips() // infobulles data-tip : au survol, et au doigt sur téléphone
 
 // Appli installable (Android : « Installer l'appli » / écran d'accueil). Seulement sur le build servi, pas en dev.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

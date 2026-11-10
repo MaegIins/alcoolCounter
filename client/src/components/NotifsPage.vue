@@ -39,9 +39,10 @@ const KINDS = {
   comment_like: { icon: 'fa-heart', color: 'text-neon', text: 'a liké ton commentaire' },
   follow: { icon: 'fa-user-plus', color: 'text-cocktail', text: 'te suit' },
   badge: { icon: 'fa-trophy', color: 'text-hi', text: '' },
+  title: { icon: 'fa-tag', color: 'text-hi', text: '' },
 }
 const kindOf = (n) => KINDS[n.kind] ?? { icon: 'fa-bell', color: 'text-muted', text: '' }
-const open = (n) => (n.kind === 'badge' ? openUser(n.actor_id, { tab: 'badges' }) : n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
+const open = (n) => (n.kind === 'badge' || n.kind === 'title' ? openUser(n.actor_id, { tab: 'badges' }) : n.drink_id ? openPost(n.drink_id) : openUser(n.actor_id))
 </script>
 
 <template>
@@ -63,6 +64,7 @@ const open = (n) => (n.kind === 'badge' ? openUser(n.actor_id, { tab: 'badges' }
         >
           <span class="relative shrink-0">
             <span v-if="n.kind === 'badge'" class="flex h-9 w-9 items-center justify-center rounded-full bg-hi/15 text-xl">{{ n.badge?.icon ?? '🏅' }}</span>
+            <span v-else-if="n.kind === 'title'" class="flex h-9 w-9 items-center justify-center rounded-full bg-hi/15 text-xl">🏷️</span>
             <Avatar v-else :user="{ id: n.actor_id, name: n.actor_name, avatar_v: n.actor_avatar_v }" :color="colors[n.actor_id]" :size="36" />
             <span class="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-panel text-[11px]" :class="kindOf(n).color">
               <Icon :name="kindOf(n).icon" />
@@ -72,6 +74,10 @@ const open = (n) => (n.kind === 'badge' ? openUser(n.actor_id, { tab: 'badges' }
             <span v-if="n.kind === 'badge'" class="block">
               Succès débloqué : <b class="text-hi">{{ n.badge?.label ?? '?' }}</b>
               <span v-if="n.badge?.desc" class="block text-sm text-muted">{{ n.badge.desc }}</span>
+            </span>
+            <span v-else-if="n.kind === 'title'" class="block">
+              Titre caché débloqué : <b class="text-hi">{{ n.title?.label ?? '?' }}</b>
+              <span v-if="n.title?.how" class="block text-sm text-muted">{{ n.title.how }}</span>
             </span>
             <span v-else class="block">
               <b>{{ n.actor_name }}</b> {{ kindOf(n).text }}

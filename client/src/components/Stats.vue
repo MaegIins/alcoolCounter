@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { api, CATS as ALL_CATS, ALCO_CATS, PALETTE, num, today, addDays, dayLabel } from '../api'
+import { ui } from '../nav'
 import Avatar from './Avatar.vue'
 import LineChart from './LineChart.vue'
 import StackedBars from './StackedBars.vue'
@@ -12,6 +13,8 @@ const showTable = ref(false)
 const entries = ref([])
 const search = ref('')
 
+// Alcool (verres standard) ou caféine (mg), comme le compteur de « Ma journée »
+const caf = computed(() => ui.gauge === 'cafeine')
 const days = computed(() => Array.from({ length: span.value }, (_, i) => addDays(today(), i - span.value + 1)))
 
 let loadSeq = 0
@@ -39,12 +42,13 @@ const participants = computed(() =>
   props.users
     .filter((u) => byUser.value[u.id])
     .map((u) => {
-      const nightly = days.value.map((d) => byUser.value[u.id][d]?.total ?? null)
+      // Par jour : un jour sans rien de la mesure choisie casse la ligne
+      const nightly = days.value.map((d) => (caf.value ? byUser.value[u.id][d]?.caffeine || null : byUser.value[u.id][d]?.total ?? null))
       let acc = 0
       const values = cumulative.value ? nightly.map((v) => Math.round((acc += v || 0) * 10) / 10) : nightly
       return { ...u, values, sum: nightly.reduce((s, v) => s + (v || 0), 0) }
     })
-    .filter((p) => p.sum > 0) // que du sans alcool : pas de courbe (0 verre), mais visible dans le détail
+    .filter((p) => p.sum > 0) // rien de la mesure choisie (que du sans alcool, ou pas de caféine) : pas de courbe
     .sort((a, b) => b.sum - a.sum)
 )
 
@@ -149,7 +153,9 @@ const detailRows = computed(() => byUser.value[detailUser.value.id] || {})
 const detailUnit = ref((() => { try { return localStorage.getItem('stats-detail-unit') || 'consos' } catch { return 'consos' } })())
 watch(detailUnit, (u) => { try { localStorage.setItem('stats-detail-unit', u) } catch {} })
 const detailSegments = computed(() =>
-  detailUnit.value === 'consos'
+  caf.value
+    ? ALL_CATS.filter((c) => c.caf).map((c) => ({ ...c, key: `caf_${c.key}` }))
+    : detailUnit.value === 'consos'
     ? ALL_CATS.map((c) => ({ ...c, key: `n_${c.key}` }))
     : ALCO_CATS
 )
@@ -177,13 +183,14 @@ const detailSegments = computed(() =>
           </div>
         </div>
         <p class="text-sm text-muted">
-          {{ cumulative ? `Verres standard cumulés sur ${span} jours : le premier en haut à droite mène` : 'Verres standard de chaque journée' }}
+          <template v-if="caf">{{ cumulative ? `Caféine cumulée sur ${span} jours, en mg` : 'Caféine de chaque journée, en mg (repère : 400 mg)' }}</template>
+          <template v-else>{{ cumulative ? `Verres standard cumulés sur ${span} jours : le premier en haut à droite mène` : 'Verres standard de chaque journée' }}</template>
         </p>
       </div>
       <div class="px-3 pt-3 pb-2">
         <p v-if="!participants.length" class="py-8 text-center text-muted">Pas encore de données.</p>
         <!-- Les autres en gris fin : seulement en cumul (par soirée, leurs lignes à trous font des bouts de traits épars) -->
-        <LineChart v-else :days="days" :series="series" :context="cumulative ? context : []" :cumulative="cumulative" @pick="pick" />
+        <LineChart v-else :days="days" :unit="caf ? 'mg' : 'verres'" :series="series" :context="cumulative ? context : []" :cumulative="cumulative" @pick="pick" />
       </div>
 
       <!-- Légende interactive -->
@@ -231,7 +238,7 @@ const detailSegments = computed(() =>
             <tr v-for="(d, i) in days" :key="d">
               <td class="px-4 py-1.5 first-letter:uppercase">{{ dayLabel(d, true) }}</td>
               <td v-for="s in series" :key="s.id" class="px-4 py-1.5 text-right tabular-nums">
-                {{ s.values[i] == null ? '–' : num(s.values[i]) }}
+                {{ s.values[i] == null ? '–' : caf ? Math.round(s.values[i]) : num(s.values[i]) }}
               </td>
             </tr>
           </tbody>
@@ -244,15 +251,15 @@ const detailSegments = computed(() =>
         <Avatar v-if="detailUser.id !== me.id" :user="detailUser" :color="colors[detailUser.id]" :size="24" class="rounded-full" />
         <div>
           <h3 class="font-bold">{{ detailUser.id === me.id ? 'Mon détail' : `Détail de ${detailUser.name}` }}</h3>
-          <p class="text-sm text-muted">{{ detailUnit === 'consos' ? 'Consos par catégorie, sans alcool compris' : 'Verres standard par catégorie' }}</p>
+          <p class="text-sm text-muted">{{ caf ? 'Caféine par catégorie, en mg' : detailUnit === 'consos' ? 'Consos par catégorie, sans alcool compris' : 'Verres standard par catégorie' }}</p>
         </div>
-        <div class="ml-auto flex rounded-full bg-white/5 p-1">
+        <div v-if="!caf" class="ml-auto flex rounded-full bg-white/5 p-1">
           <button class="seg" :aria-pressed="detailUnit === 'consos'" @click="detailUnit = 'consos'">Consos</button>
           <button class="seg" :aria-pressed="detailUnit === 'verres'" @click="detailUnit = 'verres'">Verres</button>
         </div>
       </div>
       <div class="px-3 pt-3 pb-2">
-        <StackedBars :days="days" :segments="detailSegments" :rows="detailRows" :unit="detailUnit" />
+        <StackedBars :days="days" :segments="detailSegments" :rows="detailRows" :unit="caf ? 'mg' : detailUnit" />
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-1 px-5 pb-4 text-sm text-muted">
         <span v-for="a in detailSegments" :key="a.key" class="flex items-center gap-1.5">

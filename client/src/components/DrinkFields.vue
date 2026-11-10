@@ -1,8 +1,9 @@
 <script setup>
 // Champs d'une boisson (catégorie, volume, degré, nom), partagés par le « + » et la carte.
-// v-model = objet { name, cat, cl, abv } modifié sur place. Sans alcool : pas de degré (0).
-import { watch } from 'vue'
-import { CATS, MAX_CL, catOf, num } from '../api'
+// v-model = objet { name, cat, cl, abv, caffeine } modifié sur place. Sans alcool : pas de degré (0).
+// Caféine (mg) : estimée d'après le nom, la catégorie et le volume tant qu'on n'y a pas touché.
+import { ref, watch } from 'vue'
+import { CATS, MAX_CL, MAX_CAFFEINE, catOf, num, guessCaffeine } from '../api'
 import Icon from './Icon.vue'
 
 const drink = defineModel({ type: Object, required: true })
@@ -17,6 +18,16 @@ watch(() => drink.value.cat, (c) => {
   if (!catOf(c).alco) drink.value.abv = 0
   else if (!(drink.value.abv > 0)) drink.value.abv = catOf(c).degrees.find((d) => d > 0)
 })
+// Valeur déjà donnée (fiche qu'on modifie) différente de l'estimation : c'est un choix, on n'y touche plus
+const autoCaf = ref(drink.value.caffeine == null || drink.value.caffeine === guessCaffeine(drink.value))
+if (drink.value.caffeine == null) drink.value.caffeine = guessCaffeine(drink.value)
+watch(() => [drink.value.name, drink.value.cat, drink.value.cl], () => {
+  if (autoCaf.value || !catOf(drink.value.cat).caf) drink.value.caffeine = guessCaffeine(drink.value)
+})
+const setCaf = (mg) => {
+  autoCaf.value = false
+  drink.value.caffeine = mg
+}
 const chip = 'rounded-full px-3 py-1 text-sm font-medium transition-colors'
 </script>
 
@@ -81,6 +92,31 @@ const chip = 'rounded-full px-3 py-1 text-sm font-medium transition-colors'
             class="field w-20 px-3 py-1.5 text-base text-ink"
           />
           °
+        </label>
+      </div>
+    </div>
+
+    <div v-if="catOf(drink.cat).caf">
+      <span class="kicker">Caféine</span>
+      <div class="mt-2 flex flex-wrap items-center gap-1.5">
+        <button
+          v-for="mg in catOf(drink.cat).caf"
+          :key="mg"
+          type="button"
+          :class="[chip, 'tabular-nums', drink.caffeine === mg ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink']"
+          @click="setCaf(mg)"
+        >
+          {{ mg ? `${mg} mg` : 'Aucune' }}
+        </button>
+        <label class="flex items-center gap-1.5 text-muted">
+          <input
+            :value="drink.caffeine"
+            type="number" inputmode="numeric" min="0" :max="MAX_CAFFEINE" step="1"
+            aria-label="Caféine en mg"
+            class="field w-20 px-3 py-1.5 text-base text-ink"
+            @input="setCaf($event.target.value === '' ? 0 : Math.min(MAX_CAFFEINE, Math.max(0, Math.round(Number($event.target.value)) || 0)))"
+          />
+          mg
         </label>
       </div>
     </div>

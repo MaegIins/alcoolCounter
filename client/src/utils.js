@@ -3,18 +3,20 @@
 // Catégories (couleurs des graphes). Pour en ajouter une : ici + CATS côté serveur (server/app.js) + style.css.
 // degrees = raccourcis proposés quand on choisit le degré d'un verre de cette catégorie.
 // icon = emoji (textes simples), fa = icône Font Awesome (affichage). alco: false = sans alcool (dégustations : Monster, sodas, café…), noté comme le reste mais hors score.
+// caf = raccourcis de caféine (mg) proposés pour cette catégorie (vide : pas de champ caféine).
 export const CATS = [
   { key: 'biere', label: 'Bière', icon: '🍺', fa: 'fa-beer-mug-empty', color: 'bg-biere', hex: '#d4ac3a', alco: true, degrees: [0, 4.5, 5, 6, 6.5, 7, 8, 8.5, 10] },
   { key: 'vin', label: 'Vin', icon: '🍷', fa: 'fa-wine-glass', color: 'bg-vin', hex: '#a33447', alco: true, degrees: [11, 12, 12.5, 13, 14] },
   { key: 'fort', label: 'Fort', icon: '🥃', fa: 'fa-whiskey-glass', color: 'bg-fort', hex: '#6f93ad', alco: true, degrees: [18, 25, 35, 40, 45, 50] },
-  { key: 'cocktail', label: 'Cocktail', icon: '🍹', fa: 'fa-martini-glass-citrus', color: 'bg-cocktail', hex: '#739b4f', alco: true, degrees: [0, 6, 8, 10, 12, 15] },
+  { key: 'shot', label: 'Shot', icon: '🔥', fa: 'fa-fire', color: 'bg-shot', hex: '#c4703a', alco: true, degrees: [15, 18, 25, 35, 40, 45, 50], caf: [0, 80] },
+  { key: 'cocktail', label: 'Cocktail', icon: '🍹', fa: 'fa-martini-glass-citrus', color: 'bg-cocktail', hex: '#739b4f', alco: true, degrees: [0, 6, 8, 10, 12, 15], caf: [0, 80] },
   { key: 'autre', label: 'Autre alcool', icon: '🍾', fa: 'fa-champagne-glasses', color: 'bg-autre', hex: '#9277a8', alco: true, degrees: [4, 5, 6, 8, 12] },
-  { key: 'energy', label: 'Énergisant', icon: '⚡', fa: 'fa-bolt', color: 'bg-energy', hex: '#9fb33a', alco: false, degrees: [] },
-  { key: 'soft', label: 'Soft', icon: '🥤', fa: 'fa-glass-water', color: 'bg-soft', hex: '#4f8f8a', alco: false, degrees: [] },
-  { key: 'chaud', label: 'Café, thé', icon: '☕', fa: 'fa-mug-hot', color: 'bg-chaud', hex: '#8a6448', alco: false, degrees: [] },
+  { key: 'energy', label: 'Énergisant', icon: '⚡', fa: 'fa-bolt', color: 'bg-energy', hex: '#9fb33a', alco: false, degrees: [], caf: [80, 160, 200] },
+  { key: 'soft', label: 'Soft', icon: '🥤', fa: 'fa-glass-water', color: 'bg-soft', hex: '#4f8f8a', alco: false, degrees: [], caf: [0, 10, 35, 50] },
+  { key: 'chaud', label: 'Café, thé', icon: '☕', fa: 'fa-mug-hot', color: 'bg-chaud', hex: '#8a6448', alco: false, degrees: [], caf: [0, 40, 80, 120, 200] },
 ]
 export const ALCO_CATS = CATS.filter((c) => c.alco)
-export const catOf = (key) => CATS.find((c) => c.key === key) ?? CATS[4]
+export const catOf = (key) => CATS.find((c) => c.key === key) ?? CATS.find((c) => c.key === 'autre')
 
 // Formats proposés : on choisit le contenant, puis l'appli demande le degré (abv = valeur par défaut).
 export const FORMATS = [
@@ -23,13 +25,42 @@ export const FORMATS = [
   { name: 'Pinte', cat: 'biere', cl: 50, abv: 5 },
   { name: 'Verre de vin', cat: 'vin', cl: 12, abv: 12.5 },
   { name: 'Coupe', cat: 'vin', cl: 12, abv: 12 },
-  { name: 'Shot', cat: 'fort', cl: 4, abv: 40 },
+  { name: 'Shot', cat: 'shot', cl: 4, abv: 40 },
   { name: 'Cocktail', cat: 'cocktail', cl: 20, abv: 10 },
   { name: 'Cidre', cat: 'autre', cl: 25, abv: 5 },
   { name: 'Canette', cat: 'energy', cl: 50, abv: 0 },
   { name: 'Soda', cat: 'soft', cl: 33, abv: 0 },
   { name: 'Café', cat: 'chaud', cl: 5, abv: 0 },
 ]
+// Caféine (mg) estimée d'après le nom, la catégorie et le volume : même règle que le serveur (guessCaffeine).
+// Repères : expresso 80 mg, thé 40 mg, énergisant 32 mg/100 ml (Monster 50 cl = 160 mg), cola 10 mg/100 ml.
+const fold = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+export function guessCaffeine({ name = '', cat, cl = 0 }) {
+  const n = fold(String(name ?? ''))
+  if (cat === 'chaud') {
+    if (/tisane|infusion|verveine|camomille|rooibos/.test(n)) return 0
+    if (/deca/.test(n)) return 3
+    if (/chocolat|cacao/.test(n)) return 5
+    if (/\bmate\b/.test(n)) return 80
+    if (/\bthe\b|tea|chai|matcha/.test(n)) return 40
+    return 80
+  }
+  if (cat === 'energy') return Math.round(cl * 3.2)
+  if (cat === 'soft') {
+    if (/cola|coca|pepsi/.test(n)) return Math.round(cl)
+    if (/ice ?tea|the glace|\bmate\b/.test(n)) return Math.round(cl * 1.5)
+    return 0
+  }
+  if (cat === 'cocktail' || cat === 'shot') {
+    if (/espresso|expresso|cafe|coffee/.test(n)) return 80
+    if (/red ?bull|monster|bomb|energ/.test(n)) return 80
+  }
+  return 0
+}
+// Caféine sur une journée : repère des autorités sanitaires (EFSA) = 400 mg par jour pour un adulte
+export const CAFFEINE_DAY = 400
+export const MAX_CAFFEINE = 1000
+
 // Même identité qu'une boisson habituelle côté serveur : nom + catégorie + volume + degré
 export const drinkId = (d) => `${d.name}|${d.cat}|${d.cl}|${d.abv}`
 export const SUSPECT_UNITS = 30
@@ -137,21 +168,22 @@ export function parseUrl(pathname, search = '') {
   return { ...none, view }
 }
 
-// États de profil selon le % de succès débloqués (secrets compris). color = anneau autour de l'avatar.
+// Palier de profil selon le % de succès débloqués (secrets compris) : juste une couleur, l'anneau autour de l'avatar.
+// (Les titres, eux, sont les titres cachés : voir server/titles.js.)
 export const RANKS = [
-  { min: 0, label: 'Bleu', icon: '🐣', color: '#6e6a62' },
-  { min: 10, label: 'Touriste', icon: '🧳', color: '#978e76' },
-  { min: 20, label: 'Régulier', icon: '🍺', color: '#4f8f8a' },
-  { min: 35, label: 'Pilier de comptoir', icon: '🪵', color: '#739b4f' },
-  { min: 50, label: 'Vieux briscard', icon: '🎖️', color: '#6f93ad' },
-  { min: 65, label: 'Taulier', icon: '🔑', color: '#9277a8' },
-  { min: 80, label: 'Patron du rade', icon: '👑', color: '#b8432c' },
-  { min: 100, label: 'Propriétaire des murs', icon: '🏰', color: '#d4bc35' },
+  { min: 0, color: '#6e6a62' },
+  { min: 10, color: '#978e76' },
+  { min: 20, color: '#4f8f8a' },
+  { min: 35, color: '#739b4f' },
+  { min: 50, color: '#6f93ad' },
+  { min: 65, color: '#9277a8' },
+  { min: 80, color: '#b8432c' },
+  { min: 100, color: '#d4bc35' },
 ]
-/** État d'un profil : { ...rang, i, pct, got, total, next, missing (succès qu'il manque pour le suivant) } */
+/** Palier d'un profil : { ...palier, i, pct, got, total, next } */
 export function rankOf(got, total) {
   const pct = total ? (100 * got) / total : 0
   const i = RANKS.findLastIndex((r) => pct >= r.min)
   const next = RANKS[i + 1] ?? null
-  return { ...RANKS[i], i, pct, got, total, next, missing: next ? Math.ceil((next.min * total) / 100) - got : 0 }
+  return { ...RANKS[i], i, pct, got, total, next }
 }

@@ -4,6 +4,7 @@ import { api, ALCO_CATS as CATS, SUSPECT_UNITS, fmt, num, prettyDay, today, addD
 import Avatar from './Avatar.vue'
 import { confetti, toast, vibrate } from '../juice'
 import Icon from './Icon.vue'
+import { titleFor } from '../ranks'
 
 const props = defineProps({ day: String, me: Object, colors: Object, refreshKey: Number })
 const emit = defineEmits(['open']) // clic sur quelqu'un : ouvrir sa fiche
@@ -39,15 +40,26 @@ const title = computed(() => {
   return 'Depuis le début'
 })
 
+// Personne n'a bu d'alcool sur la période : on classe à la caféine (mg), comme le serveur
+const byCaf = computed(() => rows.value.every((r) => r.total === 0) && rows.value.some((r) => r.caffeine > 0))
+const score = (r) => (byCaf.value ? r.caffeine : r.total)
+// Pas d'alcool mais de la caféine : classé sous ceux qui ont bu, à la caféine (en mg)
+const cafRow = (r) => !r.total && r.caffeine > 0
+const ranked = (r) => r.total > 0 || r.caffeine > 0
+const scoreText = (r) => (cafRow(r) ? String(r.caffeine) : num(r.total))
 const max = computed(() => Math.max(1, ...rows.value.map((r) => r.total)))
+const maxCaf = computed(() => Math.max(1, ...rows.value.filter(cafRow).map((r) => r.caffeine)))
 // Rang « sportif » : les ex æquo partagent le même rang (1, 1, 3…), au dixième près comme à l'affichage
 const tenths = (n) => Math.round(n * 10)
+const rankKey = (r) => (r.total > 0 ? `a${tenths(r.total)}` : `c${r.caffeine}`)
 const ranks = computed(() => {
   const m = new Map()
-  rows.value.forEach((r, i) => m.set(r.id, i && tenths(r.total) === tenths(rows.value[i - 1].total) ? m.get(rows.value[i - 1].id) : i + 1))
+  rows.value.forEach((r, i) => m.set(r.id, i && rankKey(r) === rankKey(rows.value[i - 1]) ? m.get(rows.value[i - 1].id) : i + 1))
   return m
 })
-const drinkers = computed(() => rows.value.filter((r) => r.total > 0))
+const drinkers = computed(() => rows.value.filter((r) => score(r) > 0))
+// Séparation avant le premier « que de la caféine », quand d'autres ont bu de l'alcool
+const firstCafId = computed(() => (byCaf.value ? null : rows.value.find(cafRow)?.id ?? null))
 // Podium : les 3 premiers (ex æquo compris dans la limite de 3 places), affichés 2 · 1 · 3
 const podium = computed(() => {
   const top = drinkers.value.slice(0, 3)
@@ -65,6 +77,8 @@ const shown = computed(() => {
   if (myIndex.value < TOP) return rows.value.slice(0, TOP)
   return [...rows.value.slice(0, TOP - 1), rows.value[myIndex.value]]
 })
+// Lignes affichées, avec la séparation « Que de la caféine » glissée avant la première concernée
+const listed = computed(() => shown.value.flatMap((r) => (r.id === firstCafId.value ? [{ sep: true }, r] : [r])))
 const hiddenCount = computed(() => rows.value.length - shown.value.length)
 
 let loadSeq = 0
@@ -75,7 +89,8 @@ function celebrate(before, after) {
   const same = key === lastKey
   lastKey = key
   if (!same || !before.length || props.day !== today()) return
-  const lead = (rows) => (rows[0]?.total > 0 && rows[0].total > (rows[1]?.total ?? 0) ? rows[0].id : null)
+  const val = (r) => (r ? (r.total || (rows.every((x) => !x.total) ? r.caffeine / 1000 : 0)) : 0)
+  const lead = (rows) => (val(rows[0]) > 0 && val(rows[0]) > val(rows[1]) ? rows[0].id : null)
   if (lead(after) === props.me.id && lead(before) !== props.me.id) {
     confetti()
     vibrate([40, 60, 40])
@@ -119,6 +134,9 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
     </div>
 
     <p v-if="!drinkers.length && !loading" class="py-6 text-center text-muted">Personne n'a encore rien bu.</p>
+    <p v-else-if="byCaf" class="flex items-center gap-2 rounded-xl bg-caf/10 px-4 py-2.5 text-sm text-caf">
+      <Icon name="fa-mug-hot" /> Personne n'a bu d'alcool : c'est la caféine qui départage.
+    </p>
 
     <!-- Podium -->
     <div v-if="podium.length" class="flex items-end justify-center gap-3 pt-2">
@@ -131,7 +149,7 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
       >
         <Avatar :user="r" :color="colors[r.id]" :size="ranks.get(r.id) === 1 ? 64 : 48" class="rounded-full" />
         <span class="mt-1.5 w-full truncate text-center font-bold" :class="r.id === me.id && 'text-hi'">{{ r.name }}</span>
-        <span class="font-display text-xl tabular-nums" :class="ranks.get(r.id) === 1 && 'neon'">{{ num(r.total) }}</span>
+        <span class="font-display text-xl tabular-nums" :class="ranks.get(r.id) === 1 && (byCaf ? 'neon-caf' : 'neon')">{{ scoreText(r) }}<small v-if="cafRow(r)" class="text-xs"> mg</small></span>
         <div
           class="tile mt-2 flex w-full items-start justify-center rounded-b-none pt-1.5 font-display text-3xl"
           :class="[STEP[ranks.get(r.id)] ?? 'h-11', ranks.get(r.id) === 1 ? '!bg-hi/20 text-hi' : 'text-muted']"
@@ -143,9 +161,12 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
 
     <div v-if="rows.length" class="box">
       <TransitionGroup tag="ol" name="rank" class="divide-y divide-white/5">
+        <template v-for="r in listed" :key="r.sep ? 'sep' : r.id">
+        <li v-if="r.sep" class="flex items-center gap-2 bg-caf/5 px-4 py-1.5 text-xs font-semibold text-caf">
+          <Icon name="fa-mug-hot" /> Que de la caféine
+        </li>
         <li
-          v-for="r in shown"
-          :key="r.id"
+          v-else
           class="flex cursor-pointer items-center gap-3 px-4 py-3.5 transition-colors hover:bg-white/5"
           :class="r.id === me.id && 'bg-hi/10'"
           role="button"
@@ -154,41 +175,47 @@ watch([() => range.value.join(), () => props.refreshKey], load, { immediate: tru
           @click="emit('open', r.id)"
           @keydown.enter="emit('open', r.id)"
         >
-          <span class="w-7 text-center font-display text-lg tabular-nums" :class="!r.total && 'text-muted/40'">
-            {{ r.total ? ranks.get(r.id) : '–' }}
+          <span class="w-7 text-center font-display text-lg tabular-nums" :class="!ranked(r) ? 'text-muted/40' : cafRow(r) && !byCaf && 'text-caf/70'">
+            {{ ranked(r) ? ranks.get(r.id) : '–' }}
           </span>
           <Avatar :user="r" :color="colors[r.id]" :size="40" class="rounded-full" />
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-2">
               <span class="truncate text-lg font-bold">{{ r.name }}</span>
+              <span v-if="titleFor(r.id)" class="min-w-0 truncate text-xs text-hi/70">{{ titleFor(r.id) }}</span>
               <span v-if="r.id === me.id" class="text-sm font-semibold text-hi">toi</span>
               <span
                 v-if="r.suspect_days"
                 class="shrink-0 rounded-full bg-neon px-2 text-xs font-bold text-paper"
-                :title="`${r.suspect_days} jour(s) à plus de ${SUSPECT_UNITS} verres`"
+                :data-tip="`${r.suspect_days} jour(s) à plus de ${SUSPECT_UNITS} verres`"
               >
                 suspect{{ period !== 'day' && r.suspect_days > 1 ? ` ×${r.suspect_days}` : '' }}
               </span>
             </span>
             <span class="block text-sm text-muted">
-              {{ r.count }} conso{{ r.count > 1 ? 's' : '' }}<template v-if="r.wins"> · <Icon name="crown" class="text-hi" /> {{ r.wins }}</template><template v-if="r.eau"> · <Icon name="water" class="text-fort" /> {{ r.eau }}</template><template v-if="r.clope"> · <Icon name="smoke" /> {{ r.clope }}</template>
+              <template v-if="cafRow(r)">{{ r.caf_count }} boisson{{ r.caf_count > 1 ? 's' : '' }} caféinée{{ r.caf_count > 1 ? 's' : '' }}</template>
+              <template v-else>{{ r.count }} conso{{ r.count > 1 ? 's' : '' }}</template><template v-if="r.wins"> · <Icon name="crown" class="text-hi" /> {{ r.wins }}</template><template v-if="r.eau"> · <Icon name="water" class="text-fort" /> {{ r.eau }}</template><template v-if="r.clope"> · <Icon name="smoke" /> {{ r.clope }}</template>
             </span>
-            <span v-if="r.total" class="mt-1.5 flex h-1.5 gap-px overflow-hidden rounded-full bg-white/5">
+            <span v-if="cafRow(r)" class="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-white/5">
+              <span class="h-full bg-caf transition-all duration-300" :style="{ width: `${(r.caffeine / maxCaf) * 100}%` }" :data-tip="`${r.caffeine} mg de caféine`" />
+            </span>
+            <span v-else-if="r.total" class="mt-1.5 flex h-1.5 gap-px overflow-hidden rounded-full bg-white/5">
               <span
                 v-for="c in CATS"
                 :key="c.key"
                 :class="c.color"
                 class="h-full transition-all duration-300"
                 :style="{ width: `${(r[c.key] / max) * 100}%` }"
-                :title="`${c.label} : ${fmt(r[c.key])}`"
+                :data-tip="`${c.label} : ${fmt(r[c.key])}`"
               />
             </span>
           </span>
           <span class="text-right">
-            <span class="block font-display text-xl leading-none tabular-nums">{{ num(r.total) }}</span>
-            <span class="text-xs text-muted">verre{{ r.total >= 2 ? 's' : '' }}</span>
+            <span class="block font-display text-xl leading-none tabular-nums">{{ scoreText(r) }}</span>
+            <span class="text-xs text-muted">{{ cafRow(r) ? 'mg' : `verre${r.total >= 2 ? 's' : ''}` }}</span>
           </span>
         </li>
+        </template>
       </TransitionGroup>
       <button
         v-if="hiddenCount || (expanded && rows.length > TOP)"

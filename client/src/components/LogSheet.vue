@@ -111,7 +111,7 @@ function pickPlace(p) {
 }
 
 function choose(d) {
-  sel.value = { name: d.name, cat: d.cat, cl: d.cl, abv: d.abv, product_id: d.product_id ?? null, product_photo_key: d.product_photo_key ?? null, mode: 'product' }
+  sel.value = { name: d.name, cat: d.cat, cl: d.cl, abv: d.abv, caffeine: d.caffeine, product_id: d.product_id ?? null, product_photo_key: d.product_photo_key ?? null, mode: 'product' }
   step.value = 'details'
 }
 function chooseFormat(f) {
@@ -155,6 +155,12 @@ const sizes = computed(() => {
 })
 const name = computed(() => sel.value?.name?.trim() || sel.value?.label || '')
 const units = computed(() => (sel.value && sel.value.cl > 0 && sel.value.abv > 0 ? unitsOf(sel.value) : 0))
+// Caféine du verre : celle d'une fiche de la carte suit la contenance choisie
+const caffeine = computed(() => {
+  const d = sel.value
+  if (!d?.caffeine) return 0
+  return Math.round(baseCl.value ? (d.caffeine * Number(d.cl)) / baseCl.value : d.caffeine)
+})
 const valid = computed(() => {
   const d = sel.value
   if (!d) return false
@@ -194,7 +200,7 @@ async function save() {
       toast('Modifié')
     } else {
       const d = sel.value
-      const drink = { name: name.value, cat: d.cat, cl: Number(d.cl), abv: Number(d.abv) }
+      const drink = { name: name.value, cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), caffeine: d.caffeine }
       // Nouvelle boisson à mettre sur la carte : d'abord le produit (déjà là = pas grave), la conso y sera rattachée
       if (toCarte.value && d.mode !== 'product') await api('/products', { method: 'POST', body: drink }).catch(() => {})
       const row = await api('/drinks', {
@@ -369,6 +375,7 @@ async function remove() {
               <div class="mt-1 text-sm" :class="units ? 'text-hi' : 'text-faint'">
                 {{ units ? `+${num(units)} verre${units >= 2 ? 's' : ''} standard` : 'Hors score (sans alcool)' }}
               </div>
+              <div v-if="caffeine" class="text-sm text-chaud"><Icon name="fa-mug-hot" /> {{ caffeine }} mg de caféine</div>
               <button v-if="sel.product_id" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" @click="toPage(sel.product_id)">
                 Page de la boisson <Icon name="next" />
               </button>

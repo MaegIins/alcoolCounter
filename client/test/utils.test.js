@@ -6,7 +6,7 @@ import {
 } from '../src/utils.js'
 
 test('CATS : clés alignées sur le serveur, couleurs uniques ; formats valides', () => {
-  assert.deepEqual(CATS.map((c) => c.key), ['biere', 'vin', 'fort', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
+  assert.deepEqual(CATS.map((c) => c.key), ['biere', 'vin', 'fort', 'shot', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
   assert.equal(new Set(CATS.map((c) => c.hex)).size, CATS.length)
   const cat = Object.fromEntries(CATS.map((c) => [c.key, c]))
   // Formats alcoolisés : un degré ; sans alcool : 0
@@ -122,16 +122,12 @@ test('URL de chaque écran, aller-retour', async () => {
   assert.equal(parseUrl('/profil/abc').view, 'home')
 })
 
-test('rankOf : état du profil selon le % de succès, et ce qu’il manque pour le suivant', () => {
-  assert.equal(rankOf(0, 82).label, 'Bleu')
-  assert.equal(rankOf(0, 0).label, 'Bleu')
-  const r = rankOf(37, 82) // 45 %
-  assert.equal(r.label, 'Pilier de comptoir')
-  assert.equal(r.next.label, 'Vieux briscard')
-  assert.equal(r.missing, 4) // 41 = 50 % de 82
-  assert.equal(rankOf(41, 82).label, 'Vieux briscard')
+test('rankOf : palier (couleur de l’anneau) selon le % de succès', () => {
+  assert.equal(rankOf(0, 82).i, 0)
+  assert.equal(rankOf(0, 0).i, 0)
+  assert.equal(rankOf(37, 82).i, 3) // 45 %
+  assert.equal(rankOf(41, 82).i, 4) // 50 %
   const top = rankOf(82, 82)
-  assert.deepEqual([top.label, top.next, top.missing], ['Propriétaire des murs', null, 0])
-  assert.equal(rankOf(81, 82).label, 'Patron du rade')
+  assert.deepEqual([top.i, top.next], [RANKS.length - 1, null])
   assert.ok(RANKS.every((x, i) => !i || x.min > RANKS[i - 1].min))
 })

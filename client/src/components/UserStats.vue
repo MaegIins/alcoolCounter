@@ -235,7 +235,7 @@ const placeSplit = computed(() => {
                   :key="j"
                   class="h-[11px] w-[11px] rounded-[2px]"
                   :class="c ? LEVEL_CLASS[level(c)] : ''"
-                  :title="c ? `${dayLabel(c.day, true)} : ${val(c) ? fmtVal(c) : 'rien'}` : ''"
+                  :data-tip="c ? `${dayLabel(c.day, true)} : ${val(c) ? fmtVal(c) : 'rien'}` : ''"
                 />
               </div>
             </div>
@@ -250,7 +250,7 @@ const placeSplit = computed(() => {
       <section>
         <h2 class="kicker mb-3 border-b border-line pb-2">Les 12 derniers mois</h2>
         <div class="flex h-40 items-end gap-1">
-          <div v-for="m in d.months" :key="m.month" class="group flex h-full flex-1 flex-col items-center justify-end" :title="`${monthLabel(m.month)} : ${fmtVal(m)}`">
+          <div v-for="m in d.months" :key="m.month" class="group flex h-full flex-1 flex-col items-center justify-end" :data-tip="`${monthLabel(m.month)} : ${fmtVal(m)}`">
             <span class="mb-1 text-[10px] text-muted tabular-nums opacity-0 transition-opacity group-hover:opacity-100">{{ val(m) ? fmtVal(m) : '' }}</span>
             <div class="w-full rounded-t bg-hi/80 transition-[height] group-hover:bg-hi" :style="{ height: pct(m, d.months) }" />
           </div>
@@ -316,7 +316,7 @@ const placeSplit = computed(() => {
           <span v-if="peakDay != null" class="font-medium normal-case tracking-normal text-muted">surtout le {{ WEEK_LONG[peakDay] }}</span>
         </h2>
         <div class="flex h-28 items-end gap-2">
-          <div v-for="(w, i) in d.weekdays" :key="i" class="group flex h-full flex-1 flex-col items-center justify-end" :title="`${WEEK_LONG[i]} : ${fmtVal(w)}`">
+          <div v-for="(w, i) in d.weekdays" :key="i" class="group flex h-full flex-1 flex-col items-center justify-end" :data-tip="`${WEEK_LONG[i]} : ${fmtVal(w)}`">
             <span class="mb-1 text-[10px] text-muted tabular-nums">{{ val(w) ? fmtVal(w) : '' }}</span>
             <div class="w-full rounded-t bg-hi/80 group-hover:bg-hi" :style="{ height: pct(w, d.weekdays) }" />
           </div>
@@ -333,7 +333,7 @@ const placeSplit = computed(() => {
           <span v-if="peakHour != null" class="font-medium normal-case tracking-normal text-muted">pic vers {{ peakHour }}h</span>
         </h2>
         <div class="flex h-24 items-end gap-[2px]">
-          <div v-for="(h, i) in d.hours" :key="i" class="group flex h-full flex-1 items-end" :title="`${i}h : ${fmtVal(h)}`">
+          <div v-for="(h, i) in d.hours" :key="i" class="group flex h-full flex-1 items-end" :data-tip="`${i}h : ${fmtVal(h)}`">
             <div class="w-full rounded-t-sm bg-hi/70 group-hover:bg-hi" :style="{ height: pct(h, d.hours) }" />
           </div>
         </div>
@@ -381,7 +381,7 @@ const placeSplit = computed(() => {
             <div class="text-xs text-muted"><Icon name="star" /> en moyenne</div>
           </div>
           <div class="flex h-16 flex-1 items-end gap-[3px]">
-            <div v-for="(n, i) in critic.hist" :key="i" class="flex-1 rounded-t-sm" :class="n ? 'bg-hi/80' : 'bg-white/5'" :style="{ height: `${Math.max(6, (n / critic.max) * 100)}%` }" :title="`${num((i + 1) / 2)} étoile${i ? 's' : ''} : ${n}`" />
+            <div v-for="(n, i) in critic.hist" :key="i" class="flex-1 rounded-t-sm" :class="n ? 'bg-hi/80' : 'bg-white/5'" :style="{ height: `${Math.max(6, (n / critic.max) * 100)}%` }" :data-tip="`${num((i + 1) / 2)} étoile${i ? 's' : ''} : ${n}`" />
           </div>
         </div>
         <div class="mt-1 flex justify-between pl-[4.5rem] text-[10px] text-faint"><span>½</span><span>5 <Icon name="star" /></span></div>
@@ -399,12 +399,12 @@ const placeSplit = computed(() => {
         </h2>
         <div class="grid grid-cols-3 gap-2 text-center">
           <div class="rounded-xl bg-white/5 py-3"><div class="font-display text-2xl text-hi">{{ explorer.distinct }}</div><div class="text-xs font-semibold text-muted">boissons différentes</div></div>
-          <div class="rounded-xl bg-white/5 px-1 py-3"><div class="font-display text-2xl text-hi">{{ explorer.favShare }} %</div><div class="truncate text-xs font-semibold text-muted" :title="explorer.fav">{{ explorer.fav ?? 'la préférée' }}</div></div>
+          <div class="rounded-xl bg-white/5 px-1 py-3"><div class="font-display text-2xl text-hi">{{ explorer.favShare }} %</div><div class="truncate text-xs font-semibold text-muted" :data-tip="explorer.fav">{{ explorer.fav ?? 'la préférée' }}</div></div>
           <div class="rounded-xl bg-white/5 py-3"><div class="font-display text-2xl text-hi">{{ explorer.triedOnly }}</div><div class="text-xs font-semibold text-muted">« déjà bues »</div></div>
         </div>
         <p class="mt-3 mb-1 text-xs font-semibold text-muted">Premières fois par mois</p>
         <div class="flex h-12 items-end gap-1">
-          <div v-for="m in explorer.newByMonth" :key="m.month" class="flex-1 rounded-t-sm" :class="m.count ? 'bg-soft' : 'bg-white/5'" :style="{ height: `${Math.max(6, (m.count / explorer.max) * 100)}%` }" :title="`${monthLabel(m.month)} : ${m.count}`" />
+          <div v-for="m in explorer.newByMonth" :key="m.month" class="flex-1 rounded-t-sm" :class="m.count ? 'bg-soft' : 'bg-white/5'" :style="{ height: `${Math.max(6, (m.count / explorer.max) * 100)}%` }" :data-tip="`${monthLabel(m.month)} : ${m.count}`" />
         </div>
         <div class="mt-1 flex gap-1">
           <span v-for="m in explorer.newByMonth" :key="m.month" class="flex-1 text-center text-[10px] text-faint">{{ monthLabel(m.month) }}</span>

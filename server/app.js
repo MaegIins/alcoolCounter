@@ -6,13 +6,14 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import * as webpush from 'web-push'
 import { computeBadges, computeBadgeState, BADGES, GROUPS, isLate } from './badges.js'
+import { computeTitles, TITLES } from './titles.js'
 
 // Chaque conso est enregistrée avec son volume et son degré : le score vient de l'alcool pur réellement bu.
 // 1 verre standard = 10 g d'alcool pur ; grammes = cl × 10 × degré/100 × 0,8 (densité de l'éthanol).
 // Catégories = couleurs des graphes ; pour en ajouter une : ici + côté client (utils.js) + style.css.
 // Les premières sont alcoolisées (elles font le score) ; les suivantes sont là pour les dégustations
 // (Monster, sodas, café…) : on les note comme le reste, mais elles ne comptent pas (degré 0).
-export const ALCO = ['biere', 'vin', 'fort', 'cocktail', 'autre']
+export const ALCO = ['biere', 'vin', 'fort', 'shot', 'cocktail', 'autre']
 export const SOFT = ['energy', 'soft', 'chaud']
 export const CATS = [...ALCO, ...SOFT]
 export const MAX_REVIEW = 1000
@@ -20,6 +21,32 @@ export const MAX_COMMENT = 500
 export const MAX_PHOTO = 200_000 // data URL (~150 ko) : le client compresse à ~100 ko, au-delà on refuse
 export const MAX_CL = 200 // par conso (une bouteille de 1,5 L de vin passe en plusieurs fois)
 export const MAX_DRINKS_PER_DAY = 100
+export const MAX_CAFFEINE = 1000 // mg par conso
+// Caféine (mg) estimée d'une boisson d'après son nom, sa catégorie et son volume, quand personne ne l'a donnée.
+// Même règle côté client (utils.js) pour préremplir le champ. Repères : expresso 80 mg, thé 40 mg,
+// énergisant 32 mg/100 ml (Monster 50 cl = 160 mg), cola 10 mg/100 ml.
+export function guessCaffeine({ name = '', cat, cl = 0 }) {
+  const n = fold(String(name))
+  if (cat === 'chaud') {
+    if (/tisane|infusion|verveine|camomille|rooibos/.test(n)) return 0
+    if (/deca/.test(n)) return 3
+    if (/chocolat|cacao/.test(n)) return 5
+    if (/\bmate\b/.test(n)) return 80
+    if (/\bthe\b|tea|chai|matcha/.test(n)) return 40
+    return 80
+  }
+  if (cat === 'energy') return Math.round(cl * 3.2)
+  if (cat === 'soft') {
+    if (/cola|coca|pepsi/.test(n)) return Math.round(cl)
+    if (/ice ?tea|the glace|\bmate\b/.test(n)) return Math.round(cl * 1.5)
+    return 0
+  }
+  if (cat === 'cocktail' || cat === 'shot') {
+    if (/espresso|expresso|cafe|coffee/.test(n)) return 80
+    if (/red ?bull|monster|bomb|energ/.test(n)) return 80
+  }
+  return 0
+}
 export const SUSPECT_UNITS = 30 // au-delà : badge « suspect » (on ne bloque pas, on affiche)
 export const EXTRAS = ['eau', 'clope'] // comptés à part, hors score
 // Code de bande : 6 caractères sans ambiguïté (pas de 0/O, 1/I/L)
@@ -88,7 +115,10 @@ export const checkDrink = (b) => {
   if (!CATS.includes(cat)) return { error: 'Catégorie inconnue' }
   if (!Number.isFinite(cl) || cl <= 0 || cl > MAX_CL) return { error: `Volume entre 0 et ${MAX_CL} cl` }
   if (!Number.isFinite(abv) || abv < 0 || abv > 100) return { error: 'Degré entre 0 et 100 %' }
-  return { drink: { name, cat, cl: round1(cl), abv: SOFT.includes(cat) ? 0 : round1(abv) } }
+  // Caféine en mg : donnée, sinon estimée
+  const caffeine = b.caffeine == null || b.caffeine === '' ? guessCaffeine({ name, cat, cl }) : Number(b.caffeine)
+  if (!Number.isFinite(caffeine) || caffeine < 0 || caffeine > MAX_CAFFEINE) return { error: `Caféine entre 0 et ${MAX_CAFFEINE} mg` }
+  return { drink: { name, cat, cl: round1(cl), abv: SOFT.includes(cat) ? 0 : round1(abv), caffeine: Math.round(caffeine) } }
 }
 // Infos d'une boisson de la carte, renseignées par qui l'ajoute (toutes facultatives) : comme la fiche d'un film.
 // Seuls les champs présents dans b sont renvoyés (pour un PATCH partiel). Renvoie { info } ou { error }.
@@ -306,7 +336,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'entries'").get()) {
     const OLD = {
       biere: ['Demi', 'biere', 25, 5], pinte: ['Pinte', 'biere', 50, 5], vin: ['Verre de vin', 'vin', 12, 12],
-      shot: ['Shot', 'fort', 3, 40], cocktail: ['Cocktail', 'cocktail', 20, 10],
+      shot: ['Shot', 'shot', 3, 40], cocktail: ['Cocktail', 'cocktail', 20, 10],
     }
     const cols = db.prepare('PRAGMA table_info(entries)').all().map((c) => c.name)
     const ins = db.prepare('INSERT INTO drinks (user_id, day, at, name, cat, cl, abv) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -476,7 +506,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     at INTEGER NOT NULL,
     PRIMARY KEY (user_id, key)
   )`)
-  addCols('notifications', [['badge', 'TEXT']]) // kind = 'badge' : clé du succès débloqué
+  addCols('notifications', [['badge', 'TEXT']]) // kind = 'badge' : clé du succès débloqué (kind = 'title' : clé du titre)
+  // Titres cachés débloqués (voir titles.js) ; users.title = celui affiché sous le pseudo
+  // (NULL : pas encore choisi, le prochain débloqué s'affiche ; '' : aucun, choisi exprès)
+  const titlesTableNew = !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_titles'").get()
+  db.exec(`CREATE TABLE IF NOT EXISTS user_titles (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  )`)
+  addCols('users', [['title', 'TEXT']])
   // shown = annoncé dans le fil d'activité (0 pour ceux enregistrés en silence : déjà là avant, pas « nouveaux »)
   if (!db.prepare('PRAGMA table_info(user_badges)').all().some((c) => c.name === 'shown')) {
     db.exec('ALTER TABLE user_badges ADD COLUMN shown INTEGER NOT NULL DEFAULT 0')
@@ -520,6 +560,21 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       CREATE UNIQUE INDEX IF NOT EXISTS products_photo_key ON products(photo_key);
       COMMIT; PRAGMA foreign_keys = ON;
     `)
+  }
+  // Caféine (mg) de chaque conso et de chaque fiche de la carte. À l'ajout de la colonne : estimée pour l'existant,
+  // et les « Shot » notés en alcool fort (avant la catégorie shot) y passent.
+  if (!db.prepare('PRAGMA table_info(drinks)').all().some((c) => c.name === 'caffeine')) {
+    db.exec('BEGIN')
+    for (const t of ['drinks', 'products']) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN caffeine INTEGER NOT NULL DEFAULT 0`)
+      db.exec(`UPDATE ${t} SET cat = 'shot' WHERE cat = 'fort' AND name = 'Shot' COLLATE NOCASE`)
+      const set = db.prepare(`UPDATE ${t} SET caffeine = ? WHERE id = ?`)
+      for (const r of db.prepare(`SELECT id, name, cat, cl FROM ${t} WHERE cat IN ('chaud', 'energy', 'soft', 'cocktail', 'shot')`).all()) {
+        const mg = guessCaffeine(r)
+        if (mg) set.run(mg, r.id)
+      }
+    }
+    db.exec('COMMIT')
   }
   const photoKey = () => randomBytes(12).toString('hex')
 
@@ -732,7 +787,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Enregistre les succès nouvellement obtenus et les notifie (une seule fois, même si on les reperd puis regagne).
   // read : déjà fêtés à l'écran (toast après une conso) → la notif arrive lue. silent : pas de notif (remplissage initial).
   const syncBadges = (userId, { read = false, silent = false } = {}) => {
-    const got = computeBadges({ ...historyOf(userId), wins: bestWins(userId) })
+    const wins = bestWins(userId)
+    const got = computeBadges({ ...historyOf(userId), wins })
     const have = new Set(db.prepare('SELECT key FROM user_badges WHERE user_id = ?').all(userId).map((r) => r.key))
     const fresh = BADGES.filter((b) => got.has(b.key) && !have.has(b.key))
     const at = now()
@@ -749,7 +805,38 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         tag: `badge:${fresh.map((b) => b.key).join(',')}`,
       })
     }
-    return fresh
+    return [...fresh, ...syncTitles(userId, wins, { read, silent })]
+  }
+  // Titres cachés : même principe que les succès. Renvoie les nouveaux, au format { kind: 'title', key, label, how, icon }.
+  const TITLE = new Map(TITLES.map((t) => [t.key, t]))
+  const titleOut = (key) => { const t = TITLE.get(key); return t && { kind: 'title', key, label: t.label, how: t.how, icon: '🏷️' } }
+  const syncTitles = (userId, wins, { read = false, silent = false } = {}) => {
+    const got = computeTitles({ drinks: db.prepare('SELECT name, cat, abv FROM drinks WHERE user_id = ?').all(userId), wins })
+    const have = new Set(db.prepare('SELECT key FROM user_titles WHERE user_id = ?').all(userId).map((r) => r.key))
+    const fresh = TITLES.filter((t) => got.has(t.key) && !have.has(t.key))
+    if (!fresh.length) return []
+    const at = now()
+    for (const t of fresh) {
+      db.prepare('INSERT OR IGNORE INTO user_titles (user_id, key, at) VALUES (?, ?, ?)').run(userId, t.key, at)
+      if (!silent) db.prepare("INSERT INTO notifications (user_id, actor_id, kind, badge, at, read) VALUES (?, ?, 'title', ?, ?, ?)").run(userId, userId, t.key, at, read ? 1 : 0)
+    }
+    // Pas encore de titre choisi : le nouveau s'affiche (plusieurs d'un coup : celui d'une boisson le plus dur à avoir)
+    const pick = [...fresh].sort((x, y) => !!x.wins - !!y.wins || y.n - x.n)[0]
+    db.prepare('UPDATE users SET title = ? WHERE id = ? AND title IS NULL').run(pick.key, userId)
+    if (!silent && !read) {
+      pushTo(userId, {
+        title: fresh.length === 1 ? `🏷️ Titre débloqué : ${fresh[0].label}` : `🏷️ ${fresh.length} titres débloqués`,
+        body: fresh.map((t) => `${t.label} (${t.how})`).join(' · '),
+        url: `/profil/${userId}?onglet=badges`,
+        tag: `title:${fresh.map((t) => t.key).join(',')}`,
+      })
+    }
+    return fresh.map((t) => titleOut(t.key))
+  }
+  // Titre affiché d'une personne (libellé), s'il est choisi et débloqué
+  const shownTitle = (userId) => {
+    const k = db.prepare('SELECT u.title FROM users u JOIN user_titles t ON t.user_id = u.id AND t.key = u.title WHERE u.id = ?').get(userId)?.title
+    return k ? TITLE.get(k)?.label ?? null : null
   }
   // Succès qui tombent sans conso (victoires…) : rattrapés par la cloche, au plus toutes les 15 min par personne
   const lastSync = new Map()
@@ -885,6 +972,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     // Le statut admin reste attaché au compte : changer de pseudo ne le donne ni ne le retire
     db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, req.user.id)
     res.json({ user: { ...req.user, name } })
+  })
+
+  // Titre affiché sous mon pseudo : un de ceux que j'ai débloqués, ou aucun (null)
+  app.put('/api/me/title', auth, (req, res) => {
+    const key = req.body?.key == null || req.body.key === '' ? '' : String(req.body.key)
+    if (key && !db.prepare('SELECT 1 FROM user_titles WHERE user_id = ? AND key = ?').get(req.user.id, key)) return bad(res, 'Titre pas encore débloqué')
+    db.prepare('UPDATE users SET title = ? WHERE id = ?').run(key, req.user.id)
+    res.json({ title: shownTitle(req.user.id) })
   })
 
   app.put('/api/me/pin', auth, (req, res) => {
@@ -1074,7 +1169,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   })
 
   // Une conso telle que renvoyée au client (sans la photo elle-même : on donne sa clé)
-  const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.product_id, d.rating, d.review, d.photo_key,
+  const LOG_COLS = `d.id, d.user_id, d.day, d.at, d.name, d.cat, d.cl, d.abv, d.caffeine, d.product_id, d.rating, d.review, d.photo_key,
     CASE WHEN place_visible(d.place_id) THEN d.place_id END AS place_id,
     CASE WHEN place_visible(d.place_id) THEN place_label(d.place_id) END AS place,
     p.photo_key AS product_photo_key,
@@ -1123,10 +1218,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (!isDay(day)) return bad(res, 'Date invalide')
     if (day > maxEntryDay()) return bad(res, 'Pas de saisie dans le futur')
     let productId = req.body.product_id == null ? null : Number(req.body.product_id)
-    const prod = productId ? db.prepare('SELECT name, cat, cl, abv FROM products WHERE id = ?').get(productId) : null
+    const prod = productId ? db.prepare('SELECT name, cat, cl, abv, caffeine FROM products WHERE id = ?').get(productId) : null
     if (productId && !prod) return bad(res, 'Produit introuvable', 404)
     // Depuis la carte : nom, catégorie et degré du produit ; le volume est celui choisi (demi, pinte…), sinon celui de la fiche
-    const { drink, error } = checkDrink(prod ? { ...prod, cl: req.body.cl ?? prod.cl } : req.body)
+    // (la caféine de la fiche suit le volume choisi)
+    const cl = prod ? (req.body.cl ?? prod.cl) : null
+    const { drink, error } = checkDrink(prod ? { ...prod, cl, caffeine: Number(cl) > 0 ? Math.min(MAX_CAFFEINE, (prod.caffeine * Number(cl)) / prod.cl) : prod.caffeine } : req.body)
     if (error) return bad(res, error)
     const { log, error: logError } = checkLog(req.body)
     if (logError) return bad(res, logError)
@@ -1136,9 +1233,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par jour`)
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
-      Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, product_id, rating, review, photo, photo_key, place_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(req.user.id, day, at, drink.name, drink.cat, drink.cl, drink.abv, productId,
+      Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, caffeine, product_id, rating, review, photo, photo_key, place_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(req.user.id, day, at, drink.name, drink.cat, drink.cl, drink.abv, drink.caffeine, productId,
           log.rating ?? null, log.review ?? null, log.photo ?? null, log.photo ? photoKey() : null, placeIdFor(log.place, req.user.id, placeOpts(req))).lastInsertRowid)
     )
     res.json({ ...logOut(getLog(id)), badges })
@@ -1409,13 +1506,18 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       WHERE n.user_id = ? ${before ? 'AND n.id < ?' : ''} ORDER BY n.id DESC LIMIT ?
     `).all(req.user.id, ...(before ? [before] : []), limit + 1)
     const badgeOut = (key) => { const b = BADGE.get(key); return b && { key, icon: b.icon, label: b.label, desc: b.desc } }
-    const items = rows.slice(0, limit).map(({ badge, ...r }) => ({ ...r, read: !!r.read, ...(r.kind === 'badge' && { badge: badgeOut(badge) }) }))
+    const items = rows.slice(0, limit).map(({ badge, ...r }) => ({
+      ...r, read: !!r.read, ...(r.kind === 'badge' && { badge: badgeOut(badge) }), ...(r.kind === 'title' && { title: titleOut(badge) }),
+    }))
     res.json({ items, next: rows.length > limit ? items.at(-1).id : null, unread: unread(req.user.id) })
   })
   // Succès obtenus par chacun (anneau de palier autour des avatars, partout dans l'appli)
   app.get('/api/ranks', auth, (req, res) => {
     const counts = Object.fromEntries(db.prepare('SELECT user_id, COUNT(*) AS n FROM user_badges GROUP BY user_id').all().map((r) => [r.user_id, r.n]))
-    res.json({ total: BADGES.length, counts })
+    // Titre affiché de chacun (choisi et débloqué)
+    const titles = Object.fromEntries(db.prepare('SELECT u.id, u.title FROM users u JOIN user_titles t ON t.user_id = u.id AND t.key = u.title').all()
+      .map((r) => [r.id, TITLE.get(r.title)?.label]).filter(([, l]) => l))
+    res.json({ total: BADGES.length, counts, titles })
   })
   app.get('/api/notifications/unread', auth, (req, res) => {
     syncBadgesLazy(req.user.id) // victoires (pas d'action qui les déclenche) : au plus toutes les 15 min
@@ -1715,7 +1817,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   app.get('/api/drinks/favorites', auth, (req, res) => {
     res.json(db.prepare(`
-      SELECT d.name, d.cat, d.cl, d.abv, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key, COUNT(*) AS count
+      SELECT d.name, d.cat, d.cl, d.abv, MAX(d.caffeine) AS caffeine, MAX(d.product_id) AS product_id, MAX(p.photo_key) AS product_photo_key, COUNT(*) AS count
       FROM drinks d LEFT JOIN products p ON p.id = d.product_id WHERE d.user_id = ?
       GROUP BY d.name, d.cat, d.cl, d.abv ORDER BY count DESC, MAX(d.at) DESC LIMIT 12
     `).all(req.user.id))
@@ -1723,16 +1825,18 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
 
   // Soirées gagnées par personne (ex æquo tous gagnants, au dixième près comme à l'affichage : 15,56 et 15,6
   // s'affichent tous deux « 15,6 »), avant la date donnée (= soirée en cours exclue)
-  // Calculé entre les membres de la bande seulement.
+  // Calculé entre les membres de la bande seulement. Journée où personne n'a bu d'alcool : la caféine départage.
   const winsMap = (before, groupId) => {
     const rows = db.prepare(`
       WITH totals AS (
-        SELECT user_id, day, ROUND(SUM(${UNITS()}), 1) AS t FROM drinks
+        SELECT user_id, day, ROUND(SUM(${UNITS()}), 1) AS t, SUM(caffeine) AS c FROM drinks
         WHERE day < ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?) GROUP BY user_id, day
       ), best AS (
-        SELECT day, MAX(t) AS m FROM totals GROUP BY day HAVING m > 0
+        SELECT day, MAX(t) AS m, MAX(c) AS mc FROM totals GROUP BY day HAVING m > 0 OR mc > 0
       )
-      SELECT t.user_id, COUNT(*) AS wins FROM totals t JOIN best b ON b.day = t.day AND b.m = t.t GROUP BY t.user_id
+      SELECT t.user_id, COUNT(*) AS wins FROM totals t JOIN best b ON b.day = t.day
+        AND CASE WHEN b.m > 0 THEN t.t = b.m ELSE t.c = b.mc END
+      GROUP BY t.user_id
     `).all(isDay(before) ? before : '9999-12-31', groupId)
     return Object.fromEntries(rows.map((w) => [w.user_id, w.wins]))
   }
@@ -1740,6 +1844,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   if (badgesTableNew) {
     db.exec('BEGIN')
     for (const { id } of db.prepare('SELECT id FROM users').all()) syncBadges(id, { silent: true })
+    db.exec('COMMIT')
+  } else if (titlesTableNew) {
+    // Titres ajoutés après les succès : ceux déjà mérités sont enregistrés sans notifier
+    db.exec('BEGIN')
+    for (const { id } of db.prepare('SELECT id FROM users').all()) syncTitles(id, bestWins(id), { silent: true })
     db.exec('COMMIT')
   }
 
@@ -1986,6 +2095,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const year = String(new Date(now()).getUTCFullYear())
     const rated = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND rating IS NOT NULL').get(id)
     const { thisYear } = db.prepare("SELECT COUNT(*) AS thisYear FROM drinks WHERE user_id = ? AND substr(day, 1, 4) = ?").get(id, year)
+    const titleKey = db.prepare('SELECT title FROM users WHERE id = ?').get(id).title
 
     res.json({
       user,
@@ -2024,6 +2134,11 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
         ...(!got.has(b.key) && progress[b.key] && { progress: progress[b.key] }),
       })),
       badgeGroups: GROUPS,
+      // Titres cachés : seulement ceux débloqués (la liste complète reste secrète), et celui affiché
+      title: shownTitle(id),
+      titles: db.prepare('SELECT key, at FROM user_titles WHERE user_id = ? ORDER BY at DESC, rowid DESC').all(id)
+        .map((r) => ({ ...titleOut(r.key), at: r.at, current: r.key === titleKey })).filter((t) => t.label),
+      titlesTotal: TITLES.length,
       byCat: Object.fromEntries(Object.entries(byCat).map(([k, v]) => [k, round1(v)])),
       top,
       recent: nights.slice(0, 14).map((n) => ({ day: n.day, units: round1(n.units), count: n.count })),
@@ -2036,7 +2151,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // Bière de la carte : volume « habituel » = celui de mon dernier verre de cette bière (sinon celui de la fiche).
   // C'est ce qui est bu en un tap et présélectionné ; default_cl reste le format de la fiche (pour la modifier).
   const PRODUCT_COLS = `p.id, p.name, p.cat, COALESCE(CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END, p.cl) AS cl, p.cl AS default_cl,
-    CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END AS my_cl, p.abv, p.created_by, u.name AS created_by_name, p.photo_key,
+    CASE WHEN p.cat = 'biere' THEN my_cl(p.id) END AS my_cl, p.abv, p.caffeine, p.created_by, u.name AS created_by_name, p.photo_key,
     p.maker, p.origin, p.style, p.description,
     (SELECT COUNT(*) FROM product_favs WHERE product_id = p.id) AS favs,
     EXISTS (SELECT 1 FROM product_favs WHERE product_id = p.id AND user_id = ?) AS fav,
@@ -2146,9 +2261,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const dup = db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)
     if (dup) return bad(res, 'Cette boisson est déjà sur la carte (la contenance se choisit à chaque verre)', 409)
     const { lastInsertRowid } = db.prepare(
-      `INSERT INTO products (name, cat, cl, abv, created_by, photo, photo_key, maker, origin, style, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(drink.name, drink.cat, drink.cl, drink.abv, req.user.id, log.photo, log.photo ? photoKey() : null,
+      `INSERT INTO products (name, cat, cl, abv, caffeine, created_by, photo, photo_key, maker, origin, style, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(drink.name, drink.cat, drink.cl, drink.abv, drink.caffeine, req.user.id, log.photo, log.photo ? photoKey() : null,
       info.maker ?? null, info.origin ?? null, info.style ?? null, info.description ?? null)
     const id = Number(lastInsertRowid)
     // Les consos déjà bues de cette boisson (par tout le monde) rejoignent sa fiche
@@ -2172,7 +2287,9 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const dup = db.prepare('SELECT id FROM products WHERE name = ? AND abv = ? AND id != ?')
       .get(drink.name, drink.abv, p.id)
     if (dup) return bad(res, 'Cette boisson est déjà sur la carte', 409)
-    db.prepare('UPDATE products SET name = ?, cat = ?, cl = ?, abv = ? WHERE id = ?').run(drink.name, drink.cat, drink.cl, drink.abv, p.id)
+    // Caféine absente du corps : celle de la fiche est gardée
+    const caffeine = req.body.caffeine == null ? p.caffeine : drink.caffeine
+    db.prepare('UPDATE products SET name = ?, cat = ?, cl = ?, abv = ?, caffeine = ? WHERE id = ?').run(drink.name, drink.cat, drink.cl, drink.abv, caffeine, p.id)
     for (const [k, v] of Object.entries(info)) db.prepare(`UPDATE products SET ${k} = ? WHERE id = ?`).run(v, p.id)
     if ('photo' in log) db.prepare('UPDATE products SET photo = ?, photo_key = ? WHERE id = ?').run(log.photo, log.photo ? photoKey() : null, p.id)
     // Les consos sans lien qui correspondent au produit corrigé y sont rattachées
@@ -2279,6 +2396,13 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       agg.set(r.user_id, a)
     }
 
+    // Caféine sur la période : quand personne n'a bu d'alcool, c'est elle qui classe
+    const cafMap = Object.fromEntries(
+      db.prepare(`
+        SELECT user_id, SUM(caffeine) AS caffeine, SUM(caffeine > 0) AS caf_count FROM drinks
+        WHERE day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?) GROUP BY user_id
+      `).all(from, to, req.group.id).map((r) => [r.user_id, r])
+    )
     // Palmarès : soirées gagnées depuis le début, soirée en cours exclue (winsBefore = ce soir côté client)
     const winMap = winsMap(req.query.winsBefore, req.group.id)
     // Eau et clopes sur la période (affichées, hors score)
@@ -2298,10 +2422,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       .map((u) => {
         const a = agg.get(u.id) ?? empty
         return { ...u, ...a, ...Object.fromEntries(ALCO.map((c) => [c, round1(a[c])])), total: round1(a.total), wins: winMap[u.id] || 0,
-          eau: extraMap[u.id]?.eau ?? 0, clope: extraMap[u.id]?.clope ?? 0 }
+          eau: extraMap[u.id]?.eau ?? 0, clope: extraMap[u.id]?.clope ?? 0,
+          caffeine: cafMap[u.id]?.caffeine ?? 0, caf_count: cafMap[u.id]?.caf_count ?? 0 }
       })
-      // Égalité (ou personne n'a bu) : le plus couronné devant, puis l'ordre alphabétique
-      .sort((x, y) => y.total - x.total || y.wins - x.wins || x.name.localeCompare(y.name))
+    // L'alcool d'abord ; ceux qui n'en ont pas bu passent dessous, classés à la caféine (tout le monde si personne
+    // n'a bu d'alcool). Égalité (ou rien bu du tout) : le plus couronné devant, puis l'ordre alphabétique.
+    ranking.sort((x, y) => y.total - x.total || (!x.total && !y.total && y.caffeine - x.caffeine) || y.wins - x.wins || x.name.localeCompare(y.name))
 
     // On masque les inactifs (rien bu depuis activeSince), sauf soi-même.
     // Pour une période terminée (ended=1), ceux qui y ont participé restent affichés.
@@ -2321,7 +2447,8 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const rows = db.prepare(`
       SELECT user_id, day, ${ALCO.map((c) => `SUM(CASE WHEN cat = '${c}' THEN ${UNITS()} ELSE 0 END) AS ${c},`).join(' ')}
         ${CATS.map((c) => `SUM(cat = '${c}') AS n_${c},`).join(' ')}
-        SUM(${UNITS()}) AS total, COUNT(*) AS count
+        ${CATS.map((c) => `SUM(CASE WHEN cat = '${c}' THEN caffeine ELSE 0 END) AS caf_${c},`).join(' ')}
+        SUM(${UNITS()}) AS total, COUNT(*) AS count, SUM(caffeine) AS caffeine
       FROM drinks WHERE day BETWEEN ? AND ? AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)
       GROUP BY user_id, day ORDER BY day
     `).all(from, to, req.group.id)

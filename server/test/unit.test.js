@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isDay, checkName, unitsOf, checkDrink, checkLog, CATS } from '../app.js'
+import { isDay, checkName, unitsOf, checkDrink, checkLog, CATS, guessCaffeine } from '../app.js'
+import { guessCaffeine as guessClient } from '../../client/src/utils.js'
 
 test('isDay accepte les vraies dates YYYY-MM-DD', () => {
   assert.ok(isDay('2026-11-03'))
@@ -29,13 +30,18 @@ test('unitsOf : 10 g d’alcool pur = 1 verre standard', () => {
 })
 
 test('checkDrink : valide et arrondit, refuse le reste', () => {
-  assert.deepEqual(checkDrink({ name: ' IPA ', cat: 'biere', cl: '33', abv: 6.54 }), { drink: { name: 'IPA', cat: 'biere', cl: 33, abv: 6.5 } })
+  assert.deepEqual(checkDrink({ name: ' IPA ', cat: 'biere', cl: '33', abv: 6.54 }), { drink: { name: 'IPA', cat: 'biere', cl: 33, abv: 6.5, caffeine: 0 } })
   assert.ok(checkDrink({ name: 'Eau', cat: 'eau', cl: 25, abv: 5 }).error)
   assert.ok(checkDrink({ name: 'Bière', cat: 'biere', cl: 25, abv: -1 }).error)
   assert.equal(checkDrink({ name: 'Leffe 0.0', cat: 'biere', cl: 25, abv: 0 }).drink.abv, 0) // sans alcool : accepté
   assert.equal(checkDrink({ name: 'Monster', cat: 'energy', cl: 50, abv: 5 }).drink.abv, 0) // sans alcool : forcé à 0
   assert.ok(checkDrink({ name: 'B\nb', cat: 'biere', cl: 25, abv: 5 }).error)
-  assert.deepEqual(CATS, ['biere', 'vin', 'fort', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
+  assert.deepEqual(CATS, ['biere', 'vin', 'fort', 'shot', 'cocktail', 'autre', 'energy', 'soft', 'chaud'])
+  // Caféine : donnée (arrondie au mg), sinon estimée ; bornée
+  assert.equal(checkDrink({ name: 'Monster', cat: 'energy', cl: 50, abv: 0 }).drink.caffeine, 160)
+  assert.equal(checkDrink({ name: 'Café', cat: 'chaud', cl: 5, abv: 0, caffeine: 95.4 }).drink.caffeine, 95)
+  assert.ok(checkDrink({ name: 'Café', cat: 'chaud', cl: 5, abv: 0, caffeine: 5000 }).error)
+  assert.ok(checkDrink({ name: 'Café', cat: 'chaud', cl: 5, abv: 0, caffeine: -1 }).error)
 })
 
 test('checkLog : note en demi-étoiles, avis, photo ; seulement les champs donnés', () => {
@@ -47,4 +53,24 @@ test('checkLog : note en demi-étoiles, avis, photo ; seulement les champs donn�
   assert.ok(checkLog({ review: 'x'.repeat(1001) }).error)
   assert.ok(checkLog({ photo: 'http://exemple.fr/a.png' }).error)
   assert.deepEqual(checkLog({ photo: null }), { log: { photo: null } })
+})
+
+test('guessCaffeine : café, thé, tisane, énergisant, cola ; même règle côté client', () => {
+  const cases = [
+    [{ name: 'Expresso', cat: 'chaud', cl: 5 }, 80],
+    [{ name: 'Thé vert', cat: 'chaud', cl: 25 }, 40],
+    [{ name: 'Tisane', cat: 'chaud', cl: 25 }, 0],
+    [{ name: 'Café déca', cat: 'chaud', cl: 5 }, 3],
+    [{ name: 'Monster', cat: 'energy', cl: 50 }, 160],
+    [{ name: 'Coca-Cola', cat: 'soft', cl: 33 }, 33],
+    [{ name: 'Orangina', cat: 'soft', cl: 33 }, 0],
+    [{ name: 'Espresso martini', cat: 'cocktail', cl: 12 }, 80],
+    [{ name: 'Jägerbomb', cat: 'shot', cl: 4 }, 80],
+    [{ name: 'Tequila', cat: 'shot', cl: 4 }, 0],
+    [{ name: 'Leffe', cat: 'biere', cl: 25 }, 0],
+  ]
+  for (const [d, mg] of cases) {
+    assert.equal(guessCaffeine(d), mg, d.name)
+    assert.equal(guessClient(d), mg, `${d.name} (client)`)
+  }
 })

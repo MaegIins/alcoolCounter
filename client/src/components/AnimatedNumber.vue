@@ -3,7 +3,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { num } from '../api'
 
-const props = defineProps({ value: { type: Number, required: true }, duration: { type: Number, default: 600 } })
+const props = defineProps({ value: { type: Number, required: true }, duration: { type: Number, default: 600 }, int: Boolean })
 const shown = ref(props.value)
 let raf = 0
 watch(() => props.value, (to) => {
@@ -21,5 +21,5 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
 </script>
 
 <template>
-  <span>{{ num(shown) }}</span>
+  <span>{{ int ? Math.round(shown) : num(shown) }}</span>
 </template>

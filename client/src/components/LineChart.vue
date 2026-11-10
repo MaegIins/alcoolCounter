@@ -10,7 +10,10 @@ const props = defineProps({
   context: { type: Array, default: () => [] }, // même forme, sans couleur
   height: { type: Number, default: 220 },
   cumulative: Boolean, // valeurs cumulées : libellés de fin avec le total et le rang, infobulle « au total »
+  unit: { type: String, default: 'verres' }, // 'verres' (verres standard) ou 'mg' (caféine)
 })
+const fmtV = (v) => (props.unit === 'mg' ? `${Math.round(v)} mg` : fmt(v))
+const short = (v) => (props.unit === 'mg' ? String(Math.round(v)) : fmtShort(v))
 const emit = defineEmits(['pick'])
 
 const el = ref(null)
@@ -83,7 +86,7 @@ const endLabels = computed(() => {
   return items.map((it) => ({
     ...it,
     rank: ranked.indexOf(it) + 1,
-    text: props.cumulative ? `${fmtShort(it.v)} ${it.name}` : it.name,
+    text: props.cumulative ? `${short(it.v)} ${it.name}` : it.name,
     stale: !props.cumulative && it.i < props.days.length - 1,
   }))
 })
@@ -191,8 +194,8 @@ const clipId = `clip-${Math.random().toString(36).slice(2)}`
       <div v-for="(r, k) in tip.rows" :key="r.id" class="flex items-center gap-2">
         <span class="h-2.5 w-2.5 rounded-full" :style="{ background: r.color }" />
         <span class="flex-1"><span v-if="cumulative" class="text-muted">{{ k + 1 }}. </span>{{ r.name }}</span>
-        <span v-if="!cumulative && r.v > SUSPECT_UNITS" class="rounded-full bg-neon px-1.5 text-xs font-bold text-paper">suspect</span>
-        <b class="tabular-nums">{{ fmt(r.v) }}</b>
+        <span v-if="!cumulative && unit === 'verres' && r.v > SUSPECT_UNITS" class="rounded-full bg-neon px-1.5 text-xs font-bold text-paper">suspect</span>
+        <b class="tabular-nums">{{ fmtV(r.v) }}</b>
       </div>
     </div>
   </div>

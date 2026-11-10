@@ -27,15 +27,33 @@ const markers = new Map() // id du lieu → marqueur
 // Texte inséré dans le HTML d'une bulle : on échappe tout ce qui vient des utilisateurs
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const iconOf = (p) => (p.home ? 'fa-house' : p.private ? 'fa-lock' : 'fa-location-dot')
-const maxLogs = computed(() => Math.max(1, ...located.value.map((p) => p.logs)))
+// Fréquentation en couleur, du froid au chaud : cendre bleutée (peu de consos) → jaune → rouille (le QG).
+// Par rang (du moins au plus fréquenté des lieux affichés) : les couleurs s'étalent, même quand quelques lieux
+// écrasent tout en nombre de consos. À égalité, même couleur.
+const HEAT = [[0, [111, 128, 140]], [0.5, [212, 188, 53]], [1, [184, 67, 44]]]
+const levels = computed(() => [...new Set(located.value.map((p) => p.logs))].sort((a, b) => a - b))
+const heatOf = (logs) => {
+  const n = levels.value.length
+  const t = n > 1 ? levels.value.indexOf(logs) / (n - 1) : 0.5
+  const k = HEAT.findIndex(([at]) => at >= t)
+  const [a, ca] = HEAT[Math.max(0, k - 1)]
+  const [b, cb] = HEAT[Math.max(0, k)]
+  const f = b > a ? (t - a) / (b - a) : 0
+  const rgb = ca.map((v, i) => Math.round(v + (cb[i] - v) * f))
+  // Texte foncé sur les teintes claires, clair sur les foncées
+  const light = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] > 140
+  return { bg: `rgb(${rgb.join(',')})`, fg: light ? '#17140a' : '#f0e6cc' }
+}
+const HEAT_CSS = `linear-gradient(90deg, ${HEAT.map(([at, c]) => `rgb(${c.join(',')}) ${at * 100}%`).join(', ')})`
 function markerIcon(p) {
-  // De 30 à 46 px selon le nombre de consos (racine : un lieu très fréquenté ne mange pas toute la carte)
+  // Même taille pour tous : la couleur dit la fréquentation
   const focus = p.id === props.focusId
   const dim = compact.value && !focus
-  const size = focus ? 48 : dim ? 26 : Math.round(30 + 16 * Math.sqrt(p.logs / maxLogs.value))
+  const size = focus ? 44 : dim ? 26 : 34
+  const { bg, fg } = heatOf(p.logs)
   return L.divIcon({
     className: 'ardoise-pin',
-    html: `<span class="ardoise-pin__dot${p.private ? ' is-private' : ''}${p.my_logs && !compact.value ? ' is-mine' : ''}${focus ? ' is-focus' : ''}${dim ? ' is-dim' : ''}" style="width:${size}px;height:${size}px">
+    html: `<span class="ardoise-pin__dot${p.private ? ' is-private' : ''}${p.my_logs && !compact.value ? ' is-mine' : ''}${focus ? ' is-focus' : ''}${dim ? ' is-dim' : ''}" style="width:${size}px;height:${size}px;background:${bg};color:${fg}">
       <i class="fa-solid ${iconOf(p)}" style="font-size:${Math.round(size * 0.42)}px"></i></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -68,7 +86,8 @@ function draw({ fit = true } = {}) {
     m.addTo(layer)
     markers.set(p.id, m)
   }
-  if (fit) (compact.value ? centerOnFocus() : fitAll())
+  // Centré sur moi : on n'en bouge pas quand la liste change (« Tout voir » pour tout recadrer)
+  if (fit && !onMe) (compact.value ? centerOnFocus() : fitAll())
 }
 // Page d'un lieu : centré dessus, au niveau d'une rue, et devant les autres repères
 function centerOnFocus() {
@@ -77,10 +96,12 @@ function centerOnFocus() {
   map.setView([p.lat, p.lng], 16)
   markers.get(p.id)?.setZIndexOffset(1000)
 }
-function fitAll() {
+// animate : seulement au bouton « Tout voir » (un cadrage automatique animé pourrait écraser le centrage sur moi)
+function fitAll(animate = false) {
+  onMe = false
   if (!map || !located.value.length) return
   const b = L.latLngBounds(located.value.map((p) => [p.lat, p.lng]))
-  map.fitBounds(b, { padding: [36, 36], maxZoom: 16 })
+  map.fitBounds(b, { padding: [36, 36], maxZoom: 16, animate })
 }
 
 onMounted(() => {
@@ -92,6 +113,7 @@ onMounted(() => {
   }).addTo(map)
   map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>')
   layer = L.layerGroup().addTo(map)
+  meLayer = L.layerGroup().addTo(map) // à part : le point « Toi » survit aux redessins des lieux
   map.setView([46.6, 2.4], 5) // la France, en attendant les lieux
   // Molette : seulement quand la carte a le focus (on ne la zoome pas en faisant défiler la page)
   map.on('focus', () => map.scrollWheelZoom.enable())
@@ -99,6 +121,8 @@ onMounted(() => {
   // « Voir le lieu » dans une bulle
   el.value.addEventListener('click', onClick)
   draw()
+  // Plan des lieux (pas la page d'un lieu) : centré sur moi, à l'échelle de la ville, si j'accepte de donner ma position
+  if (!compact.value) autoLocate()
 })
 onBeforeUnmount(() => {
   el.value?.removeEventListener('click', onClick)
@@ -136,7 +160,7 @@ async function toggleFull(on = !full.value) {
   await nextTick()
   map?.invalidateSize()
   if (compact.value) centerOnFocus()
-  else fitAll()
+  else if (!onMe) fitAll()
 }
 const onKey = (e) => e.key === 'Escape' && full.value && toggleFull(false)
 onMounted(() => window.addEventListener('keydown', onKey))
@@ -146,16 +170,34 @@ onBeforeUnmount(() => {
 })
 
 // Ma position (pour voir les lieux autour de moi)
+const CITY_ZOOM = 12 // on voit la ville et ses alentours
+let meLayer = null
+let onMe = false // la vue est centrée sur moi
 const locating = ref(false)
+function showMe(pos, zoom) {
+  if (!map) return
+  const ll = [pos.coords.latitude, pos.coords.longitude]
+  onMe = true
+  // Un zoom animé en cours finirait par écraser la vue : on attend qu'il se termine
+  if (map._animatingZoom) return map.once('zoomend', () => showMe(pos, zoom))
+  map.setView(ll, zoom)
+  meLayer.clearLayers()
+  L.circleMarker(ll, { radius: 7, color: '#e4dcc3', weight: 2, fillColor: '#6f93ad', fillOpacity: 0.9 }).addTo(meLayer).bindTooltip('Toi')
+}
+// À l'ouverture : sans bruit (pas de message si c'est refusé ; déjà refusé = on ne redemande pas)
+async function autoLocate() {
+  if (!navigator.geolocation) return
+  const state = await navigator.permissions?.query({ name: 'geolocation' }).then((p) => p.state).catch(() => null)
+  if (state === 'denied') return
+  navigator.geolocation.getCurrentPosition((pos) => showMe(pos, CITY_ZOOM), () => {}, { maximumAge: 10 * 60e3, timeout: 10000 })
+}
 function locateMe() {
   if (!navigator.geolocation) return toast('Ton navigateur ne donne pas ta position')
   locating.value = true
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       locating.value = false
-      const ll = [pos.coords.latitude, pos.coords.longitude]
-      map.setView(ll, 15)
-      L.circleMarker(ll, { radius: 7, color: '#e4dcc3', weight: 2, fillColor: '#6f93ad', fillOpacity: 0.9 }).addTo(layer).bindTooltip('Toi')
+      showMe(pos, Math.max(CITY_ZOOM + 2, map.getZoom()))
     },
     () => {
       locating.value = false
@@ -171,7 +213,7 @@ function locateMe() {
     <div v-if="!compact" class="flex flex-wrap items-center justify-between gap-2">
       <h3 class="text-lg font-bold"><Icon name="fa-map-location-dot" class="text-hi" /> Le plan</h3>
       <div class="flex gap-2 text-sm">
-        <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="!located.length" @click="fitAll"><Icon name="fa-earth-europe" /> Tout voir</button>
+        <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="!located.length" @click="fitAll(true)"><Icon name="fa-earth-europe" /> Tout voir</button>
         <button class="btn btn-ghost px-3 py-1.5 font-semibold" :disabled="locating" @click="locateMe"><Icon name="fa-location-crosshairs" /> Autour de moi</button>
       </div>
     </div>
@@ -194,6 +236,11 @@ function locateMe() {
       <button v-if="compact" class="absolute right-2.5 bottom-7 z-[500] flex h-9 w-9 items-center justify-center rounded-full bg-panel text-hi shadow-lg shadow-black/60 hover:bg-raised" aria-label="Recentrer sur le lieu" @click="centerOnFocus">
         <Icon name="fa-location-crosshairs" />
       </button>
+      <!-- Légende de la fréquentation -->
+      <div v-if="located.length > 1 && !compact" class="pointer-events-none absolute bottom-2.5 left-2.5 z-[500] rounded-lg bg-paper/85 px-2.5 py-1.5 text-[11px] text-muted shadow-lg shadow-black/60">
+        <div class="mb-1 h-1.5 w-32 rounded-full" :style="{ background: HEAT_CSS }" />
+        <div class="flex justify-between gap-3"><span>Peu fréquenté</span><span>Le QG</span></div>
+      </div>
       <div v-if="!located.length && !compact" class="pointer-events-none absolute inset-0 z-[500] flex items-center justify-center p-6 text-center">
         <p class="rounded-xl bg-paper/90 px-4 py-3 text-sm text-muted">
           Aucun lieu positionné{{ places.length ? ' dans cette liste' : '' }}. Ajoute une position depuis la page d'un lieu
@@ -225,7 +272,7 @@ function locateMe() {
   box-shadow: 0 3px 10px rgb(0 0 0 / 0.6);
   transition: transform 0.15s;
 }
-.ardoise-pin__dot.is-private { background: #b8432c; color: #f0e6cc; }
+.ardoise-pin__dot.is-private { border-style: dashed; border-color: #f0e6cc; }
 .ardoise-pin__dot.is-mine { outline: 3px solid rgb(212 188 53 / 0.35); }
 .ardoise-pin__dot.is-focus { outline: 4px solid rgb(212 188 53 / 0.45); box-shadow: 0 0 0 10px rgb(212 188 53 / 0.15), 0 4px 14px rgb(0 0 0 / 0.7); }
 .ardoise-pin__dot.is-dim { opacity: 0.65; filter: saturate(0.6); }

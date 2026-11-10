@@ -81,7 +81,7 @@ export function celebrateBadges(badges = []) {
   if (badges.length) refreshRanks() // mon anneau change peut-être de couleur
   badges.forEach((b, i) =>
     setTimeout(() => {
-      toast(`${b.icon} Badge débloqué : ${b.label}`, { kind: 'badge', ms: 3500 })
+      toast(b.kind === 'title' ? `🏷️ Titre caché débloqué : ${b.label}` : `${b.icon} Badge débloqué : ${b.label}`, { kind: 'badge', ms: 3500 })
       confetti(40)
       vibrate([30, 40, 30])
     }, 600 + i * 900)

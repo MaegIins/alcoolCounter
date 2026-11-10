@@ -1,9 +1,10 @@
 <script setup>
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
-import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl, RANKS, rankOf } from '../api'
+import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, fmtDrink, dayLabel, today, photoUrl, rankOf } from '../api'
 import { ui, goBack, go, openLog, openProduct, openPlace, openPost, bump, setTab } from '../nav'
 import { toast, ask } from '../juice'
+import { refreshRanks } from '../ranks'
 import Avatar from './Avatar.vue'
 import Poster from './Poster.vue'
 import Stars from './Stars.vue'
@@ -133,16 +134,27 @@ const since = computed(() => {
 })
 const catTotal = computed(() => Math.max(0.1, ALCO_CATS.reduce((s, c) => s + (data.value?.byCat[c.key] ?? 0), 0)))
 const nights = computed(() => [...(data.value?.recent ?? [])].reverse())
-// État du profil selon le % de succès débloqués (anneau autour de l'avatar, titre sous le nom)
+// Palier selon le % de succès débloqués : la couleur de l'anneau autour de l'avatar
 const rank = computed(() => data.value && rankOf(data.value.badges.filter((b) => b.got).length, data.value.badges.length))
 const ringStyle = computed(() => ({
   background: rank.value?.next ? rank.value.color : 'conic-gradient(from 210deg, #d4bc35, #b8432c, #d4bc35, #f3e7a0, #d4bc35)',
 }))
-// Barre vers l'état suivant (0-100 entre le seuil actuel et le suivant)
-const rankProgress = computed(() => {
-  const r = rank.value
-  return !r ? 0 : !r.next ? 100 : Math.min(100, (100 * (r.pct - r.min)) / (r.next.min - r.min))
-})
+// Titres cachés : je choisis celui affiché sous mon pseudo parmi ceux débloqués (ou aucun)
+const titleBusy = ref(false)
+async function chooseTitle(key) {
+  if (!isMe.value || titleBusy.value) return
+  titleBusy.value = true
+  try {
+    const r = await api('/me/title', { method: 'PUT', body: { key } })
+    data.value.title = r.title
+    for (const t of data.value.titles) t.current = t.key === key
+    refreshRanks()
+  } catch (e) {
+    toast(e.message)
+  } finally {
+    titleBusy.value = false
+  }
+}
 // Badges rangés par rubrique (obtenus d'abord dans chaque rubrique)
 // Tri de l'onglet Badges : par rubrique, ou du plus rare au plus courant (retenu sur cet appareil)
 const badgeSort = ref((() => { try { return localStorage.getItem('badge-sort') || 'rubrique' } catch { return 'rubrique' } })())
@@ -197,12 +209,12 @@ const dayNum = (day) => Number(day.slice(8))
         </span>
         <h1 class="mt-3 font-display text-3xl font-bold">{{ data.user.name }}</h1>
         <button
-          class="mb-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold hover:bg-white/5"
-          :style="{ borderColor: rank.color, color: rank.color }"
-          :title="`${rank.got} succès sur ${rank.total}`"
+          v-if="data.title"
+          class="mb-1 rounded-full border border-hi/40 px-2.5 py-0.5 text-xs font-semibold text-hi hover:bg-hi/10"
+          title="Titre caché"
           @click="tab = 'badges'"
         >
-          {{ rank.icon }} {{ rank.label }} · {{ Math.floor(rank.pct) }} %
+          {{ data.title }}
         </button>
         <p class="text-sm text-muted">
           <span v-if="!isMe && !data.inBand" class="mr-1 rounded-full bg-white/5 px-2 py-0.5 text-xs">pas dans ta bande</span>
@@ -347,7 +359,7 @@ const dayNum = (day) => Number(day.slice(8))
           </dl>
           <div v-if="data.units" class="mt-5">
             <div class="flex h-2 gap-px overflow-hidden rounded-full bg-sunk">
-              <div v-for="c in ALCO_CATS" :key="c.key" :class="c.color" :style="{ width: `${(data.byCat[c.key] / catTotal) * 100}%` }" :title="`${c.label} : ${fmt(data.byCat[c.key])}`" />
+              <div v-for="c in ALCO_CATS" :key="c.key" :class="c.color" :style="{ width: `${(data.byCat[c.key] / catTotal) * 100}%` }" :data-tip="`${c.label} : ${fmt(data.byCat[c.key])}`" />
             </div>
             <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
               <span v-for="c in ALCO_CATS.filter((c) => data.byCat[c.key])" :key="c.key" class="flex items-center gap-1.5">
@@ -360,7 +372,7 @@ const dayNum = (day) => Number(day.slice(8))
         <section v-if="nights.length">
           <h2 class="kicker mb-3 border-b border-line pb-2">Derniers jours</h2>
           <div class="flex h-24 items-end gap-1">
-            <div v-for="n in nights" :key="n.day" class="flex flex-1 flex-col items-center gap-1" :title="`${dayLabel(n.day, true)} : ${fmt(n.units)}`">
+            <div v-for="n in nights" :key="n.day" class="flex flex-1 flex-col items-center gap-1" :data-tip="`${dayLabel(n.day, true)} : ${fmt(n.units)}`">
               <div
                 class="w-full max-w-6 rounded-sm"
                 :class="n.units > SUSPECT_UNITS ? 'bg-neon' : 'bg-hi/70'"
@@ -420,35 +432,48 @@ const dayNum = (day) => Number(day.slice(8))
 
       <!-- Badges, par rubrique -->
       <div v-else class="pt-6">
-        <!-- État du profil et le suivant -->
+        <!-- Titres cachés : seulement ceux débloqués, les autres restent secrets -->
         <div class="mb-6 rounded-lg bg-panel p-4">
-          <div class="flex items-center gap-3">
-            <span class="text-4xl">{{ rank.icon }}</span>
-            <div class="min-w-0 flex-1">
-              <div class="font-display text-xl" :style="{ color: rank.color }">{{ rank.label }}</div>
-              <div class="text-sm text-muted">{{ rank.got }} succès sur {{ rank.total }} · {{ Math.floor(rank.pct) }} %</div>
-            </div>
+          <div class="flex items-baseline justify-between gap-3">
+            <h3 class="font-display text-xl">Titres cachés</h3>
+            <span class="text-sm text-muted tabular-nums">{{ data.titles.length }} / {{ data.titlesTotal }}</span>
           </div>
-          <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-sunk">
-            <div class="h-full rounded-full" :style="{ width: `${rankProgress}%`, background: rank.next ? rank.next.color : rank.color }" />
-          </div>
-          <p class="mt-1.5 text-xs text-faint">
-            <template v-if="rank.next">Encore {{ rank.missing }} succès pour {{ rank.next.icon }} {{ rank.next.label }} ({{ rank.next.min }} %)</template>
-            <template v-else>Tous les succès. Respect.</template>
+          <p class="mt-1 text-sm text-muted">
+            <template v-if="!data.titles.length">{{ isMe ? 'Aucun pour l’instant. Ils tombent en buvant certaines boissons… à toi de trouver lesquelles.' : 'Aucun titre débloqué pour l’instant.' }}</template>
+            <template v-else-if="isMe">Touche un titre pour l’afficher sous ton pseudo. Les {{ data.titlesTotal - data.titles.length }} autres sont à découvrir.</template>
+            <template v-else>{{ data.titlesTotal - data.titles.length }} encore cachés.</template>
           </p>
-          <ol class="mt-3 flex flex-wrap gap-1.5">
-            <li
-              v-for="(r, i) in RANKS"
-              :key="r.label"
-              class="rounded-full border px-2 py-0.5 text-[11px]"
-              :class="i > rank.i && 'opacity-40'"
-              :style="i <= rank.i ? { borderColor: r.color, color: r.color } : { borderColor: 'var(--color-line)' }"
-              :title="`${r.min} % des succès`"
+          <div v-if="data.titles.length" class="mt-3 flex flex-wrap gap-2">
+            <component
+              :is="isMe ? 'button' : 'div'"
+              v-for="t in data.titles"
+              :key="t.key"
+              class="rounded-xl border px-3 py-1.5 text-left"
+              :class="[t.current ? 'border-hi bg-hi/10' : 'border-line', isMe && 'hover:border-hi/60']"
+              :disabled="isMe ? titleBusy : undefined"
+              :aria-pressed="isMe ? t.current : undefined"
+              @click="isMe && chooseTitle(t.key)"
             >
-              {{ r.icon }} {{ r.label }}
-            </li>
-          </ol>
+              <span class="block font-semibold" :class="t.current && 'text-hi'">{{ t.label }}</span>
+              <span class="block text-xs text-muted">{{ t.how }}</span>
+            </component>
+            <button
+              v-if="isMe"
+              class="rounded-xl border px-3 py-1.5 text-sm"
+              :class="!data.title ? 'border-hi bg-hi/10 text-hi' : 'border-line text-muted hover:border-hi/60'"
+              :disabled="titleBusy"
+              :aria-pressed="!data.title"
+              @click="chooseTitle(null)"
+            >
+              Aucun titre
+            </button>
+          </div>
+          <div v-if="data.titlesTotal > data.titles.length" class="mt-3 flex flex-wrap gap-1.5" aria-hidden="true">
+            <span v-for="n in Math.min(12, data.titlesTotal - data.titles.length)" :key="n" class="rounded-full border border-dashed border-line px-2.5 py-0.5 text-xs text-faint">???</span>
+            <span v-if="data.titlesTotal - data.titles.length > 12" class="px-1 text-xs text-faint">…</span>
+          </div>
         </div>
+        <p class="mb-2 text-sm text-muted">{{ rank.got }} succès sur {{ rank.total }} · {{ Math.floor(rank.pct) }} %</p>
         <div class="mb-4 flex justify-end">
           <div class="flex rounded-full bg-white/5 p-1 text-sm">
             <button class="seg" :aria-pressed="badgeSort === 'rubrique'" @click="badgeSort = 'rubrique'">Par rubrique</button>
@@ -466,7 +491,6 @@ const dayNum = (day) => Number(day.slice(8))
               :key="b.key"
               class="flex flex-col rounded-md p-3 text-center"
               :class="b.got ? 'bg-panel' : 'bg-panel/40'"
-              :title="b.desc"
             >
               <div class="text-2xl" :class="!b.got && 'opacity-50 grayscale'">{{ b.got || b.secret ? b.icon : '·' }}</div>
               <div class="mt-1 text-sm leading-tight font-semibold" :class="!b.got && 'text-muted'">{{ b.label }}</div>

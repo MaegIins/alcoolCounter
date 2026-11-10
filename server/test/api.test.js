@@ -201,6 +201,28 @@ describe('classement', () => {
     assert.deepEqual(r.body.map((x) => [x.name, x.total, x.wins]), [['Chloé', 0, 1], ['Alice', 0, 0], ['Bob', 0, 0]])
   })
 
+  test('journée sans alcool : la caféine départage (classement et couronne) ; un seul verre d’alcool suffit à reprendre la main', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const CAFE = { name: 'Café', cat: 'chaud', cl: 5, abv: 0 }
+    await s.drink(a.token, '2026-11-01', CAFE)
+    await s.drink(b.token, '2026-11-01', CAFE, 3)
+    let r = await s.call('GET', '/leaderboard?from=2026-11-01&to=2026-11-01&winsBefore=2026-11-03', { token: a.token })
+    assert.deepEqual(r.body.map((x) => [x.name, x.total, x.caffeine, x.caf_count, x.wins]), [['Bob', 0, 240, 3, 1], ['Alice', 0, 80, 1, 0]])
+    // Le 2 : Bob reboit 3 cafés, mais Alice prend une bière → c'est l'alcool qui compte
+    await s.drink(b.token, '2026-11-02', CAFE, 3)
+    await s.drink(a.token, '2026-11-02', { cl: 25 })
+    r = await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02&winsBefore=2026-11-03', { token: a.token })
+    assert.deepEqual(r.body.map((x) => [x.name, x.wins]), [['Alice', 1], ['Bob', 1]])
+    // Ceux qui n'ont pas bu d'alcool restent classés, dessous, à la caféine ; sans rien du tout, en dernier
+    const c = await s.register('Chloé')
+    await s.drink(c.token, '2026-11-02', { name: 'Thé', cat: 'chaud', cl: 25, abv: 0 })
+    const d = await s.register('Dan')
+    await s.drink(d.token, '2026-11-02', { name: 'Eau gazeuse', cat: 'soft', cl: 33, abv: 0 })
+    r = await s.call('GET', '/leaderboard?from=2026-11-02&to=2026-11-02', { token: a.token })
+    assert.deepEqual(r.body.map((x) => [x.name, x.total, x.caffeine]), [['Alice', 1, 0], ['Bob', 0, 240], ['Chloé', 0, 40], ['Dan', 0, 0]])
+  })
+
   test('inactifs depuis 7 jours masqués, sauf moi ; période terminée = participants visibles', async () => {
     const me = await s.register('Moi')
     const active = await s.register('Actif')
@@ -227,8 +249,10 @@ describe('classement', () => {
     // Verres standard par catégorie alcoolisée (pas arrondis au dixième : le client les additionne), et nombre de
     // consos par catégorie (sans alcool compris)
     assert.deepEqual(r.body, [{
-      user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.28, cocktail: 0, autre: 0,
-      n_biere: 2, n_vin: 0, n_fort: 1, n_cocktail: 0, n_autre: 0, n_energy: 1, n_soft: 0, n_chaud: 0, total: 5.28, count: 4,
+      user_id: a.id, day: '2026-11-02', biere: 4, vin: 0, fort: 1.28, shot: 0, cocktail: 0, autre: 0,
+      n_biere: 2, n_vin: 0, n_fort: 1, n_shot: 0, n_cocktail: 0, n_autre: 0, n_energy: 1, n_soft: 0, n_chaud: 0,
+      caf_biere: 0, caf_vin: 0, caf_fort: 0, caf_shot: 0, caf_cocktail: 0, caf_autre: 0, caf_energy: 160, caf_soft: 0, caf_chaud: 0,
+      total: 5.28, count: 4, caffeine: 160,
     }])
   })
 })
@@ -655,7 +679,7 @@ describe('migration', () => {
     try {
       assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'entries'").get(), undefined)
       const rows = db.prepare('SELECT name, cat, cl, abv FROM drinks ORDER BY id').all().map((r) => [r.name, r.cat, r.cl, r.abv])
-      assert.deepEqual(rows, [['Pinte', 'biere', 50, 5], ['Pinte', 'biere', 50, 5], ['Shot', 'fort', 3, 40]])
+      assert.deepEqual(rows, [['Pinte', 'biere', 50, 5], ['Pinte', 'biere', 50, 5], ['Shot', 'shot', 3, 40]])
     } finally {
       close()
       rmSync(dir, { recursive: true, force: true })
@@ -1383,5 +1407,44 @@ describe('succès vus depuis une autre bande', () => {
     s.clock.t = Date.parse('2026-11-03T21:00:00+01:00')
     const st = (await s.call('GET', `/users/${a.id}/stats?winsBefore=2026-11-03`, { token: b.token })).body
     assert.ok(st.badges.find((x) => x.key === 'roi').got)
+  })
+})
+
+describe('caféine', () => {
+  test('mg par conso : donnée, sinon estimée ; une fiche de la carte la donne au prorata du volume', async () => {
+    const { token } = await s.register('Bob')
+    assert.equal((await s.drink(token, '2026-11-02', { name: 'Café', cat: 'chaud', cl: 5, abv: 0 })).body.caffeine, 80)
+    assert.equal((await s.drink(token, '2026-11-02', { name: 'Café serré', cat: 'chaud', cl: 5, abv: 0, caffeine: 120 })).body.caffeine, 120)
+    assert.equal((await s.drink(token, '2026-11-02')).body.caffeine, 0) // une pinte
+    const p = (await s.call('POST', '/products', { token, body: { name: 'Cola maison', cat: 'soft', cl: 33, abv: 0, caffeine: 40 } })).body
+    assert.equal(p.caffeine, 40)
+    assert.equal((await s.call('POST', '/drinks', { token, body: { day: '2026-11-02', product_id: p.id, cl: 66 } })).body.caffeine, 80)
+    // Fiche corrigée sans caféine dans le corps : la sienne est gardée
+    const q = (await s.call('PATCH', `/products/${p.id}`, { token, body: { name: 'Cola maison', cat: 'soft', cl: 33, abv: 0 } })).body
+    assert.equal(q.caffeine, 40)
+    const list = (await s.call('GET', '/drinks/me?from=2026-11-02&to=2026-11-02', { token })).body
+    assert.equal(list.reduce((t, d) => t + d.caffeine, 0), 280)
+  })
+
+  test('migration : caféine estimée pour l’existant, les « Shot » en alcool fort passent en shot', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'alcool-test-'))
+    const file = path.join(dir, 'old.db')
+    const first = createApp({ dbPath: file })
+    first.db.exec(`
+      ALTER TABLE drinks DROP COLUMN caffeine; ALTER TABLE products DROP COLUMN caffeine;
+      INSERT INTO users (name, pin_hash) VALUES ('Vieux', 'x:y');
+      INSERT INTO drinks (user_id, day, at, name, cat, cl, abv) VALUES
+        (1, '2026-10-01', 1, 'Monster', 'energy', 50, 0), (1, '2026-10-01', 2, 'Shot', 'fort', 4, 40),
+        (1, '2026-10-01', 3, 'Whisky', 'fort', 4, 40), (1, '2026-10-01', 4, 'Café', 'chaud', 5, 0);
+    `)
+    first.close()
+    const { db, close } = createApp({ dbPath: file })
+    try {
+      const rows = db.prepare('SELECT name, cat, caffeine FROM drinks ORDER BY id').all().map((r) => [r.name, r.cat, r.caffeine])
+      assert.deepEqual(rows, [['Monster', 'energy', 160], ['Shot', 'shot', 0], ['Whisky', 'fort', 0], ['Café', 'chaud', 80]])
+    } finally {
+      close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

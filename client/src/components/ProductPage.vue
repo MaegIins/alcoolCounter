@@ -76,7 +76,7 @@ const editing = ref(null) // { drink, info, photo }
 function startEdit() {
   const x = p.value
   editing.value = {
-    drink: { name: x.name, cat: x.cat, cl: x.default_cl ?? x.cl, abv: x.abv },
+    drink: { name: x.name, cat: x.cat, cl: x.default_cl ?? x.cl, abv: x.abv, caffeine: x.caffeine },
     info: { maker: x.maker ?? '', origin: x.origin ?? '', style: x.style ?? '', description: x.description ?? '' },
     photo: undefined,
   }
@@ -95,7 +95,7 @@ async function saveEdit() {
     if (canManage.value) {
       await api(`/products/${p.value.id}`, {
         method: 'PATCH',
-        body: { name: drink.name.trim(), cat: drink.cat, cl: Number(drink.cl), abv: Number(drink.abv), ...info, ...(ph !== undefined ? { photo: ph } : {}) },
+        body: { name: drink.name.trim(), cat: drink.cat, cl: Number(drink.cl), abv: Number(drink.abv), caffeine: drink.caffeine, ...info, ...(ph !== undefined ? { photo: ph } : {}) },
       })
     } else {
       const fill = Object.fromEntries(Object.entries(info).filter(([k, v]) => !locked.value.includes(k) && v.trim()))
@@ -286,7 +286,7 @@ const zoom = ref('')
               class="flex-1 rounded-t-sm"
               :class="n ? 'bg-hi/60' : 'bg-white/5'"
               :style="{ height: `${Math.max(4, (n / histMax) * 64)}px` }"
-              :title="`${num((i + 1) / 2)} ★ : ${n}`"
+              :data-tip="`${num((i + 1) / 2)} ★ : ${n}`"
             />
           </div>
           <div class="text-center">
