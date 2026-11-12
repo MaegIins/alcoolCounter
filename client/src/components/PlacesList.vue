@@ -1,4 +1,5 @@
 <script setup>
+import { placeIcon } from '../utils.js'
 // La carte › Lieux : les lieux enregistrés que je peux voir (publics, les miens, ceux de mes bandes).
 // Ceux que j'ai créés : je choisis s'ils sont publics ou privés, et quelles bandes voient un lieu privé.
 // (Les coordonnées lat/lng existent déjà côté serveur : une carte géographique pourra se brancher ici.)
@@ -97,7 +98,7 @@ const lastLabel = (ms) => (ms ? dayLabel(nightOf(new Date(ms)), true) : '')
         <div class="flex items-center gap-3">
           <button class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-hi hover:bg-white/10" :aria-label="`Page de ${p.name}`" @click="openPlace(p.id)">
             <img v-if="p.photo_key" :src="photoUrl(p.photo_key)" alt="" loading="lazy" class="h-full w-full object-cover" />
-            <Icon v-else :name="p.home ? 'fa-house' : p.private ? 'lock' : 'fa-location-dot'" />
+            <Icon v-else :name="placeIcon(p)" />
           </button>
           <span class="min-w-0 flex-1 leading-tight">
             <button class="block max-w-full truncate text-left font-bold hover:text-hi hover:underline" @click="openPlace(p.id)">{{ p.name }}</button>

@@ -2094,12 +2094,14 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
       clopePerDay: ex.clopeDays ? r1(ex.clope / ex.clopeDays) : 0,
     }
 
-    // Compagnons de verre : journées où quelqu'un a bu au même lieu (que je peux voir) le même jour
+    // Compagnons de verre : journées où quelqu'un a bu au même lieu (que je peux voir) le même jour.
+    // « Au travail » est un lieu générique (le boulot de chacun, pas un endroit commun) : il ne compte pas.
     const buddies = db.prepare(`
       SELECT u.id, u.name, u.avatar_v, COUNT(DISTINCT a.day) AS days FROM drinks a
       JOIN drinks b ON b.day = a.day AND b.place_id = a.place_id AND b.user_id != a.user_id
       JOIN users u ON u.id = b.user_id
-      WHERE a.user_id = ? AND a.place_id IS NOT NULL AND place_visible(a.place_id)
+      JOIN places pl ON pl.id = a.place_id
+      WHERE a.user_id = ? AND place_visible(a.place_id) AND pl.name != 'Au travail'
       GROUP BY u.id ORDER BY days DESC, u.name LIMIT 3
     `).all(id)
 

@@ -1,4 +1,5 @@
 <script setup>
+import { isWorkPlace, placeIcon } from '../utils.js'
 // Le « + » : choisir ce qu'on boit (carte, habitudes, format ou sur mesure), puis la date, une note,
 // un avis et une photo, tous facultatifs. Sert aussi à compléter ou supprimer une conso (preset.edit).
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
@@ -467,7 +468,7 @@ async function remove() {
                 :class="place === p.place ? 'bg-ink text-paper' : 'bg-raised text-muted hover:text-ink'"
                 @click="pickPlace(p)"
               >
-                <Icon v-if="p.home" name="fa-house" class="text-xs" /><Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
+                <Icon v-if="p.home || isWorkPlace(p)" :name="placeIcon(p)" class="text-xs" /><Icon v-if="p.private" name="lock" class="text-xs" /> {{ p.place }}
               </button>
             </div>
             <label v-if="!newPlace && place.trim()" class="mt-2 flex items-center gap-2 text-sm text-muted">

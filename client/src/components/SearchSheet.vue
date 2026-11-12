@@ -1,4 +1,5 @@
 <script setup>
+import { placeIcon } from '../utils.js'
 // Recherche (loupe de l'en-tête) : des personnes, même hors de ta bande, et des boissons de la carte.
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { api, catOf } from '../api'
@@ -93,7 +94,7 @@ onBeforeUnmount(() => {
               <h3 class="kicker px-5 pt-4 pb-1">Lieux</h3>
               <button v-for="pl in res.places" :key="pl.id" class="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-white/5" @click="goPlace(pl.id)">
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/5 text-hi">
-                  <Icon :name="pl.home ? 'fa-house' : pl.private ? 'lock' : 'fa-location-dot'" />
+                  <Icon :name="placeIcon(pl)" />
                 </span>
                 <span class="min-w-0 flex-1 truncate font-bold">{{ pl.name }}</span>
                 <span class="text-xs text-muted">{{ pl.logs }} conso{{ pl.logs > 1 ? 's' : '' }}</span>

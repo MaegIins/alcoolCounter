@@ -1,4 +1,5 @@
 <script setup>
+import { placeIcon } from '../utils.js'
 // Page d'un lieu, comme celles des boissons et des profils : où c'est (carte OpenStreetMap si la position
 // est connue), qui l'a ajouté, s'il est privé, les chiffres, ce qu'on y boit, qui y boit, les dernières consos.
 import { ref, computed, watch } from 'vue'
@@ -66,7 +67,7 @@ const drinkHere = () => openLog({ place: p.value.name })
           <img :src="photoUrl(p.photo_key)" alt="" class="h-20 w-20 rounded-2xl object-cover ring-1 ring-black/50" />
         </button>
         <span v-else class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-hi/15 text-3xl text-hi">
-          <Icon :name="p.home ? 'fa-house' : p.private ? 'lock' : 'fa-location-dot'" />
+          <Icon :name="placeIcon(p)" />
         </span>
         <div class="min-w-0 flex-1 pt-1">
           <h1 class="font-display text-3xl leading-[1.05] break-words">{{ p.name }}</h1>

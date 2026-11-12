@@ -5,6 +5,13 @@ import { reactive } from 'vue'
 
 export const CHANGELOG = [
   {
+    date: '2026-11-12',
+    title: 'Au travail',
+    items: [
+      '« Au travail » a sa mallette : c’est le boulot de chacun, pas un même endroit, donc il ne fait plus de compagnons de verre.',
+    ],
+  },
+  {
     date: '2026-11-10',
     title: 'Caféine, shots et titres cachés',
     items: [

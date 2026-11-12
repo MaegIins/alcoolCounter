@@ -1,4 +1,5 @@
 <script setup>
+import { placeIcon } from '../utils.js'
 // Profil d'une personne : son top 4, son activité récente, ses chiffres ; le journal daté de ses consos ; ses badges.
 import { ref, computed, watch } from 'vue'
 import { api, ALCO_CATS, SUSPECT_UNITS, catOf, num, fmt, dayLabel, today, photoUrl, rankOf } from '../api'
@@ -335,7 +336,7 @@ const dayNum = (day) => Number(day.slice(8))
               <button class="flex w-full items-center gap-3 py-2.5 text-left hover:text-hi" @click="openPlace(pl.id)">
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-hi">
                   <img v-if="pl.photo_key" :src="photoUrl(pl.photo_key)" alt="" loading="lazy" class="h-full w-full object-cover" />
-                  <Icon v-else :name="pl.home ? 'fa-house' : pl.private ? 'lock' : 'fa-location-dot'" />
+                  <Icon v-else :name="placeIcon(pl)" />
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ pl.home && isMe ? 'Chez moi' : pl.name }}</span>

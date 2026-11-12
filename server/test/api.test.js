@@ -347,6 +347,15 @@ describe('stats d’un profil : bande, compagnons, notes', () => {
     assert.equal(r.band.rank, 2) // Bob devant (4 pintes contre 2)
     assert.deepEqual(r.band.cats.map((x) => [x.cat, x.rank, x.of]), [['biere', 2, 2]])
   })
+
+  test('« Au travail » ne fait pas de compagnons de verre (chacun son boulot)', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    await s.drink(a.token, '2026-11-01', { place: 'Au travail' })
+    await s.drink(b.token, '2026-11-01', { place: 'au travail' })
+    const r = (await s.call('GET', `/users/${a.id}/insights`, { token: b.token })).body
+    assert.deepEqual(r.buddies, [])
+  })
 })
 
 describe('la carte', () => {

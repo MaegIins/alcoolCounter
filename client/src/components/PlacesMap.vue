@@ -1,4 +1,5 @@
 <script setup>
+import { placeIcon } from '../utils.js'
 // Carte des lieux (La carte › Lieux) : les lieux que je peux voir et qui ont une position.
 // La liste vient déjà filtrée par le serveur (lieux privés non autorisés absents, position d'un « Chez X » d'un autre
 // jamais envoyée) : la carte n'affiche que ce qu'on a le droit de voir.
@@ -26,7 +27,7 @@ const markers = new Map() // id du lieu → marqueur
 
 // Texte inséré dans le HTML d'une bulle : on échappe tout ce qui vient des utilisateurs
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
-const iconOf = (p) => (p.home ? 'fa-house' : p.private ? 'fa-lock' : 'fa-location-dot')
+const iconOf = (p) => placeIcon(p, 'fa-lock')
 // Fréquentation en couleur, du froid au chaud : cendre bleutée (peu de consos) → jaune → rouille (le QG).
 // Par rang (du moins au plus fréquenté des lieux affichés) : les couleurs s'étalent, même quand quelques lieux
 // écrasent tout en nombre de consos. À égalité, même couleur.

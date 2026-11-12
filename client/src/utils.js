@@ -62,6 +62,10 @@ export const CAFFEINE_DAY = 400
 export const MAX_CAFFEINE = 1000
 
 // Même identité qu'une boisson habituelle côté serveur : nom + catégorie + volume + degré
+// Icône d'un lieu : maison pour un chez-soi, mallette pour « Au travail » (lieu générique : le boulot de chacun),
+// cadenas pour un lieu privé, épingle sinon. Le nom est dans `name` ou `place` selon l'endroit de l'API.
+export const isWorkPlace = (p) => /^au travail$/i.test(String(p?.name ?? p?.place ?? '').trim())
+export const placeIcon = (p, lock = 'lock') => (p.home ? 'fa-house' : isWorkPlace(p) ? 'fa-briefcase' : p.private ? lock : 'fa-location-dot')
 export const drinkId = (d) => `${d.name}|${d.cat}|${d.cl}|${d.abv}`
 export const SUSPECT_UNITS = 30
 export const MAX_CL = 200
