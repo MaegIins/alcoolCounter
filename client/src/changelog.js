@@ -5,6 +5,14 @@ import { reactive } from 'vue'
 
 export const CHANGELOG = [
   {
+    date: '2026-11-15',
+    title: 'Cafés et thés',
+    items: [
+      'La carte a maintenant ses cafés (ristretto, cappuccino, flat white, filtre, cold brew…) et ses thés (noir, vert, matcha, chai, maté…), chacun avec sa caféine.',
+      'Un café allongé garde la caféine de sa dose : ajouter de l’eau ou du lait ne la multiplie plus.',
+    ],
+  },
+  {
     date: '2026-11-14',
     title: 'La carte se remplit toute seule',
     items: [

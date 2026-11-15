@@ -161,6 +161,8 @@ const units = computed(() => (sel.value && sel.value.cl > 0 && sel.value.abv > 0
 const caffeine = computed(() => {
   const d = sel.value
   if (!d?.caffeine) return 0
+  // Un café, un thé ou un cocktail garde sa dose quel que soit le volume (même règle que le serveur)
+  if (['chaud', 'cocktail', 'shot'].includes(d.cat)) return d.caffeine
   return Math.round(baseCl.value ? (d.caffeine * Number(d.cl)) / baseCl.value : d.caffeine)
 })
 const valid = computed(() => {

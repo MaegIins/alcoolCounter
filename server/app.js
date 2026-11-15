@@ -47,6 +47,11 @@ export function guessCaffeine({ name = '', cat, cl = 0 }) {
   }
   return 0
 }
+// Caféine d'un verre servi depuis une fiche : elle suit le volume pour une canette ou un soda (mg/100 ml),
+// pas pour un café, un thé ou un cocktail (allonger un café ne rajoute pas de caféine : c'est la dose qui compte)
+export const CAF_FIXED = ['chaud', 'cocktail', 'shot']
+export const cafOfGlass = (prod, cl) =>
+  CAF_FIXED.includes(prod.cat) || !(Number(cl) > 0) || !(prod.cl > 0) ? prod.caffeine : Math.min(MAX_CAFFEINE, (prod.caffeine * Number(cl)) / prod.cl)
 export const SUSPECT_UNITS = 30 // au-delà : badge « suspect » (on ne bloque pas, on affiche)
 export const EXTRAS = ['eau', 'clope'] // comptés à part, hors score
 // Code de bande : 6 caractères sans ambiguïté (pas de 0/O, 1/I/L)
@@ -1262,7 +1267,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     // Depuis la carte : nom, catégorie et degré du produit ; le volume est celui choisi (demi, pinte…), sinon celui de la fiche
     // (la caféine de la fiche suit le volume choisi)
     const cl = prod ? (req.body.cl ?? prod.cl) : null
-    const { drink, error } = checkDrink(prod ? { ...prod, cl, caffeine: Number(cl) > 0 ? Math.min(MAX_CAFFEINE, (prod.caffeine * Number(cl)) / prod.cl) : prod.caffeine } : req.body)
+    const { drink, error } = checkDrink(prod ? { ...prod, cl, caffeine: cafOfGlass(prod, cl) } : req.body)
     if (error) return bad(res, error)
     const { log, error: logError } = checkLog(req.body)
     if (logError) return bad(res, logError)

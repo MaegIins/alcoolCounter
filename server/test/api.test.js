@@ -1480,11 +1480,14 @@ describe('caféine', () => {
     const p = (await s.call('POST', '/products', { token, body: { name: 'Cola maison', cat: 'soft', cl: 33, abv: 0, caffeine: 40 } })).body
     assert.equal(p.caffeine, 40)
     assert.equal((await s.call('POST', '/drinks', { token, body: { day: '2026-11-02', product_id: p.id, cl: 66 } })).body.caffeine, 80)
+    // Un café garde sa dose quel que soit le volume (reprise d'un récent à 25 cl sur une fiche passée à 12 cl)
+    const c = (await s.call('POST', '/products', { token, body: { name: 'Café allongé', cat: 'chaud', cl: 12, abv: 0, caffeine: 80 } })).body
+    assert.equal((await s.call('POST', '/drinks', { token, body: { day: '2026-11-02', product_id: c.id, cl: 25 } })).body.caffeine, 80)
     // Fiche corrigée sans caféine dans le corps : la sienne est gardée
     const q = (await s.call('PATCH', `/products/${p.id}`, { token, body: { name: 'Cola maison', cat: 'soft', cl: 33, abv: 0 } })).body
     assert.equal(q.caffeine, 40)
     const list = (await s.call('GET', '/drinks/me?from=2026-11-02&to=2026-11-02', { token })).body
-    assert.equal(list.reduce((t, d) => t + d.caffeine, 0), 280)
+    assert.equal(list.reduce((t, d) => t + d.caffeine, 0), 360)
   })
 
   test('migration : caféine estimée pour l’existant, les « Shot » en alcool fort passent en shot', async () => {
