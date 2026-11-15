@@ -50,7 +50,7 @@ function placeCreated(created) {
 }
 const photo = ref(null) // data URL choisie (nouvelle photo)
 const photoRemoved = ref(false)
-const toCarte = ref(false)
+const toCarte = ref(true) // cochée par défaut : une nouvelle boisson va sur la carte, sauf si on décoche
 const busy = ref(false)
 const error = ref('')
 

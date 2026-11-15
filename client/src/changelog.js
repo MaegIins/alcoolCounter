@@ -5,6 +5,13 @@ import { reactive } from 'vue'
 
 export const CHANGELOG = [
   {
+    date: '2026-11-14',
+    title: 'La carte se remplit toute seule',
+    items: [
+      'Quand tu notes une nouvelle boisson, la case « L’ajouter à la carte » est cochée d’office. Décoche-la si c’est un truc que personne d’autre ne boira.',
+    ],
+  },
+  {
     date: '2026-11-12',
     title: 'Au travail',
     items: [
