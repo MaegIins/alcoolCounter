@@ -6,6 +6,14 @@ import { reactive } from 'vue'
 export const CHANGELOG = [
   {
     date: '2026-11-16',
+    title: 'Plus rapide',
+    items: [
+      'L’appli s’ouvre plus vite : elle télécharge deux fois moins au démarrage, le reste arrive quand tu en as besoin.',
+      'Si l’appli est restée ouverte pendant une mise à jour, elle se recharge toute seule au lieu de bloquer.',
+    ],
+  },
+  {
+    date: '2026-11-16',
     title: 'Jours de fête',
     items: [
       'Certains soirs, l’appli se met sur son trente-et-un. Lesquels ? Surprise : il faudra être là le jour J.',

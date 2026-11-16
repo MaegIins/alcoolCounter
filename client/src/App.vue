@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import {
   api, setToken, hasToken, today, colorMap, setUnauthorizedHandler, currentGroup, setGroup, setNoGroupHandler,
 } from './api'
@@ -12,38 +12,42 @@ import Avatar from './components/Avatar.vue'
 import EntryForm from './components/EntryForm.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import Stats from './components/Stats.vue'
-import FeedPage from './components/FeedPage.vue'
-import CartePage from './components/CartePage.vue'
-import UserPage from './components/UserPage.vue'
-import ProfilePage from './components/ProfilePage.vue'
 import LogSheet from './components/LogSheet.vue'
-import ProductPage from './components/ProductPage.vue'
-import PlacePage from './components/PlacePage.vue'
-import PostPage from './components/PostPage.vue'
-import NotifsPage from './components/NotifsPage.vue'
-import ChangelogPage from './components/ChangelogPage.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SoloNudge from './components/SoloNudge.vue'
-import WelcomeModal from './components/WelcomeModal.vue'
-import NewsModal from './components/NewsModal.vue'
 import { hasNews, markSeen } from './changelog'
 import Grime from './components/Grime.vue'
-import Noel from './components/Noel.vue'
-import NouvelAn from './components/NouvelAn.vue'
-import Beaujolais from './components/Beaujolais.vue'
-import StPatrick from './components/StPatrick.vue'
-import Halloween from './components/Halloween.vue'
-import Musique from './components/Musique.vue'
-import Biere from './components/Biere.vue'
-import Oktoberfest from './components/Oktoberfest.vue'
-import Valentin from './components/Valentin.vue'
-import PremierMai from './components/PremierMai.vue'
-import QuatorzeJuillet from './components/QuatorzeJuillet.vue'
-import Poisson from './components/Poisson.vue'
 import SeasonHat from './components/SeasonHat.vue'
 import { season, tagline } from './season'
+// Pages et fenêtres hors de l'accueil : chargées à la première ouverture (l'accueil s'affiche plus vite)
+const FeedPage = defineAsyncComponent(() => import('./components/FeedPage.vue'))
+const CartePage = defineAsyncComponent(() => import('./components/CartePage.vue'))
+const UserPage = defineAsyncComponent(() => import('./components/UserPage.vue'))
+const ProfilePage = defineAsyncComponent(() => import('./components/ProfilePage.vue'))
+const ProductPage = defineAsyncComponent(() => import('./components/ProductPage.vue'))
+const PlacePage = defineAsyncComponent(() => import('./components/PlacePage.vue'))
+const PostPage = defineAsyncComponent(() => import('./components/PostPage.vue'))
+const NotifsPage = defineAsyncComponent(() => import('./components/NotifsPage.vue'))
+const ChangelogPage = defineAsyncComponent(() => import('./components/ChangelogPage.vue'))
+const SearchSheet = defineAsyncComponent(() => import('./components/SearchSheet.vue'))
+const WelcomeModal = defineAsyncComponent(() => import('./components/WelcomeModal.vue'))
+const NewsModal = defineAsyncComponent(() => import('./components/NewsModal.vue'))
+// Décors des fêtes : chacun dans son propre fichier, chargé seulement le jour où il sert
+const SEASON_DECOR = {
+  'noel': defineAsyncComponent(() => import('./components/Noel.vue')),
+  'nouvel-an': defineAsyncComponent(() => import('./components/NouvelAn.vue')),
+  'beaujolais': defineAsyncComponent(() => import('./components/Beaujolais.vue')),
+  'st-patrick': defineAsyncComponent(() => import('./components/StPatrick.vue')),
+  'halloween': defineAsyncComponent(() => import('./components/Halloween.vue')),
+  'musique': defineAsyncComponent(() => import('./components/Musique.vue')),
+  'biere': defineAsyncComponent(() => import('./components/Biere.vue')),
+  'oktoberfest': defineAsyncComponent(() => import('./components/Oktoberfest.vue')),
+  'valentin': defineAsyncComponent(() => import('./components/Valentin.vue')),
+  'premier-mai': defineAsyncComponent(() => import('./components/PremierMai.vue')),
+  '14-juillet': defineAsyncComponent(() => import('./components/QuatorzeJuillet.vue')),
+  'poisson': defineAsyncComponent(() => import('./components/Poisson.vue')),
+}
 import Icon from './components/Icon.vue'
-import SearchSheet from './components/SearchSheet.vue'
 
 const me = ref(null)
 const ready = ref(false)
@@ -195,19 +199,8 @@ async function logout() {
   <div class="relative min-h-screen px-4 lg:px-8" :class="me ? 'pb-32 lg:pb-16' : 'pb-16'">
     <Grime />
     <!-- Thème des fêtes (season.js) -->
-    <Noel v-if="season === 'noel'" />
-    <NouvelAn v-else-if="season === 'nouvel-an'" />
-    <Beaujolais v-else-if="season === 'beaujolais'" />
-    <StPatrick v-else-if="season === 'st-patrick'" />
-    <Halloween v-else-if="season === 'halloween'" />
-    <Musique v-else-if="season === 'musique'" />
-    <Biere v-else-if="season === 'biere'" />
-    <Oktoberfest v-else-if="season === 'oktoberfest'" />
-    <Valentin v-else-if="season === 'valentin'" />
-    <PremierMai v-else-if="season === 'premier-mai'" />
-    <QuatorzeJuillet v-else-if="season === '14-juillet'" />
-    <Poisson v-else-if="season === 'poisson'" />
-    <!-- Dry January : juste le sous-titre -->
+    <component :is="SEASON_DECOR[season]" v-if="SEASON_DECOR[season]" />
+    <!-- (Dry January : pas de décor, juste le sous-titre) -->
     <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2" :class="width">
       <button class="shrink-0 text-left" @click="go('home')">
         <h1 class="relative font-drip text-[2.9rem] leading-[.85] whitespace-nowrap text-hi sm:text-6xl lg:text-5xl xl:text-6xl">

@@ -2,7 +2,7 @@
 import { placeIcon } from '../utils.js'
 // Page d'un lieu, comme celles des boissons et des profils : où c'est (carte OpenStreetMap si la position
 // est connue), qui l'a ajouté, s'il est privé, les chiffres, ce qu'on y boit, qui y boit, les dernières consos.
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { api, catOf, num, dayLabel, photoUrl } from '../api'
 import { ui, goBack, openUser, openProduct, openLog } from '../nav'
 import Avatar from './Avatar.vue'
@@ -11,7 +11,8 @@ import Stars from './Stars.vue'
 import LogCard from './LogCard.vue'
 import Icon from './Icon.vue'
 import PlaceEditForm from './PlaceEditForm.vue'
-import PlacesMap from './PlacesMap.vue'
+// Carte (Leaflet, lourde) chargée à part, seulement quand on l'affiche
+const PlacesMap = defineAsyncComponent(() => import('./PlacesMap.vue'))
 
 const props = defineProps({ placeId: Number, me: Object, colors: Object })
 

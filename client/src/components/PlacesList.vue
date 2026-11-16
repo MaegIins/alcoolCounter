@@ -3,12 +3,13 @@ import { placeIcon } from '../utils.js'
 // La carte › Lieux : les lieux enregistrés que je peux voir (publics, les miens, ceux de mes bandes).
 // Ceux que j'ai créés : je choisis s'ils sont publics ou privés, et quelles bandes voient un lieu privé.
 // (Les coordonnées lat/lng existent déjà côté serveur : une carte géographique pourra se brancher ici.)
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { api, dayLabel, nightOf, photoUrl } from '../api'
 import { ui, openPlace } from '../nav'
 import Icon from './Icon.vue'
 import PlaceEditForm from './PlaceEditForm.vue'
-import PlacesMap from './PlacesMap.vue'
+// Carte (Leaflet, lourde) chargée à part, seulement quand on l'affiche
+const PlacesMap = defineAsyncComponent(() => import('./PlacesMap.vue'))
 import Pager from './Pager.vue'
 
 const props = defineProps({ me: Object })

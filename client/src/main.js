@@ -10,6 +10,17 @@ import { initTips } from './tips'
 
 import './install' // capte la proposition d'installation dès le chargement
 
+// Pages chargées à la demande : après une mise en ligne, un onglet resté ouvert réclame d'anciens fichiers qui
+// n'existent plus. Dans ce cas on recharge (une fois par minute au plus, pour ne pas boucler si le réseau flanche).
+window.addEventListener('vite:preloadError', (e) => {
+  let last = 0
+  try { last = Number(sessionStorage.getItem('reloadedAt')) || 0 } catch {}
+  if (Date.now() - last < 60e3) return
+  try { sessionStorage.setItem('reloadedAt', String(Date.now())) } catch {}
+  e.preventDefault()
+  window.location.reload()
+})
+
 createApp(App).directive('digits', vDigits).mount('#app')
 initTips() // infobulles data-tip : au survol, et au doigt sur téléphone
 
