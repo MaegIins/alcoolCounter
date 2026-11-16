@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CATS, FORMATS, PALETTE, colorMap, unitsOf, fmtDrink, drinkId, toDay, nightOf, addDays, monthBounds, mondayOf, dayLabel,
-  fmt, niceMax, niceTicks, sanitizeDigits, starsText, timeAgo, RANKS, rankOf,
+  fmt, niceMax, niceTicks, sanitizeDigits, starsText, timeAgo, RANKS, rankOf, isNoelDay, isNouvelAnDay, isBeaujolaisDay, isStPatrickDay, seasonOf,
 } from '../src/utils.js'
 
 test('CATS : clés alignées sur le serveur, couleurs uniques ; formats valides', () => {
@@ -134,4 +134,45 @@ test('rankOf : palier (couleur de l’anneau) selon le % de succès', () => {
   const top = rankOf(82, 82)
   assert.deepEqual([top.i, top.next], [RANKS.length - 1, null])
   assert.ok(RANKS.every((x, i) => !i || x.min > RANKS[i - 1].min))
+})
+
+test('isNoelDay : soirées du 24 et du 25 décembre seulement (la nuit compte pour la veille)', () => {
+  assert.ok(isNoelDay('2026-12-24') && isNoelDay('2026-12-25'))
+  assert.ok(!isNoelDay('2026-12-23') && !isNoelDay('2026-12-26') && !isNoelDay('2026-11-24'))
+  assert.ok(isNoelDay(nightOf(new Date(2026, 11, 26, 5, 30)))) // 26 à 5h30 : encore le réveillon du 25
+  assert.ok(!isNoelDay(nightOf(new Date(2026, 11, 24, 5, 30)))) // 24 à 5h30 : encore la soirée du 23
+})
+
+test('isNouvelAnDay : la soirée du 31 décembre, jusqu’au 1er à 6h', () => {
+  assert.ok(isNouvelAnDay('2026-12-31') && !isNouvelAnDay('2027-01-01') && !isNouvelAnDay('2026-12-30'))
+  assert.ok(isNouvelAnDay(nightOf(new Date(2027, 0, 1, 3, 0)))) // 1er à 3h : toujours la Saint-Sylvestre
+  assert.ok(!isNouvelAnDay(nightOf(new Date(2027, 0, 1, 7, 0))))
+})
+
+test('isBeaujolaisDay : 3e jeudi de novembre', () => {
+  for (const d of ['2026-11-19', '2027-11-18', '2028-11-16', '2025-11-20']) assert.ok(isBeaujolaisDay(d), d)
+  for (const d of ['2026-11-12', '2026-11-26', '2026-10-15', '2026-11-20']) assert.ok(!isBeaujolaisDay(d), d)
+})
+
+test('seasonOf : un thème par fête, rien le reste du temps', () => {
+  assert.equal(seasonOf('2026-12-24'), 'noel')
+  assert.equal(seasonOf('2026-12-31'), 'nouvel-an')
+  assert.equal(seasonOf('2026-11-19'), 'beaujolais')
+  assert.equal(seasonOf('2027-03-17'), 'st-patrick')
+  assert.equal(seasonOf('2027-10-31'), 'halloween')
+  assert.equal(seasonOf('2027-06-21'), 'musique')
+  assert.equal(seasonOf(nightOf(new Date(2027, 5, 22, 3, 0))), 'musique') // 22 juin à 3h : encore la fête
+  assert.ok(isStPatrickDay(nightOf(new Date(2027, 2, 18, 4, 0)))) // 18 à 4h : encore la Saint-Patrick
+  for (const d of ['2026-08-07', '2027-08-06', '2025-08-01']) assert.equal(seasonOf(d), 'biere', d)
+  assert.equal(seasonOf('2026-08-14'), null)
+  for (const d of ['2023-09-16', '2024-09-21', '2025-09-20', '2026-09-19', '2027-09-18']) assert.equal(seasonOf(d), 'oktoberfest', d)
+  assert.equal(seasonOf('2026-09-20'), null)
+  assert.equal(seasonOf('2027-02-14'), 'valentin')
+  assert.equal(seasonOf('2027-05-01'), 'premier-mai')
+  assert.equal(seasonOf('2027-07-14'), '14-juillet')
+  assert.equal(seasonOf('2027-04-01'), 'poisson')
+  assert.equal(seasonOf('2027-01-01'), 'dry-january')
+  assert.equal(seasonOf('2027-01-31'), 'dry-january')
+  assert.equal(seasonOf('2026-12-31'), 'nouvel-an') // la nuit du 31 au 1er reste au Nouvel An
+  assert.equal(seasonOf('2026-11-16'), null)
 })

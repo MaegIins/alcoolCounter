@@ -5,6 +5,13 @@ import { reactive } from 'vue'
 
 export const CHANGELOG = [
   {
+    date: '2026-11-16',
+    title: 'Jours de fête',
+    items: [
+      'Certains soirs, l’appli se met sur son trente-et-un. Lesquels ? Surprise : il faudra être là le jour J.',
+    ],
+  },
+  {
     date: '2026-11-15',
     title: 'Cafés et thés',
     items: [

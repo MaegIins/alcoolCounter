@@ -1,5 +1,5 @@
 <script setup>
-// Décor de rade glauque, généré (graine fixe : le même à chaque visite) :
+// Décor crade et glauque, généré (graine fixe : le même à chaque visite) :
 // taches qui ont séché (auréole plus foncée sur le bord), éclaboussures avec gouttelettes et traînées,
 // coulures, brûlures de clope, cendre. Formes irrégulières, bords rongés par un filtre de bruit.
 // Purement décoratif : aria-hidden, aucun clic, derrière le contenu (sauf quelques saletés « sur la vitre »).

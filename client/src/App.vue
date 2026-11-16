@@ -28,6 +28,20 @@ import WelcomeModal from './components/WelcomeModal.vue'
 import NewsModal from './components/NewsModal.vue'
 import { hasNews, markSeen } from './changelog'
 import Grime from './components/Grime.vue'
+import Noel from './components/Noel.vue'
+import NouvelAn from './components/NouvelAn.vue'
+import Beaujolais from './components/Beaujolais.vue'
+import StPatrick from './components/StPatrick.vue'
+import Halloween from './components/Halloween.vue'
+import Musique from './components/Musique.vue'
+import Biere from './components/Biere.vue'
+import Oktoberfest from './components/Oktoberfest.vue'
+import Valentin from './components/Valentin.vue'
+import PremierMai from './components/PremierMai.vue'
+import QuatorzeJuillet from './components/QuatorzeJuillet.vue'
+import Poisson from './components/Poisson.vue'
+import SeasonHat from './components/SeasonHat.vue'
+import { season, tagline } from './season'
 import Icon from './components/Icon.vue'
 import SearchSheet from './components/SearchSheet.vue'
 
@@ -180,10 +194,26 @@ async function logout() {
 <template>
   <div class="relative min-h-screen px-4 lg:px-8" :class="me ? 'pb-32 lg:pb-16' : 'pb-16'">
     <Grime />
+    <!-- Thème des fêtes (season.js) -->
+    <Noel v-if="season === 'noel'" />
+    <NouvelAn v-else-if="season === 'nouvel-an'" />
+    <Beaujolais v-else-if="season === 'beaujolais'" />
+    <StPatrick v-else-if="season === 'st-patrick'" />
+    <Halloween v-else-if="season === 'halloween'" />
+    <Musique v-else-if="season === 'musique'" />
+    <Biere v-else-if="season === 'biere'" />
+    <Oktoberfest v-else-if="season === 'oktoberfest'" />
+    <Valentin v-else-if="season === 'valentin'" />
+    <PremierMai v-else-if="season === 'premier-mai'" />
+    <QuatorzeJuillet v-else-if="season === '14-juillet'" />
+    <Poisson v-else-if="season === 'poisson'" />
+    <!-- Dry January : juste le sous-titre -->
     <header class="relative mx-auto flex max-w-lg items-center justify-between gap-4 pt-8 pb-2" :class="width">
       <button class="shrink-0 text-left" @click="go('home')">
-        <h1 class="font-drip text-[2.9rem] leading-[.85] whitespace-nowrap text-hi sm:text-6xl lg:text-5xl xl:text-6xl">
-          L’<span class="flicker text-ink/80">Ardoise</span>
+        <h1 class="relative font-drip text-[2.9rem] leading-[.85] whitespace-nowrap text-hi sm:text-6xl lg:text-5xl xl:text-6xl">
+          <SeasonHat />
+          <!-- 1er avril : le logo est mal écrit -->
+          L’<span class="flicker text-ink/80">{{ season === 'poisson' ? 'Ardoize' : 'Ardoise' }}</span>
         </h1>
       </button>
       <!-- PC : les onglets sont ici (la barre du bas est réservée au mobile) -->
@@ -236,7 +266,7 @@ async function logout() {
     </header>
 
     <div class="relative mx-auto mb-10 flex max-w-lg items-center justify-between gap-2" :class="width">
-      <p class="min-w-0 flex-1 text-muted">Le plus gros buveur du jour gagne.</p>
+      <p class="min-w-0 flex-1 text-muted">{{ tagline }}</p>
       <!-- Bande courante -->
       <!-- Nom de bande long : coupé avec « … » sur une ligne (le nom entier est dans la liste et en infobulle) -->
       <div v-if="me && group" class="relative max-w-[55%] shrink-0 lg:max-w-xs">

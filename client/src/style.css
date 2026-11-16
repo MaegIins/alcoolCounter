@@ -33,7 +33,7 @@
   }
 }
 
-/* Ambiance rade glauque : béton sale, jaune pisse, nicotine, rouille. Rien de festif. */
+/* Ambiance crade glauque : béton sale, jaune pisse, nicotine, rouille. Rien de festif. */
 @theme {
   --font-sans: 'Barlow', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Rubik Dirt', ui-sans-serif, sans-serif; /* titres usés */
@@ -302,4 +302,321 @@ input[type='number'] { -moz-appearance: textfield; }
 
 @media (prefers-reduced-motion: reduce) {
   .wobble, .rise, .steam, .flicker, .bounce, .pop { animation: none; }
+}
+
+/* --- Noël (24 et 25 décembre, voir season.js) -------------------------------- */
+/* Le néon jaune se teinte de rouge et de vert, comme une guirlande qui bave sur le béton */
+[data-season='noel'] body {
+  background:
+    radial-gradient(40rem 22rem at 15% -8rem, rgb(196 60 42 / 0.12), transparent 70%),
+    radial-gradient(40rem 22rem at 85% -8rem, rgb(115 155 79 / 0.1), transparent 70%),
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(212 188 53 / 0.06), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+.noel-bulb {
+  width: 7px;
+  height: 11px;
+  margin-left: -3.5px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: var(--c);
+  box-shadow: 0 0 6px 1px var(--c), 0 0 16px 2px color-mix(in srgb, var(--c) 45%, transparent);
+  transform: rotate(var(--tilt));
+  transform-origin: 50% 0;
+  animation: noel-blink 2.4s steps(1) infinite;
+}
+/* Douille */
+.noel-bulb::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: -3px;
+  width: 5px;
+  height: 4px;
+  border-radius: 1px;
+  background: #2a2a22;
+}
+.noel-dead { background: #3a372f; box-shadow: none; animation: none; }
+.noel-flaky { animation: flicker 3s infinite; }
+@keyframes noel-blink {
+  0%, 66% { opacity: 1; }
+  67%, 100% { opacity: 0.25; box-shadow: none; }
+}
+.noel-flake {
+  top: -10px;
+  background: #e4dcc3;
+  animation-name: noel-snow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes noel-snow {
+  to { transform: translate(var(--drift), 105vh); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .noel-bulb, .noel-flaky { animation: none; }
+  .noel-snow { display: none; }
+}
+
+/* --- Nouvel An (soirée du 31 décembre, voir season.js) ----------------------- */
+/* Lueur champagne, un peu de bleu nuit sur les côtés */
+[data-season='nouvel-an'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(212 188 53 / 0.13), transparent 70%),
+    radial-gradient(36rem 20rem at 90% 10rem, rgb(111 147 173 / 0.07), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* Bouquet : les étincelles partent du centre, puis retombent et s'éteignent ; le reste de la boucle, rien */
+.nya-burst { width: 0; height: 0; }
+.nya-spark {
+  left: -1.5px;
+  top: -1.5px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px 1px currentColor;
+  opacity: 0;
+  animation-name: nya-spark;
+  animation-timing-function: cubic-bezier(0.1, 0.7, 0.3, 1);
+  animation-iteration-count: infinite;
+}
+@keyframes nya-spark {
+  0% { opacity: 0; transform: rotate(var(--a)) translateY(0); }
+  2% { opacity: 1; }
+  22% { opacity: 0.8; transform: rotate(var(--a)) translateY(calc(-1 * var(--r))); }
+  34% { opacity: 0; transform: rotate(var(--a)) translateY(calc(-1 * var(--r) - 6px)) translateX(4px); }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(0); }
+}
+.nya-confetti {
+  top: -14px;
+  border-radius: 1px;
+  animation-name: nya-confetti;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes nya-confetti {
+  to { transform: translate(var(--drift), 106vh) rotate(var(--spin)); }
+}
+.nya-count {
+  text-shadow: 0 0 30px rgb(212 188 53 / 0.45), 0 4px 0 rgb(0 0 0 / 0.6);
+  animation: nya-count 1s ease-out;
+}
+@keyframes nya-count {
+  0% { transform: scale(1.6); opacity: 0; }
+  30% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nya-fx { display: none; }
+  .nya-count { animation: none; }
+}
+
+/* --- Beaujolais nouveau (3e jeudi de novembre) ------------------------------- */
+/* Lueur lie-de-vin */
+[data-season='beaujolais'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(122 36 64 / 0.16), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* Grappes qui se balancent doucement au bout du sarment */
+.bj-grape { margin-left: -10px; transform-origin: 50% 0; animation: bj-sway 4s ease-in-out infinite; }
+@keyframes bj-sway {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+/* Feuilles et trèfles qui tombent en tournoyant */
+.bj-leaf, .sp-clover {
+  top: -24px;
+  animation-name: fall-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes fall-spin {
+  to { transform: translate(var(--drift), 106vh) rotate(var(--spin)); }
+}
+
+/* --- Saint-Patrick (17 mars) -------------------------------------------------- */
+/* Le jaune pisse vire au vert bière de la Saint-Patrick (boutons, onglets, logo…) */
+[data-season='st-patrick'] {
+  --color-hi: #8fbf4a;
+}
+[data-season='st-patrick'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(95 154 58 / 0.14), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bj-grape { animation: none; }
+  .bj-fall, .sp-fall { display: none; }
+}
+
+/* --- Halloween (31 octobre) --------------------------------------------------- */
+[data-season='halloween'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(196 112 58 / 0.15), transparent 70%),
+    radial-gradient(36rem 20rem at 10% 12rem, rgb(146 119 168 / 0.07), transparent 70%),
+    radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / 0.5) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* Le néon du logo est à deux doigts de lâcher */
+[data-season='halloween'] .flicker { animation-duration: 2.2s; }
+/* Araignée qui descend et remonte au bout de son fil */
+.hw-spider { width: 1px; height: 30px; animation: hw-spider 7s ease-in-out infinite; }
+@keyframes hw-spider {
+  0%, 100% { height: 24px; }
+  45%, 60% { height: 96px; }
+}
+/* Chauves-souris : traversent en ondulant, battent des ailes */
+.hw-bat { left: -60px; animation-name: hw-cross; animation-timing-function: linear; animation-iteration-count: infinite; }
+.hw-rev { left: auto; right: -60px; animation-name: hw-cross-rev; }
+.hw-rev .hw-flap { transform: scaleX(-1); }
+@keyframes hw-cross {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(30vw, -20px); }
+  50% { transform: translate(60vw, 10px); }
+  75% { transform: translate(90vw, -15px); }
+  100% { transform: translate(calc(100vw + 120px), 0); }
+}
+@keyframes hw-cross-rev {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-30vw, 15px); }
+  50% { transform: translate(-60vw, -10px); }
+  75% { transform: translate(-90vw, 20px); }
+  100% { transform: translate(calc(-100vw - 120px), 0); }
+}
+.hw-flap { animation: hw-flap 0.25s ease-in-out infinite alternate; transform-origin: 50% 40%; }
+@keyframes hw-flap { to { transform: scaleY(0.45); } }
+.hw-rev .hw-flap { animation-name: hw-flap-rev; }
+@keyframes hw-flap-rev {
+  from { transform: scaleX(-1); }
+  to { transform: scaleX(-1) scaleY(0.45); }
+}
+
+/* --- Fête de la musique (21 juin) ------------------------------------------- */
+[data-season='musique'] body {
+  background:
+    radial-gradient(40rem 22rem at 20% -8rem, rgb(146 119 168 / 0.13), transparent 70%),
+    radial-gradient(40rem 22rem at 80% -8rem, rgb(111 147 173 / 0.11), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+.fm-bar { transform-origin: 50% 0; animation: fm-bar ease-in-out infinite alternate; }
+@keyframes fm-bar {
+  from { transform: scaleY(0.12); }
+  to { transform: scaleY(var(--max)); }
+}
+.fm-note { bottom: -30px; animation-name: fm-rise; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes fm-rise {
+  0% { transform: translate(0, 0) rotate(-8deg); }
+  25% { transform: translate(var(--sway), -27vh) rotate(8deg); }
+  50% { transform: translate(0, -54vh) rotate(-8deg); }
+  75% { transform: translate(calc(-1 * var(--sway)), -81vh) rotate(8deg); }
+  100% { transform: translate(0, calc(-100vh - 60px)) rotate(-8deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hw-spider, .fm-bar { animation: none; }
+  .hw-fx, .fm-fx { display: none; }
+}
+
+/* --- Journée de la bière (1er vendredi d'août) -------------------------------- */
+[data-season='biere'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(212 172 58 / 0.16), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+.br-bubble {
+  bottom: -10px;
+  border: 1px solid #efe6c8;
+  background: rgb(239 230 200 / 0.15);
+  animation-name: br-rise;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+@keyframes br-rise {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(var(--sway), -33vh); }
+  66% { transform: translate(calc(-1 * var(--sway)), -66vh); }
+  100% { transform: translate(0, calc(-100vh - 20px)); }
+}
+
+/* --- Oktoberfest (samedi d'ouverture) ---------------------------------------- */
+[data-season='oktoberfest'] body {
+  background:
+    radial-gradient(40rem 22rem at 25% -8rem, rgb(74 122 168 / 0.13), transparent 70%),
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(212 172 58 / 0.09), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+
+/* --- Saint-Valentin (14 février) --------------------------------------------- */
+[data-season='valentin'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(196 60 90 / 0.13), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* Bretzels et cœurs : même chute que les feuilles et les trèfles */
+.ok-pretzel, .vl-heart {
+  top: -24px;
+  animation-name: fall-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .br-fx, .ok-fx, .vl-fx { display: none; }
+}
+
+/* --- 1er mai ------------------------------------------------------------------- */
+/* Le jaune pisse passe au rouge drapeau (boutons, onglets, logo…) */
+[data-season='premier-mai'] {
+  --color-hi: #d9573e;
+}
+[data-season='premier-mai'] body {
+  background:
+    radial-gradient(70rem 26rem at 50% -10rem, rgb(196 60 42 / 0.16), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* Le drapeau ondule au vent */
+.pm-flag { transform-origin: 0 50%; animation: pm-wave 3s ease-in-out infinite; }
+@keyframes pm-wave {
+  0%, 100% { transform: skewY(0) scaleX(1); }
+  50% { transform: skewY(-3deg) scaleX(0.94); }
+}
+.pm-star {
+  top: -24px;
+  animation-name: fall-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-flag { animation: none; }
+  .pm-fx { display: none; }
+}
+
+/* --- 14 juillet ---------------------------------------------------------------- */
+[data-season='14-juillet'] body {
+  background:
+    radial-gradient(34rem 20rem at 15% -8rem, rgb(58 106 176 / 0.13), transparent 70%),
+    radial-gradient(34rem 20rem at 50% -10rem, rgb(228 220 195 / 0.06), transparent 70%),
+    radial-gradient(34rem 20rem at 85% -8rem, rgb(196 60 42 / 0.13), transparent 70%),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.4) 100%),
+    var(--color-paper);
+  background-attachment: fixed;
+}
+/* --- 1er avril ----------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .ps-fx { display: none; }
 }

@@ -88,6 +88,48 @@ export const toDay = (d) =>
 // Une soirée ne s'arrête pas à minuit : avant NIGHT_END heures, on compte encore pour la veille.
 export const NIGHT_END = 6
 export const nightOf = (d) => toDay(new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() - NIGHT_END))
+// Thème de Noël : les soirées du 24 et du 25 décembre (donc du 24 à 6h au 26 à 6h)
+export const isNoelDay = (day) => /-12-2[45]$/.test(day)
+// Thème du Nouvel An : la soirée du 31 décembre (du 31 à 6h au 1er janvier à 6h)
+export const isNouvelAnDay = (day) => day.endsWith('-12-31')
+/** Quantième du n-ième jour de semaine (0 = dimanche) d'un mois (1-12) */
+const nthWeekday = (y, m, weekday, n) => 1 + ((weekday - new Date(y, m - 1, 1).getDay() + 7) % 7) + 7 * (n - 1)
+const dayParts = (day) => day.split('-').map(Number)
+// Thème du Beaujolais nouveau : la soirée du 3e jeudi de novembre
+export const isBeaujolaisDay = (day) => {
+  const [y, m, d] = dayParts(day)
+  return m === 11 && d === nthWeekday(y, 11, 4, 3)
+}
+// Journée internationale de la bière : 1er vendredi d'août
+export const isBiereDay = (day) => {
+  const [y, m, d] = dayParts(day)
+  return m === 8 && d === nthWeekday(y, 8, 5, 1)
+}
+// Ouverture de l'Oktoberfest : le samedi 15 jours avant le 1er dimanche d'octobre (la fête finit ce dimanche-là)
+export const isOktoberfestDay = (day) => {
+  const [y] = dayParts(day)
+  return day === toDay(new Date(y, 9, nthWeekday(y, 10, 0, 1) - 15))
+}
+// Thème de la Saint-Patrick : la soirée du 17 mars
+export const isStPatrickDay = (day) => day.endsWith('-03-17')
+/** Thème saisonnier d'une soirée : 'noel', 'nouvel-an', 'beaujolais', 'st-patrick', 'halloween', 'musique', 'biere',
+ * 'oktoberfest', 'valentin', 'premier-mai', '14-juillet', 'poisson', 'dry-january' ou null */
+export const seasonOf = (day) => {
+  if (isNoelDay(day)) return 'noel'
+  if (isNouvelAnDay(day)) return 'nouvel-an'
+  if (isBeaujolaisDay(day)) return 'beaujolais'
+  if (isStPatrickDay(day)) return 'st-patrick'
+  if (day.endsWith('-10-31')) return 'halloween' // soirée du 31 octobre
+  if (day.endsWith('-06-21')) return 'musique' // Fête de la musique, soirée du 21 juin
+  if (isBiereDay(day)) return 'biere'
+  if (isOktoberfestDay(day)) return 'oktoberfest'
+  if (day.endsWith('-02-14')) return 'valentin'
+  if (day.endsWith('-05-01')) return 'premier-mai'
+  if (day.endsWith('-07-14')) return '14-juillet'
+  if (day.endsWith('-04-01')) return 'poisson'
+  if (day.slice(5, 7) === '01') return 'dry-january' // tout janvier (juste le sous-titre)
+  return null
+}
 export const addDays = (day, n) => {
   const [y, m, d] = day.split('-').map(Number)
   return toDay(new Date(y, m - 1, d + n))
