@@ -217,15 +217,17 @@ export function parseUrl(pathname, search = '') {
 
 // Palier de profil selon le % de succès débloqués (secrets compris) : juste une couleur, l'anneau autour de l'avatar.
 // (Les titres, eux, sont les titres cachés : voir server/titles.js.)
+// Teintes vives et bien séparées (bronze, turquoise, vert, bleu, violet, rouge, or) : un anneau de 2 px doit
+// se reconnaître d'un coup d'œil, les tons sourds de la palette se confondaient (sarcelle / vert / bleu).
 export const RANKS = [
   { min: 0, color: '#6e6a62' },
-  { min: 6, color: '#978e76' },
-  { min: 13, color: '#4f8f8a' },
-  { min: 22, color: '#739b4f' },
-  { min: 33, color: '#6f93ad' },
-  { min: 45, color: '#9277a8' },
-  { min: 60, color: '#b8432c' },
-  { min: 80, color: '#d4bc35' },
+  { min: 6, color: '#a8794a' },
+  { min: 13, color: '#2fb3a3' },
+  { min: 22, color: '#8cc63f' },
+  { min: 33, color: '#4f8fe8' },
+  { min: 45, color: '#c95fd8' },
+  { min: 60, color: '#e8553a' },
+  { min: 80, color: '#f5c518' },
 ]
 /** Palier d'un profil : { ...palier, i, pct, got, total, next } */
 export function rankOf(got, total) {
