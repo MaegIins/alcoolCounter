@@ -50,7 +50,7 @@ export async function api(path, { method = 'GET', body } = {}) {
       setToken('')
       onUnauthorized()
     }
-    throw Object.assign(new Error(data.error || 'Erreur serveur'), { status: res.status })
+    throw Object.assign(new Error(data.error || 'Erreur serveur'), { status: res.status, data })
   }
   return data
 }

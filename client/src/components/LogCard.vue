@@ -21,6 +21,8 @@ const props = defineProps({
   showPoster: { type: Boolean, default: true }, // false sur la fiche d'un produit (déjà en haut)
 })
 const mine = computed(() => props.log.user_id === props.me?.id)
+// Un admin peut corriger la conso de n'importe qui (erreurs de soirée)
+const canEdit = computed(() => mine.value || !!props.me?.is_admin)
 const long = computed(() => (props.log.review?.length ?? 0) > 280)
 const open = ref(false)
 const zoom = ref(false)
@@ -58,7 +60,7 @@ const count = ref(props.log.comments ?? 0)
           <template v-else>{{ log.name }}</template>
           <span class="ml-1.5 font-sans text-sm font-normal text-muted"><DrinkSpec :d="log" /></span>
         </h3>
-        <button v-if="mine" class="-mt-0.5 -mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink" :aria-label="`Modifier ${log.name}`" @click="openLog({ edit: log })">
+        <button v-if="canEdit" class="-mt-0.5 -mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint hover:bg-raised hover:text-ink" :aria-label="`Modifier ${log.name}`" @click="openLog({ edit: log })">
           <Icon name="edit" :size="16" />
         </button>
       </div>

@@ -22,7 +22,7 @@ const close = closeLog
 const edit = props.preset.edit ?? null
 const step = ref(edit || props.preset.product || props.preset.drink ? 'details' : 'pick')
 const sel = ref(
-  edit ? { ...edit, mode: 'edit' }
+  edit ? { ...edit, mode: edit.product_id ? 'product' : 'custom' }
   : props.preset.product ? { ...props.preset.product, product_id: props.preset.product.id, product_photo_key: props.preset.product.photo_key, mode: 'product' }
   : props.preset.drink ? { ...props.preset.drink, mode: 'product' }
   : null
@@ -50,6 +50,8 @@ function placeCreated(created) {
 }
 const photo = ref(null) // data URL choisie (nouvelle photo)
 const photoRemoved = ref(false)
+// Admin qui corrige la conso de quelqu'un d'autre (la personne est prévenue)
+const othersDrink = computed(() => !!edit && edit.user_id !== props.me?.id)
 const toCarte = ref(true) // cochée par défaut : une nouvelle boisson va sur la carte, sauf si on décoche
 const busy = ref(false)
 const error = ref('')
@@ -62,13 +64,24 @@ const searchInput = ref(null)
 onMounted(async () => {
   document.body.style.overflow = 'hidden'
   document.addEventListener('keydown', onKey)
-  if (step.value !== 'pick') return
+  if (step.value === 'pick') loadPick()
+})
+let pickLoaded = false
+async function loadPick() {
   await nextTick()
   searchInput.value?.focus({ preventScroll: true })
+  if (pickLoaded) return
+  pickLoaded = true
   const [p, h] = await Promise.all([api('/products').catch(() => []), api('/drinks/favorites').catch(() => [])])
   products.value = p
   history.value = h
-})
+}
+// Corriger une conso : repartir du choix de la boisson (la note, l'avis, la photo… restent)
+function changeDrink() {
+  query.value = ''
+  step.value = 'pick'
+  loadPick()
+}
 const onKey = (e) => e.key === 'Escape' && close()
 onBeforeUnmount(() => {
   document.body.style.overflow = ''
@@ -200,17 +213,33 @@ async function save() {
       const body = { ...extra }
       if (photo.value) body.photo = photo.value
       else if (photoRemoved.value) body.photo = null
-      await api(`/drinks/${edit.id}`, { method: 'PATCH', body })
-      toast('Modifié')
+      // La boisson elle-même, si elle a changé (autre boisson, format, degré…)
+      const d = sel.value
+      const spec = d.product_id ? { product_id: d.product_id, cl: Number(d.cl) }
+        : { product_id: null, name: name.value, cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), caffeine: d.caffeine }
+      if (Object.entries(spec).some(([k, v]) => v !== edit[k])) {
+        if (toCarte.value && d.mode === 'custom' && name.value !== edit.name) {
+          await api('/products', { method: 'POST', body: { name: spec.name, cat: spec.cat, cl: spec.cl, abv: spec.abv, caffeine: spec.caffeine } }).catch(() => {})
+        }
+        Object.assign(body, spec)
+      }
+      const row = await api(`/drinks/${edit.id}`, { method: 'PATCH', body })
+      toast(othersDrink.value ? 'Corrigé (la personne est prévenue)' : 'Modifié')
+      celebrateBadges(row.badges)
     } else {
       const d = sel.value
       const drink = { name: name.value, cat: d.cat, cl: Number(d.cl), abv: Number(d.abv), caffeine: d.caffeine }
       // Nouvelle boisson à mettre sur la carte : d'abord le produit (déjà là = pas grave), la conso y sera rattachée
       if (toCarte.value && d.mode !== 'product') await api('/products', { method: 'POST', body: drink }).catch(() => {})
-      const row = await api('/drinks', {
-        method: 'POST',
-        body: { ...extra, ...(d.product_id ? { product_id: d.product_id, cl: Number(d.cl) } : drink), ...(photo.value ? { photo: photo.value } : {}) },
+      const body = { ...extra, ...(d.product_id ? { product_id: d.product_id, cl: Number(d.cl) } : drink), ...(photo.value ? { photo: photo.value } : {}) }
+      // Même boisson notée à l'instant : double tap ? On demande avant d'en ajouter une deuxième
+      const row = await api('/drinks', { method: 'POST', body: { ...body, dup_check: true } }).catch(async (e) => {
+        if (e.data?.code !== 'DUP') throw e
+        const ago = e.data.ago < 60 ? `${e.data.ago} s` : `${Math.round(e.data.ago / 60)} min`
+        const again = await ask({ title: `Encore une ${name.value} ?`, message: `Tu viens d'en noter une il y a ${ago}.`, confirm: 'Oui, une de plus', cancel: 'Non, oups' })
+        return again ? api('/drinks', { method: 'POST', body }) : null
       })
+      if (!row) return close()
       vibrate(30)
       toast(`${row.name}${row.units ? ` · +${num(row.units)}` : ''}`, {
         icon: catOf(row.cat).fa,
@@ -266,17 +295,17 @@ async function remove() {
       <!-- Barre du haut -->
       <div class="flex items-center gap-2 border-b border-line px-3 py-2.5">
         <button
-          v-if="step === 'details' && !edit && !preset.product && !preset.drink"
+          v-if="(step === 'details' && !edit && !preset.product && !preset.drink) || (step === 'pick' && edit)"
           class="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-raised hover:text-ink"
-          aria-label="Retour au choix"
-          @click="step = 'pick'"
+          :aria-label="edit ? 'Retour à la conso' : 'Retour au choix'"
+          @click="step = edit ? 'details' : 'pick'"
         >
           <Icon name="back" :size="20" />
         </button>
         <button v-else class="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-raised hover:text-ink" aria-label="Fermer" @click="close">
           <Icon name="close" :size="20" />
         </button>
-        <h2 class="flex-1 text-center font-semibold">{{ edit ? 'Ma conso' : step === 'pick' ? 'Qu’est-ce que tu bois ?' : 'J’ai bu…' }}</h2>
+        <h2 class="flex-1 text-center font-semibold">{{ edit && step === 'pick' ? 'Remplacer par…' : edit ? (othersDrink ? 'Corriger la conso' : 'Ma conso') : step === 'pick' ? 'Qu’est-ce que tu bois ?' : 'J’ai bu…' }}</h2>
         <button
           v-if="step === 'details'"
           class="btn btn-hi px-4 py-1.5 text-sm font-semibold disabled:opacity-40"
@@ -371,6 +400,9 @@ async function remove() {
 
         <!-- Étape 2 : détails -->
         <form v-else class="space-y-6 p-4" @submit.prevent="save">
+          <p v-if="othersDrink" class="rounded-md bg-hi/10 px-3.5 py-2.5 text-sm text-hi">
+            <Icon name="fa-user-shield" /> Conso de {{ edit.user_name || 'quelqu’un d’autre' }} : en admin, tu peux la corriger ou la supprimer. La personne sera prévenue, et la correction est gardée dans le journal.
+          </p>
           <div class="flex gap-4">
             <Poster :drink="sel" :width="84" :icon="64" />
             <div class="min-w-0 flex-1 pt-1">
@@ -380,10 +412,13 @@ async function remove() {
                 {{ units ? `+${num(units)} verre${units >= 2 ? 's' : ''} standard` : 'Hors score (sans alcool)' }}
               </div>
               <div v-if="caffeine" class="text-sm text-chaud"><Icon name="fa-mug-hot" /> {{ caffeine }} mg de caféine</div>
+              <button v-if="edit" type="button" class="mt-2 mr-3 text-sm font-semibold text-hi hover:underline" @click="changeDrink">
+                <Icon name="fa-arrows-rotate" /> Changer de boisson
+              </button>
               <button v-if="sel.product_id" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" @click="toPage(sel.product_id)">
                 Page de la boisson <Icon name="next" />
               </button>
-              <button v-else-if="edit" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" :disabled="busy" @click="createPage">
+              <button v-else-if="edit && !othersDrink && sel.name === edit.name" type="button" class="mt-2 text-sm font-semibold text-hi hover:underline" :disabled="busy" @click="createPage">
                 <Icon name="plus" /> Lui créer une page sur la carte
               </button>
             </div>
@@ -412,7 +447,7 @@ async function remove() {
             :full="sel.mode === 'custom'"
             :name-placeholder="sel.mode === 'format' ? `Nom (facultatif) : ${sel.label}…` : 'Nom de la boisson'"
           />
-          <label v-if="free && sel.name.trim()" class="flex items-center gap-2.5 text-sm text-muted">
+          <label v-if="free && sel.name.trim() && (!edit || sel.name.trim() !== edit.name)" class="flex items-center gap-2.5 text-sm text-muted">
             <input v-model="toCarte" type="checkbox" class="h-4 w-4 accent-[#d4bc35]" />
             L'ajouter à la carte, pour tout le monde
           </label>

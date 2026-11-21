@@ -43,6 +43,8 @@ const KINDS = {
   follow_accept: { icon: 'fa-user-check', color: 'text-cocktail', text: 'a accepté ta demande d’abonnement' },
   badge: { icon: 'fa-trophy', color: 'text-hi', text: '' },
   title: { icon: 'fa-tag', color: 'text-hi', text: '' },
+  admin_edit: { icon: 'fa-pen', color: 'text-hi', text: 'a corrigé ta conso' },
+  admin_delete: { icon: 'fa-trash', color: 'text-alert', text: 'a supprimé ta conso' },
 }
 // Demande d'abonnement : accepter (elle devient « te suit ») ou refuser (elle disparaît)
 const answering = ref(null)
@@ -103,6 +105,7 @@ const open = (n) => (n.kind === 'badge' || n.kind === 'title' ? openUser(n.actor
                 : <span class="font-semibold" :style="{ color: catOf(n.drink_cat).hex }">{{ n.drink_name }}</span>
               </template>
             </span>
+            <span v-if="n.detail" class="mt-0.5 block text-sm text-muted">{{ n.detail }}</span>
             <span v-if="n.comment" class="mt-0.5 line-clamp-2 block text-sm text-ink/80">« {{ n.comment }} »</span>
             <span class="text-xs text-faint">{{ timeAgo(n.at) }}</span>
           </span>

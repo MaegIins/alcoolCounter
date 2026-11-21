@@ -1512,3 +1512,123 @@ describe('caféine', () => {
     }
   })
 })
+
+describe('éviter et corriger les erreurs de saisie', () => {
+  const DAY = '2026-11-03'
+
+  test('anti-doublon : même boisson et même volume à l’instant → 409 DUP si dup_check, sinon ajoutée', async () => {
+    const a = await s.register('Alice')
+    assert.equal((await s.drink(a.token, DAY, { dup_check: true })).status, 200)
+    s.clock.t += 30e3
+    const dup = await s.drink(a.token, DAY, { dup_check: true })
+    assert.equal(dup.status, 409)
+    assert.equal(dup.body.code, 'DUP')
+    assert.equal(dup.body.ago, 30)
+    // Confirmée (renvoyée sans dup_check) : ajoutée
+    assert.equal((await s.drink(a.token, DAY)).status, 200)
+    // Autre volume ou autre boisson : pas un doublon
+    assert.equal((await s.drink(a.token, DAY, { cl: 25, dup_check: true })).status, 200)
+    assert.equal((await s.drink(a.token, DAY, { ...SHOT, dup_check: true })).status, 200)
+    // Passé le délai : plus un doublon
+    s.clock.t += 3 * 60e3
+    assert.equal((await s.drink(a.token, DAY, { dup_check: true })).status, 200)
+  })
+
+  test('changer la boisson d’une conso la garde (likes, commentaires) et recalcule les verres', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const d = (await s.drink(a.token, DAY)).body
+    await s.call('PUT', `/drinks/${d.id}/like`, { token: b.token })
+    await s.call('POST', `/drinks/${d.id}/comments`, { token: b.token, body: { body: 'Santé' } })
+    const r = await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { product_id: null, name: 'Demi', cl: 25 } })
+    assert.equal(r.status, 200)
+    assert.equal(r.body.id, d.id)
+    assert.equal(r.body.name, 'Demi')
+    assert.equal(r.body.cl, 25)
+    assert.equal(r.body.abv, 5) // pas donné : on garde
+    assert.equal(r.body.units, 1)
+    assert.equal(r.body.likes, 1)
+    assert.equal(r.body.comments, 1)
+    // Valeurs invalides refusées
+    assert.equal((await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { cl: 0 } })).status, 400)
+    assert.equal((await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { cat: 'nimp' } })).status, 400)
+  })
+
+  test('conso de la carte : changer de format, ou passer sur une autre fiche', async () => {
+    const a = await s.register('Alice')
+    const chouffe = (await s.call('POST', '/products', { token: a.token, body: { name: 'Chouffe', cat: 'biere', cl: 33, abv: 8 } })).body
+    const kro = (await s.call('POST', '/products', { token: a.token, body: { name: 'Kro', cat: 'biere', cl: 25, abv: 4.2 } })).body
+    const d = (await s.call('POST', '/drinks', { token: a.token, body: { day: DAY, product_id: chouffe.id, cl: 50 } })).body
+    const pinte = await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { product_id: chouffe.id, cl: 25 } })
+    assert.equal(pinte.body.cl, 25)
+    assert.equal(pinte.body.abv, 8)
+    const other = await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { product_id: kro.id } })
+    assert.equal(other.body.name, 'Kro')
+    assert.equal(other.body.product_id, kro.id)
+    assert.equal(other.body.cl, 25) // autre fiche sans volume donné : celui de la fiche
+    assert.equal(other.body.abv, 4.2)
+    assert.equal((await s.call('PATCH', `/drinks/${d.id}`, { token: a.token, body: { product_id: 9999 } })).status, 404)
+  })
+
+  test('sans être admin, impossible de corriger ou supprimer la conso d’un autre', async () => {
+    const a = await s.register('Alice')
+    const b = await s.register('Bob')
+    const d = (await s.drink(a.token, DAY)).body
+    assert.equal((await s.call('PATCH', `/drinks/${d.id}`, { token: b.token, body: { cl: 25 } })).status, 404)
+    assert.equal((await s.call('DELETE', `/drinks/${d.id}`, { token: b.token })).status, 404)
+    assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM drink_edits').get().n, 0)
+  })
+
+  test('un admin corrige ou supprime la conso de quelqu’un : tracé, et la personne est prévenue', async () => {
+    const s2 = await start({ admins: ['boss'] })
+    try {
+      const a = await s2.register('Alice')
+      const boss = await s2.register('Boss')
+      const d = (await s2.drink(a.token, DAY)).body
+      const r = await s2.call('PATCH', `/drinks/${d.id}`, { token: boss.token, body: { product_id: null, name: 'Demi', cl: 25 } })
+      assert.equal(r.status, 200)
+      assert.equal(r.body.user_id, a.id) // reste à Alice
+      const edits = s2.db.prepare('SELECT * FROM drink_edits ORDER BY id').all()
+      assert.equal(edits.length, 1)
+      assert.equal(edits[0].action, 'edit')
+      assert.equal(edits[0].actor_id, boss.id)
+      assert.equal(JSON.parse(edits[0].before).name, 'Pinte')
+      assert.equal(JSON.parse(edits[0].after).name, 'Demi')
+
+      await s2.call('DELETE', `/drinks/${d.id}`, { token: boss.token })
+      assert.equal(s2.db.prepare('SELECT COUNT(*) AS n FROM drinks').get().n, 0)
+      const del = s2.db.prepare("SELECT * FROM drink_edits WHERE action = 'delete'").get()
+      assert.equal(JSON.parse(del.before).id, d.id) // de quoi la rétablir
+
+      const notifs = (await s2.call('GET', '/notifications', { token: a.token })).body.items
+      const kinds = notifs.map((n) => n.kind)
+      assert.ok(kinds.includes('admin_delete'))
+      const delNotif = notifs.find((n) => n.kind === 'admin_delete')
+      assert.equal(delNotif.detail, 'Demi 25 cl à 5 % du 03/11')
+      assert.equal(delNotif.actor_name, 'Boss')
+      // La notif de correction disparaît avec la conso supprimée ; celle de suppression reste
+      assert.ok(!kinds.includes('admin_edit'))
+    } finally {
+      await s2.stop()
+    }
+  })
+
+  test('notif de correction par un admin : ce qui a changé', async () => {
+    const s2 = await start({ admins: ['boss'] })
+    try {
+      const a = await s2.register('Alice')
+      const boss = await s2.register('Boss')
+      const d = (await s2.drink(a.token, DAY)).body
+      await s2.call('PATCH', `/drinks/${d.id}`, { token: boss.token, body: { product_id: null, cl: 25, day: '2026-11-02', rating: 8 } })
+      const n = (await s2.call('GET', '/notifications', { token: a.token })).body.items.find((x) => x.kind === 'admin_edit')
+      assert.equal(n.detail, 'Pinte 50 cl à 5 % → Pinte 25 cl à 5 % · jour : 03/11 → 02/11 · note modifiée')
+      assert.equal(n.drink_id, d.id)
+      // L'admin qui corrige sa propre conso : pas de trace ni de notif
+      const mine = (await s2.drink(boss.token, DAY)).body
+      await s2.call('PATCH', `/drinks/${mine.id}`, { token: boss.token, body: { cl: 25 } })
+      assert.equal(s2.db.prepare('SELECT COUNT(*) AS n FROM drink_edits').get().n, 1)
+    } finally {
+      await s2.stop()
+    }
+  })
+})

@@ -5,6 +5,15 @@ import { reactive } from 'vue'
 
 export const CHANGELOG = [
   {
+    date: '2026-11-21',
+    title: 'Les lendemains de soirée',
+    items: [
+      'La même boisson notée deux fois en moins de deux minutes ? L’appli demande si c’est bien une de plus, ou un double tap.',
+      'Une conso se corrige entièrement : changer de boisson, de format ou de degré sans la supprimer (photo, likes et commentaires restent).',
+      'Les admins peuvent corriger une conso qui n’est pas la leur. Tu es prévenu par une notif qui dit ce qui a changé.',
+    ],
+  },
+  {
     date: '2026-11-16',
     title: 'Plus rapide',
     items: [

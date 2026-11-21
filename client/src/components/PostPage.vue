@@ -21,6 +21,7 @@ const p = ref(null)
 const error = ref('')
 const zoom = ref(false)
 const mine = computed(() => p.value?.user_id === props.me?.id)
+const canEdit = computed(() => mine.value || !!props.me?.is_admin) // un admin corrige la conso de n'importe qui
 const cat = computed(() => catOf(p.value?.cat))
 const time = (ms) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
@@ -61,7 +62,7 @@ function onLike({ likes, liked }) {
           </button>
           <span class="text-sm text-faint"><span class="first-letter:uppercase">{{ prettyDay(p.day) }}</span> · <template v-if="p.late">noté après coup, {{ timeAgo(p.at) }}</template><template v-else>{{ time(p.at) }} · {{ timeAgo(p.at) }}</template></span>
         </div>
-        <button v-if="mine" class="btn btn-ghost flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-sm font-semibold" @click="openLog({ edit: p })">
+        <button v-if="canEdit" class="btn btn-ghost flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-sm font-semibold" @click="openLog({ edit: p })">
           <Icon name="edit" :size="14" /> Modifier
         </button>
       </header>

@@ -22,6 +22,8 @@ export const MAX_PHOTO = 200_000 // data URL (~150 ko) : le client compresse à 
 export const MAX_CL = 200 // par conso (une bouteille de 1,5 L de vin passe en plusieurs fois)
 export const MAX_DRINKS_PER_DAY = 100
 export const MAX_CAFFEINE = 1000 // mg par conso
+// Même boisson notée deux fois en si peu de temps : sans doute un double tap, le client fait confirmer
+export const DUP_WINDOW = 2 * 60e3
 // Caféine (mg) estimée d'une boisson d'après son nom, sa catégorie et son volume, quand personne ne l'a donnée.
 // Même règle côté client (utils.js) pour préremplir le champ. Repères : expresso 80 mg, thé 40 mg,
 // énergisant 32 mg/100 ml (Monster 50 cl = 160 mg), cola 10 mg/100 ml.
@@ -512,6 +514,20 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     PRIMARY KEY (user_id, key)
   )`)
   addCols('notifications', [['badge', 'TEXT']]) // kind = 'badge' : clé du succès débloqué (kind = 'title' : clé du titre)
+  // kind = 'admin_edit' / 'admin_delete' : ce qu'un admin a corrigé (« Pinte 50 cl → Demi 25 cl »), lisible même conso supprimée
+  addCols('notifications', [['detail', 'TEXT']])
+  // Journal des corrections faites par un admin sur la conso de quelqu'un d'autre : avant / après (JSON),
+  // de quoi retrouver ou rétablir une conso sans fouiller les sauvegardes
+  db.exec(`CREATE TABLE IF NOT EXISTS drink_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    drink_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    before TEXT NOT NULL,
+    after TEXT,
+    at INTEGER NOT NULL
+  )`)
   // Titres cachés débloqués (voir titles.js) ; users.title = celui affiché sous le pseudo
   // (NULL : pas encore choisi, le prochain débloqué s'affiche ; '' : aucun, choisi exprès)
   const titlesTableNew = !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_titles'").get()
@@ -801,16 +817,17 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   const PUSH_TEXT = {
     like: 'a liké ta conso', comment: 'a commenté ta conso', reply: 'a aussi commenté', comment_like: 'a liké ton commentaire', follow: 'te suit',
     follow_request: 'veut te suivre', follow_accept: 'a accepté ta demande d’abonnement',
+    admin_edit: 'a corrigé ta conso', admin_delete: 'a supprimé ta conso',
   }
-  function pushNotif(userId, actorId, kind, drinkId, commentId) {
+  function pushNotif(userId, actorId, kind, drinkId, commentId, detail = null) {
     if (!pushOn || !PUSH_TEXT[kind]) return
     const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(actorId)?.name ?? 'Quelqu’un'
     const drink = drinkId ? db.prepare('SELECT name FROM drinks WHERE id = ?').get(drinkId)?.name : null
     const comment = commentId ? db.prepare('SELECT SUBSTR(body, 1, 140) AS b FROM drink_comments WHERE id = ?').get(commentId)?.b : null
     pushTo(userId, {
       title: `${actor} ${PUSH_TEXT[kind]}`,
-      body: comment ? (kind === 'comment_like' ? `« ${comment} »` : `${drink ? `${drink} · ` : ''}« ${comment} »`) : drink ?? '',
-      url: drinkId ? `/conso/${drinkId}` : kind === 'follow_request' ? '/notifs' : `/profil/${actorId}`,
+      body: detail ?? (comment ? (kind === 'comment_like' ? `« ${comment} »` : `${drink ? `${drink} · ` : ''}« ${comment} »`) : drink ?? ''),
+      url: drinkId ? `/conso/${drinkId}` : kind === 'follow_request' || kind === 'admin_delete' ? '/notifs' : `/profil/${actorId}`,
       tag: [kind, drinkId, commentId, actorId].join(':'),
     })
   }
@@ -1275,6 +1292,12 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)?.id ?? null
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM drinks WHERE user_id = ? AND day = ?').get(req.user.id, day)
     if (n >= MAX_DRINKS_PER_DAY) return bad(res, `Maximum ${MAX_DRINKS_PER_DAY} consos par jour`)
+    // dup_check : le client demande si la même boisson (nom et volume) vient d'être notée ; il fait confirmer, puis renvoie sans
+    if (req.body.dup_check === true) {
+      const dup = db.prepare(`SELECT at FROM drinks WHERE user_id = ? AND day = ? AND name = ? COLLATE NOCASE AND cl = ? AND at > ?
+        ORDER BY at DESC LIMIT 1`).get(req.user.id, day, drink.name, drink.cl, now() - DUP_WINDOW)
+      if (dup) return res.status(409).json({ error: 'Déjà notée à l’instant', code: 'DUP', ago: Math.max(0, Math.round((now() - dup.at) / 1000)) })
+    }
     const at = now()
     const { out: id, badges } = newBadges(req.user.id, () =>
       Number(db.prepare(`INSERT INTO drinks (user_id, day, at, name, cat, cl, abv, caffeine, product_id, rating, review, photo, photo_key, place_id)
@@ -1285,24 +1308,81 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json({ ...logOut(getLog(id)), badges })
   })
 
-  // Compléter une de ses consos après coup : note, avis, photo (null = retirer), soirée
+  // Résumé lisible d'une conso, pour les notifs de correction : « Pinte 50 cl à 5 % »
+  const fr = (x) => String(round1(x)).replace('.', ',')
+  const drinkLabel = (r) => `${r.name} ${fr(r.cl)} cl${r.abv ? ` à ${fr(r.abv)} %` : ''}`
+  const frDay = (d) => d.slice(8, 10) + '/' + d.slice(5, 7)
+  // Ce qui a changé entre deux versions d'une conso, en une ligne
+  const changesOf = (a, b) => {
+    const out = []
+    if (drinkLabel(a) !== drinkLabel(b) || a.cat !== b.cat) out.push(`${drinkLabel(a)} → ${drinkLabel(b)}`)
+    if (a.day !== b.day) out.push(`jour : ${frDay(a.day)} → ${frDay(b.day)}`)
+    const other = [['rating', 'note modifiée'], ['review', 'avis modifié'], ['photo_key', 'photo modifiée'], ['place_id', 'lieu modifié']]
+    for (const [k, label] of other) if (a[k] !== b[k]) out.push(label)
+    return out.join(' · ') || 'rien de visible'
+  }
+  // Conso que je peux corriger : la mienne, ou celle de n'importe qui pour un admin
+  const editableDrink = (id, req) => {
+    const d = db.prepare('SELECT * FROM drinks WHERE id = ?').get(id)
+    return d && (d.user_id === req.user.id || req.user.is_admin) ? d : null
+  }
+  // Trace d'une correction d'admin (sans la photo elle-même, sauf pour une suppression : de quoi tout rétablir)
+  const logEdit = (actorId, action, before, after) => {
+    const strip = ({ photo, ...r }) => r
+    db.prepare('INSERT INTO drink_edits (drink_id, user_id, actor_id, action, before, after, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(before.id, before.user_id, actorId, action, JSON.stringify(action === 'delete' ? before : strip(before)), after ? JSON.stringify(strip(after)) : null, now())
+  }
+  const DRINK_KEYS = ['product_id', 'name', 'cat', 'cl', 'abv', 'caffeine']
+
+  // Corriger une conso après coup : note, avis, photo (null = retirer), soirée, et la boisson elle-même
+  // (autre boisson, autre volume, autre degré) sans la supprimer : photo, likes et commentaires restent.
+  // Un admin peut corriger celle de n'importe qui : c'est tracé (drink_edits) et la personne est prévenue.
   app.patch('/api/drinks/:id', auth, (req, res) => {
     const id = Number(req.params.id)
-    if (!db.prepare('SELECT 1 FROM drinks WHERE id = ? AND user_id = ?').get(id, req.user.id)) return bad(res, 'Conso introuvable', 404)
+    const before = editableDrink(id, req)
+    if (!before) return bad(res, 'Conso introuvable', 404)
+    const owner = before.user_id
     const { log, error } = checkLog(req.body)
     if (error) return bad(res, error)
     if ('day' in req.body) {
       if (!isDay(req.body.day) || req.body.day > maxEntryDay()) return bad(res, 'Date invalide')
       log.day = req.body.day
     }
+    if (DRINK_KEYS.some((k) => k in req.body)) {
+      let productId = 'product_id' in req.body ? (req.body.product_id == null ? null : Number(req.body.product_id)) : before.product_id
+      const prod = productId ? db.prepare('SELECT name, cat, cl, abv, caffeine FROM products WHERE id = ?').get(productId) : null
+      if (productId && !prod) return bad(res, 'Produit introuvable', 404)
+      let spec
+      if (prod) {
+        // Même règle qu'à l'ajout : le volume choisi (sinon celui de la conso si c'est la même fiche, sinon celui de la fiche)
+        const cl = req.body.cl ?? (productId === before.product_id ? before.cl : prod.cl)
+        spec = { ...prod, cl, caffeine: cafOfGlass(prod, cl) }
+      } else {
+        // Hors carte : on part de la conso telle quelle ; la caféine est réestimée si la boisson change sans qu'on la donne
+        const pick = Object.fromEntries(DRINK_KEYS.filter((k) => k !== 'product_id' && k in req.body).map((k) => [k, req.body[k]]))
+        const reguess = !('caffeine' in pick) && ['name', 'cat', 'cl'].some((k) => k in pick)
+        spec = { name: before.name, cat: before.cat, cl: before.cl, abv: before.abv, caffeine: reguess ? null : before.caffeine, ...pick }
+      }
+      const { drink, error: drinkError } = checkDrink(spec)
+      if (drinkError) return bad(res, drinkError)
+      productId ??= db.prepare('SELECT id FROM products WHERE name = ? AND abv = ?').get(drink.name, drink.abv)?.id ?? null
+      Object.assign(log, drink, { product_id: productId })
+    }
     if ('photo' in log) log.photo_key = log.photo ? photoKey() : null
     if ('place' in log) {
-      log.place_id = placeIdFor(log.place, req.user.id, placeOpts(req))
+      log.place_id = placeIdFor(log.place, owner, placeOpts(req))
       delete log.place
     }
     const keys = Object.keys(log)
-    if (keys.length) db.prepare(`UPDATE drinks SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => log[k]), id)
-    res.json(logOut(getLog(id)))
+    const { badges } = newBadges(owner, () => {
+      if (keys.length) db.prepare(`UPDATE drinks SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => log[k]), id)
+    })
+    if (owner !== req.user.id) {
+      const after = db.prepare('SELECT * FROM drinks WHERE id = ?').get(id)
+      logEdit(req.user.id, 'edit', before, after)
+      notify(owner, req.user.id, 'admin_edit', { drinkId: id, detail: changesOf(before, after) })
+    }
+    res.json({ ...logOut(getLog(id)), ...(owner === req.user.id && { badges }) })
   })
 
   // Photos (consos et produits) : publiques mais introuvables sans leur clé aléatoire, qui change à chaque photo
@@ -1535,15 +1615,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
   // --- Notifs ---------------------------------------------------------------------------------
   const ownerOf = (drinkId) => db.prepare('SELECT user_id FROM drinks WHERE id = ?').get(drinkId)?.user_id
   // Jamais pour soi-même ; un like ou un follow refait ne crée pas de doublon (l'ancienne remonte)
-  const notify = (userId, actorId, kind, { drinkId = null, commentId = null } = {}) => {
+  const notify = (userId, actorId, kind, { drinkId = null, commentId = null, detail = null } = {}) => {
     if (!userId || userId === actorId) return
     if (kind === 'like' || kind === 'follow' || kind === 'comment_like' || kind === 'follow_request' || kind === 'follow_accept') {
       db.prepare('DELETE FROM notifications WHERE user_id = ? AND actor_id = ? AND kind = ? AND drink_id IS ? AND comment_id IS ?')
         .run(userId, actorId, kind, drinkId, commentId)
     }
-    db.prepare('INSERT INTO notifications (user_id, actor_id, kind, drink_id, comment_id, at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(userId, actorId, kind, drinkId, commentId, now())
-    pushNotif(userId, actorId, kind, drinkId, commentId)
+    db.prepare('INSERT INTO notifications (user_id, actor_id, kind, drink_id, comment_id, detail, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(userId, actorId, kind, drinkId, commentId, detail, now())
+    pushNotif(userId, actorId, kind, drinkId, commentId, detail)
   }
   const unread = (userId) => db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read = 0').get(userId).n
   // Notifs push : clé publique (null = pas configuré sur ce serveur), abonner / désabonner ce navigateur
@@ -1583,7 +1663,7 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 30))
     const before = Number(req.query.before) || null
     const rows = db.prepare(`
-      SELECT n.id, n.kind, n.at, n.read, n.drink_id, n.actor_id, n.badge, u.name AS actor_name, u.avatar_v AS actor_avatar_v,
+      SELECT n.id, n.kind, n.at, n.read, n.drink_id, n.actor_id, n.badge, n.detail, u.name AS actor_name, u.avatar_v AS actor_avatar_v,
         d.name AS drink_name, d.cat AS drink_cat, SUBSTR(c.body, 1, 140) AS comment
       FROM notifications n JOIN users u ON u.id = n.actor_id
       LEFT JOIN drinks d ON d.id = n.drink_id LEFT JOIN drink_comments c ON c.id = n.comment_id
@@ -1704,10 +1784,15 @@ export function createApp({ dbPath = ':memory:', inviteCode = '', now = Date.now
     res.json(commentsOf(c.drink_id))
   })
 
-  // Supprimer une de ses consos (erreur de saisie)
+  // Supprimer une de ses consos (erreur de saisie) ; un admin, celle de n'importe qui (tracé, la personne est prévenue)
   app.delete('/api/drinks/:id', auth, (req, res) => {
-    const { changes } = db.prepare('DELETE FROM drinks WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user.id)
-    if (!changes) return bad(res, 'Conso introuvable', 404)
+    const before = editableDrink(Number(req.params.id), req)
+    if (!before) return bad(res, 'Conso introuvable', 404)
+    db.prepare('DELETE FROM drinks WHERE id = ?').run(before.id)
+    if (before.user_id !== req.user.id) {
+      logEdit(req.user.id, 'delete', before, null)
+      notify(before.user_id, req.user.id, 'admin_delete', { detail: `${drinkLabel(before)} du ${frDay(before.day)}` })
+    }
     res.json({ ok: true })
   })
 

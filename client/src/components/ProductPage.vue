@@ -356,7 +356,7 @@ const zoom = ref('')
                 <button class="font-bold hover:text-hi" @click="openUser(r.user_id)">{{ r.user_id === me.id ? 'Toi' : r.user_name }}</button>
                 <Stars v-if="r.rating" :value="r.rating" :size="12" />
                 <span class="text-xs text-faint first-letter:uppercase">{{ prettyDay(r.day) }} · {{ timeAgo(r.at) }}<template v-if="r.place"> · <button class="hover:text-hi hover:underline" @click="openPlace(r.place_id)"><Icon name="fa-location-dot" /> {{ r.place }}</button></template></span>
-                <button v-if="r.user_id === me.id" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
+                <button v-if="r.user_id === me.id || me.is_admin" class="ml-auto text-xs text-muted hover:text-ink" @click="openLog({ edit: r })"><Icon name="edit" /></button>
               </div>
               <p v-if="r.review" class="mt-1.5 whitespace-pre-line text-ink/90">{{ r.review }}</p>
               <button v-if="r.photo_key" class="cursor-zoom-in mt-2 block" aria-label="Agrandir la photo" @click="zoom = photoUrl(r.photo_key)">
